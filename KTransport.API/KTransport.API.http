@@ -1,0 +1,6 @@
+@KTransport.API_HostAddress = http://localhost:5204
+
+GET {{KTransport.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,63 @@
+## Build and compilation artifacts
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+*.dbmdl
+*.jfm
+
+## Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+## JetBrains Rider
+.idea/
+*.sln.iml
+
+## User-specific / Local environment configuration
+appsettings.*.local.json
+appsettings.Production.json
+appsettings.secrets.json
+*.local.json
+secrets.json
+
+## Publish / Deployment outputs
+*.Publish.xml
+*.pubxml
+*.azurePubxml
+publish/
+dist/
+
+## Package cache
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+
+## Test / Coverage results
+[Tt]est[Rr]esult*
+*.coverage
+*.coveragexml
+
+## OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+## Rider & ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
