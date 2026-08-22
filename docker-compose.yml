@@ -5,27 +5,41 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: kt_api
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=kt;Username=postgres;Password=postgres;Trust Server Certificate=true;
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-kt};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres};Trust Server Certificate=true;
+      - JwtSettings__Secret=${JWT_SECRET:-YourSuperSecretKeyForJWTTokenGenerationMin32CharactersLong!}
+      - JwtSettings__Issuer=${JWT_ISSUER:-KTransportAPI}
+      - JwtSettings__Audience=${JWT_AUDIENCE:-KTransportClient}
+      - JwtSettings__ExpiryInMinutes=${JWT_EXPIRY:-60}
     depends_on:
       - postgres
     restart: unless-stopped
+    networks:
+      - kt_network
 
   postgres:
     image: postgres:16-alpine
     container_name: kt_postgres
     environment:
-      - POSTGRES_DB=kt
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=${POSTGRES_DB:-kt}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      # Bound to localhost to prevent direct public exposure
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - kt_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    networks:
+      - kt_network
+
+networks:
+  kt_network:
+    driver: bridge
 
 volumes:
   kt_postgres_data:

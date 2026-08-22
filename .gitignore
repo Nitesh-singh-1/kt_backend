@@ -32,6 +32,9 @@ appsettings.Production.json
 appsettings.secrets.json
 *.local.json
 secrets.json
+.env
+!.env.example
+
 
 ## Publish / Deployment outputs
 *.Publish.xml
