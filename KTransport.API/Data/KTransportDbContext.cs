@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using KTransport.API.Models;
 using Microsoft.EntityFrameworkCore;
@@ -226,6 +226,18 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.Username)
                 .HasMaxLength(50)
                 .HasColumnName("username");
+
+            entity.HasData(new User
+            {
+                Id = 1,
+                Username = "admin",
+                Password = "admin123",
+                FullName = "Kundan Kumar",
+                Role = "admin",
+                IsActive = true,
+                CreatedAt = DateTime.Parse("2026-04-03 15:56:50.696525"),
+                Mobile = "9504600060"
+            });
         });
 
         modelBuilder.Entity<WithoutGstBill>(entity =>

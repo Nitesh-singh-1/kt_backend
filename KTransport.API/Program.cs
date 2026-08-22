@@ -124,7 +124,7 @@ app.UseCors("AllowReactApp");
 
 app.MapControllers();
 
-// Automatically apply pending database migrations on startup
+// Automatically apply pending database migrations and seed data on startup
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -135,11 +135,27 @@ using (var scope = app.Services.CreateScope())
         {
             dbContext.Database.Migrate();
         }
+
+        // Seed default admin user if not already present
+        if (!dbContext.Users.Any(u => u.Username == "admin"))
+        {
+            dbContext.Users.Add(new User
+            {
+                Username = "admin",
+                Password = "admin123",
+                FullName = "Kundan Kumar",
+                Role = "admin",
+                IsActive = true,
+                CreatedAt = DateTime.Parse("2026-04-03 15:56:50.696525"),
+                Mobile = "9504600060"
+            });
+            dbContext.SaveChanges();
+        }
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while applying database migrations.");
+        logger.LogError(ex, "An error occurred while applying database migrations or seeding.");
     }
 }
 
