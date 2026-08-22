@@ -22,7 +22,7 @@ services:
       - kt_network
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:${POSTGRES_VERSION:-17.1-alpine}
     container_name: kt_postgres
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-kt}
