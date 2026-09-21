@@ -1,11 +1,15 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using KTransport.API.Common;
+using KTransport.API.Services;
 
 namespace KTransport.API.Models;
 
-public partial class Charge
+public partial class Charge : ITenantScopedEntity
 {
     public int Id { get; set; }
+
+    public Guid TenantId { get; set; }
 
     public int BillId { get; set; }
 

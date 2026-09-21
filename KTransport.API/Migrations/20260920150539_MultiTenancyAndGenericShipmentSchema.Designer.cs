@@ -3,6 +3,7 @@ using System;
 using KTransport.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KTransport.API.Migrations
 {
     [DbContext(typeof(KTransportDbContext))]
-    partial class KTransportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260920150539_MultiTenancyAndGenericShipmentSchema")]
+    partial class MultiTenancyAndGenericShipmentSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -390,75 +393,6 @@ namespace KTransport.API.Migrations
                         });
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Driver", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("AadharNo")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("aadhar_no");
-
-                    b.Property<string>("Address")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("address");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("LicenseNo")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("license_no");
-
-                    b.Property<DateOnly?>("LicenseValidUntil")
-                        .HasColumnType("date")
-                        .HasColumnName("license_valid_until");
-
-                    b.Property<string>("Mobile")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("mobile");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("name");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("drivers_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "Mobile" }, "drivers_tenant_mobile_idx");
-
-                    b.ToTable("drivers", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.GoodsDetail", b =>
                 {
                     b.Property<int>("Id")
@@ -677,323 +611,6 @@ namespace KTransport.API.Migrations
                     b.ToTable("gst_bills", (string)null);
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Invoice", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_by");
-
-                    b.Property<decimal>("Discount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("discount");
-
-                    b.Property<decimal>("DueAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("due_amount");
-
-                    b.Property<DateOnly?>("DueDate")
-                        .HasColumnType("date")
-                        .HasColumnName("due_date");
-
-                    b.Property<decimal>("GrandTotal")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("grand_total");
-
-                    b.Property<DateOnly>("InvoiceDate")
-                        .HasColumnType("date")
-                        .HasColumnName("invoice_date");
-
-                    b.Property<string>("InvoiceNo")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("invoice_no");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<decimal>("OtherCharges")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("other_charges");
-
-                    b.Property<decimal>("PaidAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("paid_amount");
-
-                    b.Property<string>("PartyAddress")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("party_address");
-
-                    b.Property<string>("PartyGstNo")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("party_gst_no");
-
-                    b.Property<long?>("PartyId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("party_id");
-
-                    b.Property<string>("PartyName")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("party_name");
-
-                    b.Property<string>("PaymentMode")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("payment_mode");
-
-                    b.Property<int>("PaymentStatus")
-                        .HasColumnType("integer")
-                        .HasColumnName("payment_status");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("remarks");
-
-                    b.Property<decimal>("SubTotal")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("sub_total");
-
-                    b.Property<decimal>("TaxAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_amount");
-
-                    b.Property<decimal>("TaxRate")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(6, 2)
-                        .HasColumnType("numeric(6,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_rate");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<int?>("UpdatedBy")
-                        .HasColumnType("integer")
-                        .HasColumnName("updated_by");
-
-                    b.HasKey("Id")
-                        .HasName("invoices_pkey");
-
-                    b.HasIndex("PartyId");
-
-                    b.HasIndex(new[] { "TenantId", "InvoiceNo" }, "invoices_tenant_invoice_no_key")
-                        .IsUnique();
-
-                    b.ToTable("invoices", (string)null);
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.InvoiceItem", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<decimal>("Amount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("amount");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("description");
-
-                    b.Property<long>("InvoiceId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("invoice_id");
-
-                    b.Property<decimal>("Quantity")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(1m)
-                        .HasColumnName("quantity");
-
-                    b.Property<decimal>("Rate")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(12, 2)
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("rate");
-
-                    b.Property<long?>("ShipmentId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("shipment_id");
-
-                    b.Property<string>("ShipmentNo")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("shipment_no");
-
-                    b.Property<decimal>("TaxAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_amount");
-
-                    b.Property<decimal>("TaxRate")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(6, 2)
-                        .HasColumnType("numeric(6,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_rate");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<decimal>("TotalAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("total_amount");
-
-                    b.HasKey("Id")
-                        .HasName("invoice_items_pkey");
-
-                    b.HasIndex("InvoiceId");
-
-                    b.HasIndex("ShipmentId");
-
-                    b.ToTable("invoice_items", (string)null);
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.Location", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Address")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("address");
-
-                    b.Property<string>("City")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("city");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("code");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("Pincode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("pincode");
-
-                    b.Property<string>("State")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("state");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("locations_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "Code" }, "locations_tenant_code_key")
-                        .IsUnique();
-
-                    b.ToTable("locations", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.NumberingSequence", b =>
                 {
                     b.Property<int>("Id")
@@ -1054,116 +671,6 @@ namespace KTransport.API.Migrations
                     b.ToTable("numbering_sequences", (string)null);
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Party", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Address")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)")
-                        .HasColumnName("address");
-
-                    b.Property<string>("City")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("city");
-
-                    b.Property<string>("Code")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("code");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<decimal>("CreditLimit")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(14, 2)
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("credit_limit");
-
-                    b.Property<int>("DefaultPaymentTerm")
-                        .HasColumnType("integer")
-                        .HasColumnName("default_payment_term");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("email");
-
-                    b.Property<string>("GstNo")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("gst_no");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Mobile")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("mobile");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("PanNo")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("pan_no");
-
-                    b.Property<int>("PartyType")
-                        .HasColumnType("integer")
-                        .HasColumnName("party_type");
-
-                    b.Property<string>("Phone")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("phone");
-
-                    b.Property<string>("Pincode")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("pincode");
-
-                    b.Property<string>("State")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("state");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("parties_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "Name" }, "parties_tenant_name_idx");
-
-                    b.ToTable("parties", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>
                 {
                     b.Property<long>("Id")
@@ -1198,10 +705,6 @@ namespace KTransport.API.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("consignee_name");
 
-                    b.Property<long?>("ConsigneePartyId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("consignee_party_id");
-
                     b.Property<string>("ConsignorAddress")
                         .HasMaxLength(250)
                         .HasColumnType("character varying(250)")
@@ -1221,10 +724,6 @@ namespace KTransport.API.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("consignor_name");
-
-                    b.Property<long?>("ConsignorPartyId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("consignor_party_id");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -1269,10 +768,6 @@ namespace KTransport.API.Migrations
                     b.Property<DateOnly?>("InvoiceDate")
                         .HasColumnType("date")
                         .HasColumnName("invoice_date");
-
-                    b.Property<long?>("InvoiceId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("invoice_id");
 
                     b.Property<string>("InvoiceNo")
                         .HasMaxLength(50)
@@ -1366,13 +861,7 @@ namespace KTransport.API.Migrations
                     b.HasKey("Id")
                         .HasName("shipments_pkey");
 
-                    b.HasIndex("ConsigneePartyId");
-
-                    b.HasIndex("ConsignorPartyId");
-
                     b.HasIndex("CreatedBy");
-
-                    b.HasIndex("InvoiceId");
 
                     b.HasIndex("UpdatedBy");
 
@@ -1703,91 +1192,6 @@ namespace KTransport.API.Migrations
                         });
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Vehicle", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<decimal>("CapacityTons")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(10, 2)
-                        .HasColumnType("numeric(10,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("capacity_tons");
-
-                    b.Property<string>("ChassisNo")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("chassis_no");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("EngineNo")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("engine_no");
-
-                    b.Property<DateOnly?>("FitnessValidUntil")
-                        .HasColumnType("date")
-                        .HasColumnName("fitness_valid_until");
-
-                    b.Property<DateOnly?>("InsuranceValidUntil")
-                        .HasColumnType("date")
-                        .HasColumnName("insurance_valid_until");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("OwnerType")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("owner_type");
-
-                    b.Property<DateOnly?>("PermitValidUntil")
-                        .HasColumnType("date")
-                        .HasColumnName("permit_valid_until");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<string>("VehicleNo")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("vehicle_no");
-
-                    b.Property<string>("VehicleType")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("vehicle_type");
-
-                    b.HasKey("Id")
-                        .HasName("vehicles_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "VehicleNo" }, "vehicles_tenant_vehicle_no_key")
-                        .IsUnique();
-
-                    b.ToTable("vehicles", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.WithoutGstBill", b =>
                 {
                     b.Property<int>("Id")
@@ -2001,18 +1405,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Driver", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_drivers_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.GoodsDetail", b =>
                 {
                     b.HasOne("KTransport.API.Models.GstBill", "Bill")
@@ -2051,58 +1443,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("UpdatedByNavigation");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Invoice", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Party", "Party")
-                        .WithMany()
-                        .HasForeignKey("PartyId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_invoices_party");
-
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_invoices_tenant");
-
-                    b.Navigation("Party");
-
-                    b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.InvoiceItem", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Invoice", "Invoice")
-                        .WithMany("Items")
-                        .HasForeignKey("InvoiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_invoice_items_invoice");
-
-                    b.HasOne("KTransport.API.Models.Shipment", "Shipment")
-                        .WithMany()
-                        .HasForeignKey("ShipmentId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_invoice_items_shipment");
-
-                    b.Navigation("Invoice");
-
-                    b.Navigation("Shipment");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.Location", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_locations_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.NumberingSequence", b =>
                 {
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")
@@ -2114,42 +1454,12 @@ namespace KTransport.API.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Party", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_parties_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>
                 {
-                    b.HasOne("KTransport.API.Models.Party", "ConsigneeParty")
-                        .WithMany()
-                        .HasForeignKey("ConsigneePartyId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_shipments_consignee_party");
-
-                    b.HasOne("KTransport.API.Models.Party", "ConsignorParty")
-                        .WithMany()
-                        .HasForeignKey("ConsignorPartyId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_shipments_consignor_party");
-
                     b.HasOne("KTransport.API.Models.User", "CreatedByNavigation")
                         .WithMany()
                         .HasForeignKey("CreatedBy")
                         .HasConstraintName("fk_shipments_created_by");
-
-                    b.HasOne("KTransport.API.Models.Invoice", "Invoice")
-                        .WithMany("Shipments")
-                        .HasForeignKey("InvoiceId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_shipments_invoice");
 
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")
                         .WithMany()
@@ -2163,13 +1473,7 @@ namespace KTransport.API.Migrations
                         .HasForeignKey("UpdatedBy")
                         .HasConstraintName("fk_shipments_updated_by");
 
-                    b.Navigation("ConsigneeParty");
-
-                    b.Navigation("ConsignorParty");
-
                     b.Navigation("CreatedByNavigation");
-
-                    b.Navigation("Invoice");
 
                     b.Navigation("Tenant");
 
@@ -2264,18 +1568,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Vehicle", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_vehicles_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.WithoutGstBill", b =>
                 {
                     b.HasOne("KTransport.API.Models.User", "CreatedByNavigation")
@@ -2322,13 +1614,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Charge");
 
                     b.Navigation("GoodsDetails");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.Invoice", b =>
-                {
-                    b.Navigation("Items");
-
-                    b.Navigation("Shipments");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>

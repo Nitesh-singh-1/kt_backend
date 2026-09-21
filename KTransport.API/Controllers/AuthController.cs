@@ -70,6 +70,50 @@ namespace KTransport.API.Controllers
             return Ok(response);
         }
 
+        [HttpPost("reset-password")]
+        [AllowAnonymous]
+        public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ForgotPasswordRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var response = await _authService.ResetPasswordAsync(request);
+
+            if (!response.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("change-password")]
+        [Authorize]
+        public async Task<ActionResult<ResetPasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+            {
+                return Unauthorized(new ResetPasswordResponse { Success = false, Message = "Invalid user session." });
+            }
+
+            var response = await _authService.ChangePasswordAsync(userId, request);
+
+            if (!response.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpGet("me")]
         [Authorize]
         public ActionResult<object> GetCurrentUser()

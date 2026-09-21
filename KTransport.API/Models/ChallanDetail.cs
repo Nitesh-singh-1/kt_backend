@@ -1,10 +1,14 @@
 using System;
+using KTransport.API.Common;
+using KTransport.API.Services;
 
 namespace KTransport.API.Models
 {
-    public partial class ChallanDetail
+    public partial class ChallanDetail : ITenantScopedEntity
     {
         public long Id { get; set; }
+
+        public Guid TenantId { get; set; }
 
         public long ChallanId { get; set; }
 

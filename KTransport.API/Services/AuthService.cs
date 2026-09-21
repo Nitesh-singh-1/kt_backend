@@ -28,8 +28,9 @@ namespace KTransport.API.Services
             {
                 _logger.LogInformation("Login attempt for username: {Username}", request.Username);
 
-                // Find user by username
+                // Find user by username (IgnoreQueryFilters to allow login across all tenants without requiring prior JWT token)
                 var user = await _context.Users
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(u => u.Username == request.Username && u.IsActive == true);
 
                 if (user == null)
@@ -41,8 +42,38 @@ namespace KTransport.API.Services
                     };
                 }
 
-                // Verify plain text password
-                if (request.Password != user.Password)
+                // Verify password (supports BCrypt hashed passwords and transparently upgrades legacy plaintext passwords)
+                bool passwordValid = false;
+                bool isHashed = user.Password.StartsWith("$2a$") || 
+                                user.Password.StartsWith("$2b$") || 
+                                user.Password.StartsWith("$2x$") || 
+                                user.Password.StartsWith("$2y$");
+
+                if (isHashed)
+                {
+                    try
+                    {
+                        passwordValid = BCrypt.Net.BCrypt.Verify(request.Password, user.Password);
+                    }
+                    catch
+                    {
+                        passwordValid = false;
+                    }
+                }
+                else
+                {
+                    // Legacy plaintext password check
+                    if (request.Password == user.Password)
+                    {
+                        passwordValid = true;
+                        // Transparently upgrade to BCrypt hash
+                        user.Password = BCrypt.Net.BCrypt.HashPassword(request.Password);
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation("Transparently upgraded password to BCrypt hash for user: {Username}", user.Username);
+                    }
+                }
+
+                if (!passwordValid)
                 {
                     return new AuthResponse
                     {
@@ -88,6 +119,7 @@ namespace KTransport.API.Services
 
                 // Check if user already exists
                 var existingUser = await _context.Users
+                    .IgnoreQueryFilters()
                     .FirstOrDefaultAsync(u => u.Username == request.Username);
 
                 if (existingUser != null)
@@ -99,11 +131,11 @@ namespace KTransport.API.Services
                     };
                 }
 
-                // Create new user with plain text password
+                // Create new user with BCrypt hashed password
                 var newUser = new User
                 {
                     Username = request.Username,
-                    Password = request.Password,
+                    Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
                     FullName = request.FullName,
                     Mobile = request.Mobile,
                     Role = request.Role,
@@ -176,7 +208,10 @@ namespace KTransport.API.Services
                     };
                 }
 
-                var user = await _context.Users.FindAsync(int.Parse(userIdClaim));
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Id == int.Parse(userIdClaim));
+
                 if (user == null || user.IsActive != true)
                 {
                     return new AuthResponse
@@ -211,6 +246,138 @@ namespace KTransport.API.Services
             }
         }
 
+        public async Task<ResetPasswordResponse> ResetPasswordAsync(ForgotPasswordRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Password reset attempt for username: {Username}", request.Username);
+
+                if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.NewPassword))
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "Username and new password are required."
+                    };
+                }
+
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Username == request.Username && u.IsActive == true);
+
+                if (user == null)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "User not found or inactive."
+                    };
+                }
+
+                // Verify mobile if provided
+                if (!string.IsNullOrWhiteSpace(request.Mobile) && !string.IsNullOrWhiteSpace(user.Mobile))
+                {
+                    if (user.Mobile.Trim() != request.Mobile.Trim())
+                    {
+                        return new ResetPasswordResponse
+                        {
+                            Success = false,
+                            Message = "Mobile number does not match registered user details."
+                        };
+                    }
+                }
+
+                // Hash and update password
+                user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Password reset successfully for user: {Username}", user.Username);
+
+                return new ResetPasswordResponse
+                {
+                    Success = true,
+                    Message = "Password has been reset successfully. You can now log in with your new password."
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during password reset for username: {Username}", request.Username);
+                return new ResetPasswordResponse
+                {
+                    Success = false,
+                    Message = "An error occurred while resetting the password."
+                };
+            }
+        }
+
+        public async Task<ResetPasswordResponse> ChangePasswordAsync(int userId, ChangePasswordRequest request)
+        {
+            try
+            {
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive == true);
+
+                if (user == null)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "User not found."
+                    };
+                }
+
+                bool oldPasswordValid = false;
+                bool isHashed = user.Password.StartsWith("$2a$") || 
+                                user.Password.StartsWith("$2b$") || 
+                                user.Password.StartsWith("$2x$") || 
+                                user.Password.StartsWith("$2y$");
+
+                if (isHashed)
+                {
+                    try
+                    {
+                        oldPasswordValid = BCrypt.Net.BCrypt.Verify(request.OldPassword, user.Password);
+                    }
+                    catch
+                    {
+                        oldPasswordValid = false;
+                    }
+                }
+                else
+                {
+                    oldPasswordValid = (request.OldPassword == user.Password);
+                }
+
+                if (!oldPasswordValid)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "Current password is incorrect."
+                    };
+                }
+
+                user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+                await _context.SaveChangesAsync();
+
+                return new ResetPasswordResponse
+                {
+                    Success = true,
+                    Message = "Password changed successfully."
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error changing password for user ID: {UserId}", userId);
+                return new ResetPasswordResponse
+                {
+                    Success = false,
+                    Message = "An error occurred while changing password."
+                };
+            }
+        }
+
         private string GenerateJwtToken(User user)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
@@ -221,7 +388,8 @@ namespace KTransport.API.Services
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
                 new Claim(ClaimTypes.Role, user.Role ?? "User"),
-                new Claim("FullName", user.FullName ?? string.Empty)
+                new Claim("FullName", user.FullName ?? string.Empty),
+                new Claim("tenant_id", user.TenantId.ToString())
             };
 
             var tokenDescriptor = new SecurityTokenDescriptor

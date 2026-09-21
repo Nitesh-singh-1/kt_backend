@@ -1,11 +1,16 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using KTransport.API.Common;
 
 namespace KTransport.API.Models;
 
-public partial class User
+public partial class User : ITenantScopedEntity
 {
     public int Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    public virtual Tenant? Tenant { get; set; }
 
     public string Username { get; set; } = null!;
 

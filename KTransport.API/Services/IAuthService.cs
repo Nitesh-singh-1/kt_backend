@@ -7,5 +7,7 @@ namespace KTransport.API.Services
         Task<AuthResponse> LoginAsync(LoginRequest request);
         Task<AuthResponse> RegisterAsync(RegisterRequest request);
         Task<AuthResponse> ValidateTokenAsync(string token);
+        Task<ResetPasswordResponse> ResetPasswordAsync(ForgotPasswordRequest request);
+        Task<ResetPasswordResponse> ChangePasswordAsync(int userId, ChangePasswordRequest request);
     }
-}
+}
