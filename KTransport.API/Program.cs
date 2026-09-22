@@ -61,6 +61,14 @@ builder.Services.AddScoped<IShipmentService, ShipmentService>();
 builder.Services.AddScoped<IPartyService, PartyService>();
 builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddScoped<IFleetService, FleetService>();
+builder.Services.AddScoped<ITripService, TripService>();
+builder.Services.AddScoped<IVendorService, VendorService>();
+builder.Services.AddScoped<IPodService, PodService>();
+builder.Services.AddScoped<IRateCardService, RateCardService>();
+builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
+builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
+builder.Services.AddScoped<ITrackingService, TrackingService>();
+builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
 
