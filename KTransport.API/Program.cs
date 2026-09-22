@@ -71,6 +71,8 @@ builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
+builder.Services.AddScoped<ITenantConfigurationService, TenantConfigurationService>();
+builder.Services.AddScoped<INavigationService, NavigationService>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -175,6 +177,49 @@ using (var scope = app.Services.CreateScope())
                 END $$;
             ");
 
+            // Ensure SaaS Configuration & Subscription tables exist
+            dbContext.Database.ExecuteSqlRaw(@"
+                CREATE TABLE IF NOT EXISTS subscription_plans (
+                    id uuid PRIMARY KEY,
+                    name character varying(100) NOT NULL,
+                    tier character varying(50) NOT NULL,
+                    description character varying(500) NOT NULL,
+                    max_vehicles integer NOT NULL,
+                    max_users integer NOT NULL,
+                    max_monthly_shipments integer NOT NULL,
+                    storage_limit_mb integer NOT NULL,
+                    monthly_price numeric(14,2) NOT NULL,
+                    is_active boolean DEFAULT true,
+                    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS tenant_settings (
+                    id uuid PRIMARY KEY,
+                    tenant_id uuid NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+                    general_json text NOT NULL,
+                    billing_and_tax_json text NOT NULL,
+                    document_sequences_json text NOT NULL,
+                    operational_workflows_json text NOT NULL,
+                    feature_flags_json text NOT NULL,
+                    integrations_json text NOT NULL,
+                    custom_settings_json text NOT NULL,
+                    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+                    updated_at timestamp without time zone
+                );
+
+                CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+                    id uuid PRIMARY KEY,
+                    tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    subscription_plan_id uuid NOT NULL REFERENCES subscription_plans(id) ON DELETE CASCADE,
+                    status character varying(50) NOT NULL DEFAULT 'Active',
+                    started_at timestamp without time zone NOT NULL,
+                    expires_at timestamp without time zone,
+                    is_auto_renew boolean DEFAULT true,
+                    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+                    updated_at timestamp without time zone
+                );
+            ");
+
             dbContext.Database.Migrate();
         }
 
@@ -190,6 +235,65 @@ using (var scope = app.Services.CreateScope())
                 CreatedAt = DateTime.UtcNow
             });
             dbContext.SaveChanges();
+        }
+
+        // Seed default subscription plans if not present
+        if (!dbContext.SubscriptionPlans.Any())
+        {
+            var enterprisePlanId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+            dbContext.SubscriptionPlans.AddRange(
+                new SubscriptionPlan
+                {
+                    Id = Guid.Parse("11111111-2222-3333-4444-555555555555"),
+                    Name = "Starter Tier",
+                    Tier = "Starter",
+                    Description = "Single branch transport company up to 10 vehicles",
+                    MaxVehicles = 10,
+                    MaxUsers = 3,
+                    MaxMonthlyShipments = 150,
+                    MonthlyPrice = 999m,
+                    IsActive = true
+                },
+                new SubscriptionPlan
+                {
+                    Id = Guid.Parse("22222222-2222-3333-4444-555555555555"),
+                    Name = "Professional Tier",
+                    Tier = "Professional",
+                    Description = "Regional transport fleet up to 50 vehicles with GPS telematics",
+                    MaxVehicles = 50,
+                    MaxUsers = 15,
+                    MaxMonthlyShipments = 1000,
+                    MonthlyPrice = 3999m,
+                    IsActive = true
+                },
+                new SubscriptionPlan
+                {
+                    Id = enterprisePlanId,
+                    Name = "Enterprise Dedicated Fleet Tier",
+                    Tier = "Enterprise",
+                    Description = "Full scale national logistics operations with unlimited scalability",
+                    MaxVehicles = 500,
+                    MaxUsers = 100,
+                    MaxMonthlyShipments = 10000,
+                    MonthlyPrice = 9999m,
+                    IsActive = true
+                }
+            );
+            dbContext.SaveChanges();
+
+            if (!dbContext.TenantSubscriptions.Any(s => s.TenantId == TenantContext.DefaultTenantId))
+            {
+                dbContext.TenantSubscriptions.Add(new TenantSubscription
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = TenantContext.DefaultTenantId,
+                    SubscriptionPlanId = enterprisePlanId,
+                    Status = "Active",
+                    StartedAt = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddYears(5)
+                });
+                dbContext.SaveChanges();
+            }
         }
 
         // Seed default admin user if not already present

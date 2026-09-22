@@ -61,6 +61,9 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<FreightRateCard> FreightRateCards { get; set; }
     public virtual DbSet<VehicleMaintenance> VehicleMaintenances { get; set; }
     public virtual DbSet<CargoClaim> CargoClaims { get; set; }
+    public virtual DbSet<TenantSetting> TenantSettings { get; set; }
+    public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
+    public virtual DbSet<TenantSubscription> TenantSubscriptions { get; set; }
 
     public override int SaveChanges()
     {
@@ -1334,6 +1337,76 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.PartyId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_claims_party");
+        });
+
+        modelBuilder.Entity<TenantSetting>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tenant_settings_pkey");
+            entity.ToTable("tenant_settings");
+            entity.HasIndex(e => e.TenantId, "uq_tenant_settings_tenant_id").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.GeneralJson).HasColumnType("text").HasColumnName("general_json");
+            entity.Property(e => e.BillingAndTaxJson).HasColumnType("text").HasColumnName("billing_and_tax_json");
+            entity.Property(e => e.DocumentSequencesJson).HasColumnType("text").HasColumnName("document_sequences_json");
+            entity.Property(e => e.OperationalWorkflowsJson).HasColumnType("text").HasColumnName("operational_workflows_json");
+            entity.Property(e => e.FeatureFlagsJson).HasColumnType("text").HasColumnName("feature_flags_json");
+            entity.Property(e => e.IntegrationsJson).HasColumnType("text").HasColumnName("integrations_json");
+            entity.Property(e => e.MenuEntitlementsJson).HasColumnType("text").HasColumnName("menu_entitlements_json");
+            entity.Property(e => e.CustomSettingsJson).HasColumnType("text").HasColumnName("custom_settings_json");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_tenant_settings_tenant");
+        });
+
+        modelBuilder.Entity<SubscriptionPlan>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("subscription_plans_pkey");
+            entity.ToTable("subscription_plans");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+            entity.Property(e => e.Tier).HasMaxLength(50).HasColumnName("tier");
+            entity.Property(e => e.Description).HasMaxLength(500).HasColumnName("description");
+            entity.Property(e => e.MaxVehicles).HasColumnName("max_vehicles");
+            entity.Property(e => e.MaxUsers).HasColumnName("max_users");
+            entity.Property(e => e.MaxMonthlyShipments).HasColumnName("max_monthly_shipments");
+            entity.Property(e => e.StorageLimitMB).HasColumnName("storage_limit_mb");
+            entity.Property(e => e.MonthlyPrice).HasPrecision(14, 2).HasColumnName("monthly_price");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+        });
+
+        modelBuilder.Entity<TenantSubscription>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tenant_subscriptions_pkey");
+            entity.ToTable("tenant_subscriptions");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.SubscriptionPlanId).HasColumnName("subscription_plan_id");
+            entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("Active").HasColumnName("status");
+            entity.Property(e => e.StartedAt).HasColumnType("timestamp without time zone").HasColumnName("started_at");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.IsAutoRenew).HasDefaultValue(true).HasColumnName("is_auto_renew");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_tenant_subscriptions_tenant");
+
+            entity.HasOne(d => d.SubscriptionPlan).WithMany(p => p.TenantSubscriptions)
+                .HasForeignKey(d => d.SubscriptionPlanId)
+                .HasConstraintName("fk_tenant_subscriptions_plan");
         });
 
         OnModelCreatingPartial(modelBuilder);
