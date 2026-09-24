@@ -27,8 +27,10 @@ namespace KTransport.API.DTOs
     public class TenantMenuEntitlementsDto
     {
         public Guid TenantId { get; set; }
+        public string? PlanTier { get; set; } = "Enterprise"; // Starter, Professional, Enterprise, Custom
         public List<string> EnabledMenuKeys { get; set; } = new();
         public List<ReportEntitlementItemDto> Reports { get; set; } = new();
         public string? RoleOverridesJson { get; set; }
+        public string? UserOverridesJson { get; set; }
     }
 }

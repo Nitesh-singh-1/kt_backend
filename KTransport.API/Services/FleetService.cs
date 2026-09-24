@@ -361,9 +361,15 @@ namespace KTransport.API.Services
 
         public async Task<LocationDto> CreateLocationAsync(CreateLocationRequest request)
         {
+            var code = request.Code?.Trim();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                code = GenerateLocationCode(request.Name);
+            }
+
             var loc = new Location
             {
-                Code = request.Code.Trim().ToUpperInvariant(),
+                Code = code.ToUpperInvariant(),
                 Name = request.Name.Trim(),
                 City = request.City?.Trim(),
                 State = request.State?.Trim(),
@@ -390,6 +396,28 @@ namespace KTransport.API.Services
                 IsActive = loc.IsActive,
                 CreatedAt = loc.CreatedAt
             };
+        }
+
+        private static string GenerateLocationCode(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "HUB-01";
+            var clean = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9\s]", "").Trim();
+            var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 1)
+            {
+                var w = words[0].ToUpperInvariant();
+                return w.Length <= 4 ? w : w[..4];
+            }
+            if (words.Length == 2)
+            {
+                var w1 = words[0].ToUpperInvariant();
+                var w2 = words[1].ToUpperInvariant();
+                var p1 = w1.Length <= 3 ? w1 : w1[..3];
+                var p2 = w2.Length <= 3 ? w2 : w2[..3];
+                return $"{p1}-{p2}";
+            }
+            var initials = string.Concat(words.Take(3).Select(w => char.ToUpperInvariant(w[0])));
+            return $"{initials}-HUB";
         }
 
         public async Task<bool> DeleteLocationAsync(long id)

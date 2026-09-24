@@ -94,6 +94,25 @@ namespace KTransport.API.Models
 
         public DateTime? UpdatedAt { get; set; }
 
+        // Hubs & Routing
+        public long? OriginHubId { get; set; }
+
+        public virtual Location? OriginHub { get; set; }
+
+        public long? DestinationHubId { get; set; }
+
+        public virtual Location? DestinationHub { get; set; }
+
+        public long? CurrentHubId { get; set; }
+
+        public virtual Location? CurrentHub { get; set; }
+
+        public string? DeliveryType { get; set; } // DoorDelivery, GodownDelivery
+
+        public string? EwayBillNo { get; set; }
+
+        public DateTime? EwayBillValidUpto { get; set; }
+
         // Navigation properties
         public virtual User? CreatedByNavigation { get; set; }
 
@@ -104,5 +123,9 @@ namespace KTransport.API.Models
         public virtual ICollection<ShipmentChargeItem> ChargeItems { get; set; } = new List<ShipmentChargeItem>();
 
         public virtual ICollection<ShipmentStatusHistory> StatusHistory { get; set; } = new List<ShipmentStatusHistory>();
+
+        public virtual ICollection<ConsignmentInvoiceReference> InvoiceReferences { get; set; } = new List<ConsignmentInvoiceReference>();
+
+        public virtual ICollection<ManifestItem> ManifestItems { get; set; } = new List<ManifestItem>();
     }
 }

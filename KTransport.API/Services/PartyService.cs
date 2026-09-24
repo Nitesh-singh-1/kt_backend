@@ -100,12 +100,18 @@ namespace KTransport.API.Services
 
         public async Task<PartyDto> CreatePartyAsync(CreatePartyRequest request)
         {
+            var code = request.Code?.Trim();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                code = GeneratePartyAlias(request.Name);
+            }
+
             var party = new Party
             {
                 Name = request.Name.Trim(),
-                Code = request.Code?.Trim(),
-                GstNo = request.GstNo?.Trim(),
-                PanNo = request.PanNo?.Trim(),
+                Code = code,
+                GstNo = request.GstNo?.Trim()?.ToUpperInvariant(),
+                PanNo = request.PanNo?.Trim()?.ToUpperInvariant(),
                 Mobile = request.Mobile?.Trim(),
                 Phone = request.Phone?.Trim(),
                 Email = request.Email?.Trim(),
@@ -123,8 +129,33 @@ namespace KTransport.API.Services
             _context.Parties.Add(party);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Created new party: {Name} (ID: {Id})", party.Name, party.Id);
+            _logger.LogInformation("Created new party: {Name} (ID: {Id}, Code: {Code})", party.Name, party.Id, party.Code);
             return MapToDto(party);
+        }
+
+        private static string GeneratePartyAlias(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "PARTY-01";
+            var clean = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9\s]", "").Trim();
+            var words = clean.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 1)
+            {
+                var w = words[0].ToUpperInvariant();
+                return w.Length <= 6 ? w : w[..6];
+            }
+            if (words.Length == 2)
+            {
+                var w1 = words[0].ToUpperInvariant();
+                var w2 = words[1].ToUpperInvariant();
+                var p1 = w1.Length <= 3 ? w1 : w1[..3];
+                var p2 = w2.Length <= 3 ? w2 : w2[..3];
+                return $"{p1}-{p2}";
+            }
+            // 3 or more words: Take initials + last word prefix
+            var initials = string.Concat(words.Take(3).Select(w => char.ToUpperInvariant(w[0])));
+            var lastWord = words[^1].ToUpperInvariant();
+            var lastPrefix = lastWord.Length <= 4 ? lastWord : lastWord[..4];
+            return $"{initials}-{lastPrefix}";
         }
 
         public async Task<PartyDto?> UpdatePartyAsync(long id, UpdatePartyRequest request)

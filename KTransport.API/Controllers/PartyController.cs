@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -11,6 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.PARTY)]
     public class PartyController : ControllerBase
     {
         private readonly IPartyService _partyService;

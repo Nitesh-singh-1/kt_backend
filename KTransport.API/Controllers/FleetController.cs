@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 using KTransport.API.DTOs;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +12,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.VEHICLE)]
     public class FleetController : ControllerBase
     {
         private readonly IFleetService _fleetService;

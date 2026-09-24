@@ -3,12 +3,15 @@ using Microsoft.AspNetCore.Mvc;
 using KTransport.API.Models;
 using KTransport.API.Services;
 using System.Security.Claims;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 
 namespace KTransport.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.BILLING)]
     public class GstBillController : ControllerBase
     {
         private readonly IGstBillService _gstBillService;

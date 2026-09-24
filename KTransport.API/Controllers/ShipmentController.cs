@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -11,6 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.GOOD_RECEIPT)]
     public class ShipmentController : ControllerBase
     {
         private readonly IShipmentService _shipmentService;

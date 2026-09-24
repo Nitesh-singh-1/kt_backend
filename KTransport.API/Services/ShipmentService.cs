@@ -129,11 +129,38 @@ namespace KTransport.API.Services
                     consigneePartyId = newParty.Id;
                 }
 
+                // Auto-consolidate GoodsValue and InvoiceNo if multiple customer invoices provided
+                var goodsValue = request.GoodsValue;
+                var invoiceNo = request.InvoiceNo;
+                var ewayBillNo = request.EwayBillNo;
+                var ewayBillValidUpto = request.EwayBillValidUpto;
+
+                if (request.CustomerInvoices != null && request.CustomerInvoices.Any())
+                {
+                    if (goodsValue <= 0)
+                    {
+                        goodsValue = request.CustomerInvoices.Sum(ci => ci.DeclaredGoodsValue);
+                    }
+                    if (string.IsNullOrWhiteSpace(invoiceNo))
+                    {
+                        invoiceNo = string.Join(", ", request.CustomerInvoices.Select(ci => ci.CustomerInvoiceNo));
+                    }
+                    if (string.IsNullOrWhiteSpace(ewayBillNo))
+                    {
+                        var firstEwb = request.CustomerInvoices.FirstOrDefault(ci => !string.IsNullOrWhiteSpace(ci.EwayBillNo));
+                        if (firstEwb != null)
+                        {
+                            ewayBillNo = firstEwb.EwayBillNo;
+                            ewayBillValidUpto = firstEwb.EwayBillValidUpto;
+                        }
+                    }
+                }
+
                 var shipment = new Shipment
                 {
                     TenantId = tenantId,
                     ShipmentNo = shipmentNo,
-                    InvoiceNo = request.InvoiceNo,
+                    InvoiceNo = invoiceNo,
                     InvoiceId = request.InvoiceId,
                     ShipmentDate = request.ShipmentDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
                     InvoiceDate = request.InvoiceDate,
@@ -152,7 +179,7 @@ namespace KTransport.API.Services
                     ConsigneeGstNo = consigneeGstNo,
                     ConsigneeMobile = consigneeMobile,
                     ConsigneeAddress = consigneeAddress,
-                    GoodsValue = request.GoodsValue,
+                    GoodsValue = goodsValue,
                     PaymentTerm = request.PaymentTerm,
                     TotalFreight = request.TotalFreight,
                     TotalOtherCharges = otherCharges,
@@ -163,10 +190,59 @@ namespace KTransport.API.Services
                     Status = ShipmentStatus.Booked,
                     Remarks = request.Remarks,
                     BookingClerk = request.BookingClerk,
+                    OriginHubId = request.OriginHubId,
+                    DestinationHubId = request.DestinationHubId,
+                    CurrentHubId = request.OriginHubId,
+                    DeliveryType = request.DeliveryType,
+                    EwayBillNo = ewayBillNo,
+                    EwayBillValidUpto = ewayBillValidUpto,
                     CreatedBy = userId,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 };
+
+                // Add customer invoice references (N:M support)
+                if (request.CustomerInvoices != null && request.CustomerInvoices.Any())
+                {
+                    foreach (var inv in request.CustomerInvoices)
+                    {
+                        shipment.InvoiceReferences.Add(new ConsignmentInvoiceReference
+                        {
+                            TenantId = tenantId,
+                            CustomerInvoiceNo = inv.CustomerInvoiceNo.Trim(),
+                            CustomerInvoiceDate = inv.CustomerInvoiceDate,
+                            DeclaredGoodsValue = inv.DeclaredGoodsValue,
+                            EwayBillNo = inv.EwayBillNo?.Trim(),
+                            EwayBillDate = inv.EwayBillDate,
+                            EwayBillValidUpto = inv.EwayBillValidUpto,
+                            DocumentType = inv.DocumentType ?? "TaxInvoice",
+                            PackageCount = inv.PackageCount,
+                            WeightKg = inv.WeightKg,
+                            CommodityDescription = inv.CommodityDescription,
+                            DocumentUrl = inv.DocumentUrl,
+                            CreatedBy = userId,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(request.InvoiceNo))
+                {
+                    // Backward-compatible auto-creation of single invoice reference
+                    shipment.InvoiceReferences.Add(new ConsignmentInvoiceReference
+                    {
+                        TenantId = tenantId,
+                        CustomerInvoiceNo = request.InvoiceNo.Trim(),
+                        CustomerInvoiceDate = request.InvoiceDate ?? shipment.ShipmentDate,
+                        DeclaredGoodsValue = request.GoodsValue,
+                        EwayBillNo = request.EwayBillNo?.Trim(),
+                        EwayBillValidUpto = request.EwayBillValidUpto,
+                        DocumentType = "TaxInvoice",
+                        CreatedBy = userId,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
 
                 // Add cargo items
                 if (request.Items != null && request.Items.Any())
@@ -211,7 +287,7 @@ namespace KTransport.API.Services
                     FromStatus = ShipmentStatus.Draft,
                     ToStatus = ShipmentStatus.Booked,
                     Location = request.FromLocation,
-                    Remarks = "Consignment booked into system.",
+                    Remarks = "Consignment / LR booked into system.",
                     ChangedByUserId = userId,
                     ChangedAt = DateTime.UtcNow
                 });
@@ -223,13 +299,13 @@ namespace KTransport.API.Services
                 return new ShipmentResponse
                 {
                     Success = true,
-                    Message = "Shipment created successfully.",
+                    Message = "Shipment / LR created successfully.",
                     Data = MapToDto(created)
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating shipment");
+                _logger.LogError(ex, "Error creating shipment / LR");
                 return new ShipmentResponse
                 {
                     Success = false,
@@ -245,6 +321,7 @@ namespace KTransport.API.Services
                 var shipment = await _context.Set<Shipment>()
                     .Include(s => s.Items)
                     .Include(s => s.ChargeItems)
+                    .Include(s => s.InvoiceReferences)
                     .FirstOrDefaultAsync(s => s.Id == id && s.IsActive);
 
                 if (shipment == null)
@@ -258,7 +335,33 @@ namespace KTransport.API.Services
                 decimal paid = request.PaidAmount;
                 decimal due = grandTotal - paid;
 
-                shipment.InvoiceNo = request.InvoiceNo;
+                var goodsValue = request.GoodsValue;
+                var invoiceNo = request.InvoiceNo;
+                var ewayBillNo = request.EwayBillNo;
+                var ewayBillValidUpto = request.EwayBillValidUpto;
+
+                if (request.CustomerInvoices != null && request.CustomerInvoices.Any())
+                {
+                    if (goodsValue <= 0)
+                    {
+                        goodsValue = request.CustomerInvoices.Sum(ci => ci.DeclaredGoodsValue);
+                    }
+                    if (string.IsNullOrWhiteSpace(invoiceNo))
+                    {
+                        invoiceNo = string.Join(", ", request.CustomerInvoices.Select(ci => ci.CustomerInvoiceNo));
+                    }
+                    if (string.IsNullOrWhiteSpace(ewayBillNo))
+                    {
+                        var firstEwb = request.CustomerInvoices.FirstOrDefault(ci => !string.IsNullOrWhiteSpace(ci.EwayBillNo));
+                        if (firstEwb != null)
+                        {
+                            ewayBillNo = firstEwb.EwayBillNo;
+                            ewayBillValidUpto = firstEwb.EwayBillValidUpto;
+                        }
+                    }
+                }
+
+                shipment.InvoiceNo = invoiceNo;
                 shipment.InvoiceId = request.InvoiceId;
                 if (request.ShipmentDate.HasValue) shipment.ShipmentDate = request.ShipmentDate.Value;
                 shipment.InvoiceDate = request.InvoiceDate;
@@ -277,7 +380,7 @@ namespace KTransport.API.Services
                 shipment.ConsigneeGstNo = request.ConsigneeGstNo;
                 shipment.ConsigneeMobile = request.ConsigneeMobile;
                 shipment.ConsigneeAddress = request.ConsigneeAddress;
-                shipment.GoodsValue = request.GoodsValue;
+                shipment.GoodsValue = goodsValue;
                 shipment.PaymentTerm = request.PaymentTerm;
                 shipment.TotalFreight = request.TotalFreight;
                 shipment.TotalOtherCharges = otherCharges;
@@ -287,8 +390,40 @@ namespace KTransport.API.Services
                 shipment.DueAmount = due;
                 shipment.Remarks = request.Remarks;
                 shipment.BookingClerk = request.BookingClerk;
+                shipment.OriginHubId = request.OriginHubId;
+                shipment.DestinationHubId = request.DestinationHubId;
+                shipment.DeliveryType = request.DeliveryType;
+                shipment.EwayBillNo = ewayBillNo;
+                shipment.EwayBillValidUpto = ewayBillValidUpto;
                 shipment.UpdatedBy = userId;
                 shipment.UpdatedAt = DateTime.UtcNow;
+
+                // Sync customer invoice references
+                if (request.CustomerInvoices != null)
+                {
+                    _context.Set<ConsignmentInvoiceReference>().RemoveRange(shipment.InvoiceReferences);
+                    foreach (var inv in request.CustomerInvoices)
+                    {
+                        shipment.InvoiceReferences.Add(new ConsignmentInvoiceReference
+                        {
+                            TenantId = shipment.TenantId,
+                            ShipmentId = shipment.Id,
+                            CustomerInvoiceNo = inv.CustomerInvoiceNo.Trim(),
+                            CustomerInvoiceDate = inv.CustomerInvoiceDate,
+                            DeclaredGoodsValue = inv.DeclaredGoodsValue,
+                            EwayBillNo = inv.EwayBillNo?.Trim(),
+                            EwayBillDate = inv.EwayBillDate,
+                            EwayBillValidUpto = inv.EwayBillValidUpto,
+                            DocumentType = inv.DocumentType ?? "TaxInvoice",
+                            PackageCount = inv.PackageCount,
+                            WeightKg = inv.WeightKg,
+                            CommodityDescription = inv.CommodityDescription,
+                            CreatedBy = userId,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
 
                 // Sync items
                 if (request.Items != null)
@@ -418,6 +553,10 @@ namespace KTransport.API.Services
         {
             var shipment = await _context.Set<Shipment>()
                 .Include(s => s.CreatedByNavigation)
+                .Include(s => s.OriginHub)
+                .Include(s => s.DestinationHub)
+                .Include(s => s.CurrentHub)
+                .Include(s => s.InvoiceReferences)
                 .Include(s => s.Items)
                 .Include(s => s.ChargeItems)
                 .Include(s => s.StatusHistory)
@@ -454,11 +593,14 @@ namespace KTransport.API.Services
                 var term = search.Trim().ToLower();
                 query = query.Where(s =>
                     s.ShipmentNo.ToLower().Contains(term) ||
+                    (s.InvoiceNo != null && s.InvoiceNo.ToLower().Contains(term)) ||
+                    (s.EwayBillNo != null && s.EwayBillNo.ToLower().Contains(term)) ||
                     (s.ConsignorName != null && s.ConsignorName.ToLower().Contains(term)) ||
                     (s.ConsigneeName != null && s.ConsigneeName.ToLower().Contains(term)) ||
                     (s.TruckNo != null && s.TruckNo.ToLower().Contains(term)) ||
                     (s.FromLocation != null && s.FromLocation.ToLower().Contains(term)) ||
-                    (s.ToLocation != null && s.ToLocation.ToLower().Contains(term)));
+                    (s.ToLocation != null && s.ToLocation.ToLower().Contains(term)) ||
+                    s.InvoiceReferences.Any(ir => ir.CustomerInvoiceNo.ToLower().Contains(term) || (ir.EwayBillNo != null && ir.EwayBillNo.ToLower().Contains(term))));
             }
 
             var total = await query.CountAsync();
@@ -467,6 +609,10 @@ namespace KTransport.API.Services
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .Include(s => s.CreatedByNavigation)
+                .Include(s => s.OriginHub)
+                .Include(s => s.DestinationHub)
+                .Include(s => s.CurrentHub)
+                .Include(s => s.InvoiceReferences)
                 .Include(s => s.Items)
                 .Include(s => s.ChargeItems)
                 .ToListAsync();
@@ -497,6 +643,10 @@ namespace KTransport.API.Services
         {
             return await _context.Set<Shipment>()
                 .Include(s => s.CreatedByNavigation)
+                .Include(s => s.OriginHub)
+                .Include(s => s.DestinationHub)
+                .Include(s => s.CurrentHub)
+                .Include(s => s.InvoiceReferences)
                 .Include(s => s.Items)
                 .Include(s => s.ChargeItems)
                 .Include(s => s.StatusHistory)
@@ -558,12 +708,36 @@ namespace KTransport.API.Services
                 GrandTotal = s.GrandTotal,
                 PaidAmount = s.PaidAmount,
                 DueAmount = s.DueAmount,
+                OriginHubId = s.OriginHubId,
+                OriginHubName = s.OriginHub?.Name,
+                DestinationHubId = s.DestinationHubId,
+                DestinationHubName = s.DestinationHub?.Name,
+                CurrentHubId = s.CurrentHubId,
+                CurrentHubName = s.CurrentHub?.Name,
+                DeliveryType = s.DeliveryType,
+                EwayBillNo = s.EwayBillNo,
+                EwayBillValidUpto = s.EwayBillValidUpto,
                 Status = s.Status,
                 Remarks = s.Remarks,
                 BookingClerk = s.BookingClerk,
                 IsActive = s.IsActive,
                 CreatedAt = s.CreatedAt,
                 CreatedByName = s.CreatedByNavigation?.FullName ?? s.CreatedByNavigation?.Username,
+                InvoiceReferences = (s.InvoiceReferences ?? Enumerable.Empty<ConsignmentInvoiceReference>()).Where(ir => ir.IsActive).Select(ir => new ConsignmentInvoiceReferenceDto
+                {
+                    Id = ir.Id,
+                    CustomerInvoiceNo = ir.CustomerInvoiceNo,
+                    CustomerInvoiceDate = ir.CustomerInvoiceDate,
+                    DeclaredGoodsValue = ir.DeclaredGoodsValue,
+                    EwayBillNo = ir.EwayBillNo,
+                    EwayBillDate = ir.EwayBillDate,
+                    EwayBillValidUpto = ir.EwayBillValidUpto,
+                    DocumentType = ir.DocumentType,
+                    PackageCount = ir.PackageCount,
+                    WeightKg = ir.WeightKg,
+                    CommodityDescription = ir.CommodityDescription,
+                    DocumentUrl = ir.DocumentUrl
+                }).ToList(),
                 Items = (s.Items ?? Enumerable.Empty<ShipmentItem>()).Select(i => new ShipmentItemDto
                 {
                     Id = i.Id,

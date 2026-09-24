@@ -64,6 +64,9 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<TenantSetting> TenantSettings { get; set; }
     public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
     public virtual DbSet<TenantSubscription> TenantSubscriptions { get; set; }
+    public virtual DbSet<ConsignmentInvoiceReference> ConsignmentInvoiceReferences { get; set; }
+    public virtual DbSet<Manifest> Manifests { get; set; }
+    public virtual DbSet<ManifestItem> ManifestItems { get; set; }
 
     public override int SaveChanges()
     {
@@ -651,6 +654,13 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
 
+            entity.Property(e => e.OriginHubId).HasColumnName("origin_hub_id");
+            entity.Property(e => e.DestinationHubId).HasColumnName("destination_hub_id");
+            entity.Property(e => e.CurrentHubId).HasColumnName("current_hub_id");
+            entity.Property(e => e.DeliveryType).HasMaxLength(50).HasColumnName("delivery_type");
+            entity.Property(e => e.EwayBillNo).HasMaxLength(50).HasColumnName("eway_bill_no");
+            entity.Property(e => e.EwayBillValidUpto).HasColumnType("timestamp without time zone").HasColumnName("eway_bill_valid_upto");
+
             entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
 
             entity.HasOne(d => d.Tenant).WithMany()
@@ -671,6 +681,21 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.ConsigneePartyId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_shipments_consignee_party");
+
+            entity.HasOne(d => d.OriginHub).WithMany()
+                .HasForeignKey(d => d.OriginHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_shipments_origin_hub");
+
+            entity.HasOne(d => d.DestinationHub).WithMany()
+                .HasForeignKey(d => d.DestinationHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_shipments_destination_hub");
+
+            entity.HasOne(d => d.CurrentHub).WithMany()
+                .HasForeignKey(d => d.CurrentHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_shipments_current_hub");
 
             entity.HasOne(d => d.CreatedByNavigation).WithMany()
                 .HasForeignKey(d => d.CreatedBy)
@@ -1407,6 +1432,160 @@ public partial class KTransportDbContext : DbContext
             entity.HasOne(d => d.SubscriptionPlan).WithMany(p => p.TenantSubscriptions)
                 .HasForeignKey(d => d.SubscriptionPlanId)
                 .HasConstraintName("fk_tenant_subscriptions_plan");
+        });
+
+        modelBuilder.Entity<ConsignmentInvoiceReference>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("consignment_invoice_references_pkey");
+            entity.ToTable("consignment_invoice_references");
+
+            entity.HasIndex(e => new { e.TenantId, e.ShipmentId, e.CustomerInvoiceNo }, "consignment_invoices_tenant_shipment_inv_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.ShipmentId).HasColumnName("shipment_id");
+            entity.Property(e => e.CustomerInvoiceNo).HasMaxLength(50).HasColumnName("customer_invoice_no");
+            entity.Property(e => e.CustomerInvoiceDate).HasColumnName("customer_invoice_date");
+            entity.Property(e => e.DeclaredGoodsValue).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("declared_goods_value");
+            entity.Property(e => e.EwayBillNo).HasMaxLength(50).HasColumnName("eway_bill_no");
+            entity.Property(e => e.EwayBillDate).HasColumnName("eway_bill_date");
+            entity.Property(e => e.EwayBillValidUpto).HasColumnType("timestamp without time zone").HasColumnName("eway_bill_valid_upto");
+            entity.Property(e => e.DocumentType).HasMaxLength(50).HasColumnName("document_type");
+            entity.Property(e => e.PackageCount).HasColumnName("package_count");
+            entity.Property(e => e.WeightKg).HasPrecision(12, 3).HasColumnName("weight_kg");
+            entity.Property(e => e.CommodityDescription).HasMaxLength(250).HasColumnName("commodity_description");
+            entity.Property(e => e.DocumentUrl).HasColumnName("document_url");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_consignment_invoices_tenant");
+
+            entity.HasOne(d => d.Shipment).WithMany(p => p.InvoiceReferences)
+                .HasForeignKey(d => d.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_consignment_invoices_shipment");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_consignment_invoices_created_by");
+        });
+
+        modelBuilder.Entity<Manifest>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("manifests_pkey");
+            entity.ToTable("manifests");
+
+            entity.HasIndex(e => new { e.TenantId, e.ManifestNo }, "manifests_tenant_manifest_no_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.ManifestNo).HasMaxLength(50).HasColumnName("manifest_no");
+            entity.Property(e => e.ManifestDate).HasColumnName("manifest_date");
+            entity.Property(e => e.OriginHubId).HasColumnName("origin_hub_id");
+            entity.Property(e => e.DestinationHubId).HasColumnName("destination_hub_id");
+            entity.Property(e => e.TripId).HasColumnName("trip_id");
+            entity.Property(e => e.ConsolidatedEwayBillNo).HasMaxLength(50).HasColumnName("consolidated_eway_bill_no");
+            entity.Property(e => e.ConsolidatedEwayBillDate).HasColumnType("timestamp without time zone").HasColumnName("consolidated_eway_bill_date");
+            entity.Property(e => e.SealNo).HasMaxLength(100).HasColumnName("seal_no");
+            entity.Property(e => e.LoadingSupervisorName).HasMaxLength(150).HasColumnName("loading_supervisor_name");
+            entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
+            entity.Property(e => e.Status).HasConversion<int>().HasColumnName("status");
+            entity.Property(e => e.TotalConsignments).HasDefaultValue(0).HasColumnName("total_consignments");
+            entity.Property(e => e.TotalPackages).HasDefaultValue(0).HasColumnName("total_packages");
+            entity.Property(e => e.TotalWeightKg).HasPrecision(12, 3).HasDefaultValue(0).HasColumnName("total_weight_kg");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_manifests_tenant");
+
+            entity.HasOne(d => d.OriginHub).WithMany()
+                .HasForeignKey(d => d.OriginHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_manifests_origin_hub");
+
+            entity.HasOne(d => d.DestinationHub).WithMany()
+                .HasForeignKey(d => d.DestinationHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_manifests_dest_hub");
+
+            entity.HasOne(d => d.Trip).WithMany(p => p.Manifests)
+                .HasForeignKey(d => d.TripId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_manifests_trip");
+
+            entity.HasOne(d => d.CreatedByNavigation).WithMany()
+                .HasForeignKey(d => d.CreatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_manifests_created_by");
+
+            entity.HasOne(d => d.UpdatedByNavigation).WithMany()
+                .HasForeignKey(d => d.UpdatedBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_manifests_updated_by");
+        });
+
+        modelBuilder.Entity<ManifestItem>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("manifest_items_pkey");
+            entity.ToTable("manifest_items");
+
+            entity.HasIndex(e => new { e.TenantId, e.ManifestId, e.ShipmentId }, "manifest_items_tenant_manifest_shipment_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.ManifestId).HasColumnName("manifest_id");
+            entity.Property(e => e.ShipmentId).HasColumnName("shipment_id");
+            entity.Property(e => e.TargetDestinationHubId).HasColumnName("target_destination_hub_id");
+            entity.Property(e => e.LoadedPackages).HasDefaultValue(0).HasColumnName("loaded_packages");
+            entity.Property(e => e.LoadedWeightKg).HasPrecision(12, 3).HasDefaultValue(0).HasColumnName("loaded_weight_kg");
+            entity.Property(e => e.UnloadingStatus).HasConversion<int>().HasColumnName("unloading_status");
+            entity.Property(e => e.ReceivedPackages).HasColumnName("received_packages");
+            entity.Property(e => e.ShortagePackages).HasColumnName("shortage_packages");
+            entity.Property(e => e.DamagedPackages).HasColumnName("damaged_packages");
+            entity.Property(e => e.UnloadedAtHubId).HasColumnName("unloaded_at_hub_id");
+            entity.Property(e => e.UnloadedDate).HasColumnType("timestamp without time zone").HasColumnName("unloaded_date");
+            entity.Property(e => e.DiscrepancyRemarks).HasMaxLength(500).HasColumnName("discrepancy_remarks");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_manifest_items_tenant");
+
+            entity.HasOne(d => d.Manifest).WithMany(p => p.Items)
+                .HasForeignKey(d => d.ManifestId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_manifest_items_manifest");
+
+            entity.HasOne(d => d.Shipment).WithMany(p => p.ManifestItems)
+                .HasForeignKey(d => d.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_manifest_items_shipment");
+
+            entity.HasOne(d => d.TargetDestinationHub).WithMany()
+                .HasForeignKey(d => d.TargetDestinationHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_manifest_items_target_hub");
+
+            entity.HasOne(d => d.UnloadedAtHub).WithMany()
+                .HasForeignKey(d => d.UnloadedAtHubId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_manifest_items_unloaded_hub");
         });
 
         OnModelCreatingPartial(modelBuilder);

@@ -14,7 +14,7 @@ namespace KTransport.API.Services
     public class NavigationService : INavigationService
     {
         private readonly KTransportDbContext _context;
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+        private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -25,23 +25,120 @@ namespace KTransport.API.Services
             _context = context;
         }
 
-        public async Task<List<DynamicMenuItemDto>> GetDynamicMenuAsync(Guid tenantId, string userRole)
+        public async Task<List<DynamicMenuItemDto>> GetDynamicMenuAsync(Guid tenantId, string userRole, string? userIdOrName = null)
         {
             var entitlements = await GetTenantMenuEntitlementsAsync(tenantId);
-            var enabledKeys = new HashSet<string>(entitlements.EnabledMenuKeys, StringComparer.OrdinalIgnoreCase);
+            
+            // 1. Organization-Level Subscribed Keys
+            var subscribedKeys = new HashSet<string>(entitlements.EnabledMenuKeys, StringComparer.OrdinalIgnoreCase);
+
+            bool isSuperUser = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+
+            HashSet<string> effectiveKeys;
+
+            if (isSuperUser)
+            {
+                // Super User gets all organization-subscribed features + settings & dashboard
+                effectiveKeys = new HashSet<string>(subscribedKeys, StringComparer.OrdinalIgnoreCase);
+                effectiveKeys.Add("dashboard");
+                effectiveKeys.Add("system");
+                effectiveKeys.Add("system.settings");
+                if (tenantId == TenantConstants.DefaultTenantId)
+                {
+                    effectiveKeys.Add("clients");
+                }
+            }
+            else
+            {
+                // Sub User: Resolve assigned permissions
+                var userAssigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // 1. Check User-Specific Dedicated Overrides
+                if (!string.IsNullOrWhiteSpace(userIdOrName) && !string.IsNullOrWhiteSpace(entitlements.UserOverridesJson))
+                {
+                    try
+                    {
+                        var userOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(entitlements.UserOverridesJson, JsonOptions);
+                        if (userOverrides != null)
+                        {
+                            var matchingKey = userOverrides.Keys.FirstOrDefault(k => string.Equals(k, userIdOrName, StringComparison.OrdinalIgnoreCase));
+                            if (matchingKey != null && userOverrides[matchingKey] != null)
+                            {
+                                foreach (var k in userOverrides[matchingKey])
+                                {
+                                    userAssigned.Add(k);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 2. Check Role-Based Matrix Overrides if no direct user override was found
+                if (userAssigned.Count == 0 && !string.IsNullOrWhiteSpace(userRole) && !string.IsNullOrWhiteSpace(entitlements.RoleOverridesJson))
+                {
+                    try
+                    {
+                        var roleOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(entitlements.RoleOverridesJson, JsonOptions);
+                        if (roleOverrides != null)
+                        {
+                            var matchingRole = roleOverrides.Keys.FirstOrDefault(k => string.Equals(k, userRole, StringComparison.OrdinalIgnoreCase));
+                            if (matchingRole != null && roleOverrides[matchingRole] != null)
+                            {
+                                foreach (var k in roleOverrides[matchingRole])
+                                {
+                                    userAssigned.Add(k);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // If no user overrides or role overrides exist, fallback to subscribed keys minus administrative ones
+                if (userAssigned.Count == 0)
+                {
+                    userAssigned = new HashSet<string>(subscribedKeys, StringComparer.OrdinalIgnoreCase);
+                }
+
+                // Effective Access = Organization Subscription ∩ User Permissions
+                effectiveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var k in userAssigned)
+                {
+                    var canon = FeatureConstants.Normalize(k);
+                    // Match either direct key or normalized canonical code
+                    if (subscribedKeys.Contains(k) || subscribedKeys.Any(sk => FeatureConstants.Normalize(sk) == canon))
+                    {
+                        effectiveKeys.Add(k);
+                    }
+                }
+
+                // Active sub-users always get Dashboard
+                effectiveKeys.Add("dashboard");
+
+                // Sub-users NEVER receive SaaS configuration or superadmin screens
+                effectiveKeys.Remove("system.settings");
+                effectiveKeys.Remove("system.onboard");
+                effectiveKeys.Remove("clients");
+                effectiveKeys.Remove("saas");
+                effectiveKeys.Remove("SAAS_CONFIGURATION");
+            }
+
             var enabledReportKeys = entitlements.Reports
                 .Where(r => r.IsEnabled)
                 .Select(r => r.ReportKey)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            bool isAdmin = string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase);
-
             var menu = new List<DynamicMenuItemDto>();
 
-            // Helper to check if item is enabled (admins get default access if key set is permissive)
-            bool IsEnabled(string key) => isAdmin || enabledKeys.Count == 0 || enabledKeys.Contains(key);
+            bool IsEnabled(string key)
+            {
+                return effectiveKeys.Contains(key) || effectiveKeys.Contains(FeatureConstants.Normalize(key));
+            }
 
             // 1. Dashboard
             if (IsEnabled("dashboard"))
@@ -56,32 +153,32 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 2. Consignments (GR)
-            if (IsEnabled("consignments") || IsEnabled("gr"))
+            // 2. Consignments (Bilty / GR Booking)
+            if (IsEnabled("consignments") || IsEnabled("consignments.create") || IsEnabled("consignments.all") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
             {
                 var grChildren = new List<DynamicMenuItemDto>();
 
-                if (IsEnabled("consignments.all") || IsEnabled("gr.list"))
-                {
-                    grChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "consignments.all",
-                        Title = "All Shipments",
-                        Path = "/shipments",
-                        Icon = "fileText",
-                        PermissionKey = "consignments.view"
-                    });
-                }
-
-                if ((IsEnabled("consignments.create") || IsEnabled("gr.entry")) && !string.Equals(userRole, "viewer", StringComparison.OrdinalIgnoreCase))
+                if (IsEnabled("consignments.create") || IsEnabled("gr.entry") || IsEnabled("GOOD_RECEIPT"))
                 {
                     grChildren.Add(new DynamicMenuItemDto
                     {
                         Id = "consignments.create",
-                        Title = "New Consignment",
+                        Title = "New Bilty (GR Booking)",
                         Path = "/shipments/create",
                         Icon = "package",
                         PermissionKey = "consignments.create"
+                    });
+                }
+
+                if (IsEnabled("consignments.all") || IsEnabled("consignments") || IsEnabled("gr.list") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
+                {
+                    grChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "consignments.all",
+                        Title = "All Bilties (GR Registry)",
+                        Path = "/shipments",
+                        Icon = "fileText",
+                        PermissionKey = "consignments.view"
                     });
                 }
 
@@ -90,7 +187,7 @@ namespace KTransport.API.Services
                     menu.Add(new DynamicMenuItemDto
                     {
                         Id = "consignments",
-                        Title = "Consignments (GR)",
+                        Title = "Bilty / GR Booking",
                         Icon = "package",
                         PermissionKey = "consignments.module",
                         Children = grChildren
@@ -98,13 +195,13 @@ namespace KTransport.API.Services
                 }
             }
 
-            // 3. Trip Manifests
-            if (IsEnabled("trips") || IsEnabled("challan"))
+            // 3. LR / Truck Challan (Manifest)
+            if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
                     Id = "trips",
-                    Title = "Trip Manifests",
+                    Title = "LR / Truck Challan",
                     Path = "/trips",
                     Icon = "truck",
                     PermissionKey = "trips.view"
@@ -112,7 +209,7 @@ namespace KTransport.API.Services
             }
 
             // 4. POD & Deliveries
-            if (IsEnabled("pod"))
+            if (IsEnabled("pod") || IsEnabled("POD"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
@@ -124,12 +221,55 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 5. Master Data (Parties & Fleet)
-            if (IsEnabled("master_data") || IsEnabled("customers") || IsEnabled("fleet"))
+            // 5. Freight Invoicing & Billing
+            if (IsEnabled("billing") || IsEnabled("billing.invoices") || IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
+            {
+                var billingChildren = new List<DynamicMenuItemDto>();
+
+                if (IsEnabled("billing.invoices") || IsEnabled("billing") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
+                {
+                    billingChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "billing.invoices",
+                        Title = "Freight Invoices",
+                        Path = "/billing",
+                        Icon = "fileText",
+                        PermissionKey = "billing.view"
+                    });
+                }
+
+                if (IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("billing") || IsEnabled("BILLING") || IsEnabled("MONEY_RECEIPT"))
+                {
+                    billingChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "billing.receipts",
+                        Title = "Money Receipts (MR)",
+                        Path = "/receipts",
+                        Icon = "fileText",
+                        PermissionKey = "billing.view",
+                        Badge = "Paid MR"
+                    });
+                }
+
+                if (billingChildren.Count > 0)
+                {
+                    menu.Add(new DynamicMenuItemDto
+                    {
+                        Id = "billing",
+                        Title = "Freight Invoicing & Billing",
+                        Icon = "fileText",
+                        PermissionKey = "billing.view",
+                        Children = billingChildren
+                    });
+                }
+            }
+
+            // 6. Master Data (Parties & Fleet)
+            if (IsEnabled("master_data") || IsEnabled("master_data.parties") || IsEnabled("master_data.fleet") || IsEnabled("customers") || IsEnabled("fleet") || IsEnabled("PARTY") || IsEnabled("VEHICLE"))
             {
                 var masterChildren = new List<DynamicMenuItemDto>();
 
-                if (IsEnabled("master_data.parties") || IsEnabled("customers"))
+                if (IsEnabled("master_data.parties") || IsEnabled("customers") || IsEnabled("master_data") || IsEnabled("PARTY"))
                 {
                     masterChildren.Add(new DynamicMenuItemDto
                     {
@@ -141,7 +281,7 @@ namespace KTransport.API.Services
                     });
                 }
 
-                if (IsEnabled("master_data.fleet") || IsEnabled("fleet"))
+                if (IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
                 {
                     masterChildren.Add(new DynamicMenuItemDto
                     {
@@ -166,8 +306,8 @@ namespace KTransport.API.Services
                 }
             }
 
-            // 6. Market Vendors & Hire
-            if (IsEnabled("vendors"))
+            // 7. Market Vendors & Hire
+            if (IsEnabled("vendors") || IsEnabled("VENDOR"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
@@ -179,21 +319,8 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 7. Billing & Invoices
-            if (IsEnabled("billing"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "billing",
-                    Title = "Billing & Invoices",
-                    Path = "/billing",
-                    Icon = "fileText",
-                    PermissionKey = "billing.view"
-                });
-            }
-
             // 8. Damage & Claims
-            if (IsEnabled("claims"))
+            if (IsEnabled("claims") || IsEnabled("CLAIMS"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
@@ -206,11 +333,11 @@ namespace KTransport.API.Services
             }
 
             // 9. Reports & Analytics
-            if (IsEnabled("reports"))
+            if (IsEnabled("reports") || IsEnabled("REPORTING"))
             {
                 var reportChildren = new List<DynamicMenuItemDto>();
 
-                foreach (var rep in entitlements.Reports.Where(r => r.IsEnabled || isAdmin))
+                foreach (var rep in entitlements.Reports.Where(r => r.IsEnabled || enabledReportKeys.Contains(r.ReportKey)))
                 {
                     reportChildren.Add(new DynamicMenuItemDto
                     {
@@ -234,21 +361,21 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 10. Live Tracker
-            if (IsEnabled("tracking"))
+            // 10. Live GPS Tracker
+            if (IsEnabled("tracking") || IsEnabled("TRACKING"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
                     Id = "tracking",
-                    Title = "Live Tracker",
+                    Title = "Live GPS Tracker",
                     Path = "/tracking",
                     Icon = "info",
                     PermissionKey = "tracking.view"
                 });
             }
 
-            // 11. SuperAdmin / TenantAdmin Client Management
-            if (IsEnabled("clients") || (tenantId == TenantConstants.DefaultTenantId && isAdmin))
+            // 11. SuperAdmin / Client Management (Super User only)
+            if (isSuperUser && (IsEnabled("clients") || tenantId == TenantConstants.DefaultTenantId))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
@@ -261,43 +388,36 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 12. System / Settings Group
-            if (IsEnabled("system"))
+            // 12. System / SaaS Configuration Group (Super User only)
+            if (isSuperUser)
             {
-                var systemChildren = new List<DynamicMenuItemDto>();
-
-                if (IsEnabled("system.settings") && (isAdmin || string.Equals(userRole, "manager", StringComparison.OrdinalIgnoreCase)))
+                var systemChildren = new List<DynamicMenuItemDto>
                 {
-                    systemChildren.Add(new DynamicMenuItemDto
+                    new DynamicMenuItemDto
                     {
                         Id = "system.settings",
                         Title = "SaaS Configuration",
                         Path = "/settings",
                         Icon = "settings",
                         PermissionKey = "settings.manage"
-                    });
-                }
-
-                if (IsEnabled("system.onboard") || isAdmin)
-                {
-                    systemChildren.Add(new DynamicMenuItemDto
+                    },
+                    new DynamicMenuItemDto
                     {
                         Id = "system.onboard",
                         Title = "Tenant Onboarding",
                         Path = "/onboard",
                         Icon = "info",
                         PermissionKey = "tenant.onboard"
-                    });
-                }
-
-                systemChildren.Add(new DynamicMenuItemDto
-                {
-                    Id = "system.forgot_password",
-                    Title = "Forgot Password",
-                    Path = "/forgot-password",
-                    Icon = "lock",
-                    PermissionKey = "auth.password_reset"
-                });
+                    },
+                    new DynamicMenuItemDto
+                    {
+                        Id = "system.forgot_password",
+                        Title = "Forgot Password",
+                        Path = "/forgot-password",
+                        Icon = "lock",
+                        PermissionKey = "auth.password_reset"
+                    }
+                };
 
                 menu.Add(new DynamicMenuItemDto
                 {
@@ -311,9 +431,9 @@ namespace KTransport.API.Services
             return menu;
         }
 
-        public async Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole)
+        public async Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole, string? userIdOrName = null)
         {
-            var menu = await GetDynamicMenuAsync(tenantId, userRole);
+            var menu = await GetDynamicMenuAsync(tenantId, userRole, userIdOrName);
             var permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             void CollectPermissions(DynamicMenuItemDto item)
@@ -336,25 +456,18 @@ namespace KTransport.API.Services
                 CollectPermissions(item);
             }
 
-            // Add standard root wildcard / view permissions for admins
-            if (string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase))
+            bool isSuperUser = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+
+            if (isSuperUser)
             {
                 permissions.Add("*");
                 permissions.Add("admin");
-                permissions.Add("reports.view");
                 permissions.Add("settings.manage");
-                permissions.Add("consignments.view");
-                permissions.Add("consignments.create");
-                permissions.Add("trips.view");
-                permissions.Add("pod.view");
-                permissions.Add("parties.view");
-                permissions.Add("fleet.view");
-                permissions.Add("vendors.view");
-                permissions.Add("billing.view");
-                permissions.Add("claims.view");
-                permissions.Add("tracking.view");
+                permissions.Add("users.manage");
                 permissions.Add("saas.tenants.manage");
             }
 
@@ -372,18 +485,14 @@ namespace KTransport.API.Services
                 try
                 {
                     var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed != null && parsed.EnabledMenuKeys != null && parsed.EnabledMenuKeys.Count > 0)
+                    if (parsed != null && parsed.EnabledMenuKeys != null)
                     {
                         parsed.TenantId = tenantId;
                         EnsureAllCatalogReportsPresent(parsed);
-                        EnsureCoreMenuKeysPresent(parsed);
                         return parsed;
                     }
                 }
-                catch
-                {
-                    // Fallback to default
-                }
+                catch { }
             }
 
             return GetDefaultEntitlements(tenantId);
@@ -427,21 +536,15 @@ namespace KTransport.API.Services
             {
                 if (!existingKeys.Contains(std.ReportKey))
                 {
-                    dto.Reports.Add(std);
-                }
-            }
-        }
-
-        private void EnsureCoreMenuKeysPresent(TenantMenuEntitlementsDto dto)
-        {
-            var defaultKeys = GetDefaultMenuKeys();
-            var existingKeys = new HashSet<string>(dto.EnabledMenuKeys, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var key in defaultKeys)
-            {
-                if (!existingKeys.Contains(key))
-                {
-                    dto.EnabledMenuKeys.Add(key);
+                    dto.Reports.Add(new ReportEntitlementItemDto
+                    {
+                        ReportKey = std.ReportKey,
+                        Title = std.Title,
+                        Description = std.Description,
+                        Category = std.Category,
+                        Path = std.Path,
+                        IsEnabled = false
+                    });
                 }
             }
         }
@@ -452,22 +555,24 @@ namespace KTransport.API.Services
             {
                 "dashboard",
                 "consignments",
-                "consignments.all",
                 "consignments.create",
-                "gr",
-                "gr.list",
-                "gr.entry",
+                "consignments.all",
                 "trips",
                 "pod",
+                "billing",
+                "billing.invoices",
+                "billing.receipts",
                 "master_data",
                 "master_data.parties",
                 "master_data.fleet",
-                "customers",
-                "fleet",
                 "vendors",
-                "billing",
                 "claims",
                 "reports",
+                "reports.booking_register",
+                "reports.tax_summary",
+                "reports.party_outstanding",
+                "reports.trip_profitability",
+                "reports.vendor_payables",
                 "tracking",
                 "clients",
                 "system",
@@ -482,6 +587,7 @@ namespace KTransport.API.Services
             return new TenantMenuEntitlementsDto
             {
                 TenantId = tenantId,
+                PlanTier = "Enterprise",
                 EnabledMenuKeys = GetDefaultMenuKeys(),
                 Reports = GetStandardReportCatalog()
             };

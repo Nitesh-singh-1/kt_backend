@@ -7,8 +7,8 @@ namespace KTransport.API.Services
 {
     public interface INavigationService
     {
-        Task<List<DynamicMenuItemDto>> GetDynamicMenuAsync(Guid tenantId, string userRole);
-        Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole);
+        Task<List<DynamicMenuItemDto>> GetDynamicMenuAsync(Guid tenantId, string userRole, string? userIdOrName = null);
+        Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole, string? userIdOrName = null);
         Task<TenantMenuEntitlementsDto> GetTenantMenuEntitlementsAsync(Guid tenantId);
         Task<TenantMenuEntitlementsDto> UpdateTenantMenuEntitlementsAsync(Guid tenantId, TenantMenuEntitlementsDto dto);
     }

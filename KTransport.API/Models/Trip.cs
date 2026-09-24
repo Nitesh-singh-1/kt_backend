@@ -89,5 +89,7 @@ namespace KTransport.API.Models
         public virtual ICollection<TripShipment> Shipments { get; set; } = new List<TripShipment>();
 
         public virtual ICollection<TripExpense> Expenses { get; set; } = new List<TripExpense>();
+
+        public virtual ICollection<Manifest> Manifests { get; set; } = new List<Manifest>();
     }
 }

@@ -1,5 +1,4 @@
-using System;
-using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +8,8 @@ namespace KTransport.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
+    [RequireSuperUser]
     public class ConfigurationController : ControllerBase
     {
         private readonly ITenantConfigurationService _configService;

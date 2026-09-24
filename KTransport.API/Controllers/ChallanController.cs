@@ -3,12 +3,15 @@ using Microsoft.AspNetCore.Mvc;
 using KTransport.API.Services;
 using System.Security.Claims;
 using KTransport.API.DTOs;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 
 namespace KTransport.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.MANIFEST)]
     public class ChallanController : ControllerBase
     {
         private readonly IChallanService _challanService;

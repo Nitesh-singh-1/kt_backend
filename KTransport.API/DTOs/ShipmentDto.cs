@@ -4,6 +4,37 @@ using KTransport.API.Models;
 
 namespace KTransport.API.DTOs
 {
+    public class ConsignmentInvoiceReferenceDto
+    {
+        public long Id { get; set; }
+        public string CustomerInvoiceNo { get; set; } = null!;
+        public DateOnly CustomerInvoiceDate { get; set; }
+        public decimal DeclaredGoodsValue { get; set; }
+        public string? EwayBillNo { get; set; }
+        public DateOnly? EwayBillDate { get; set; }
+        public DateTime? EwayBillValidUpto { get; set; }
+        public string? DocumentType { get; set; }
+        public int? PackageCount { get; set; }
+        public decimal? WeightKg { get; set; }
+        public string? CommodityDescription { get; set; }
+        public string? DocumentUrl { get; set; }
+    }
+
+    public class CreateConsignmentInvoiceReferenceRequest
+    {
+        public string CustomerInvoiceNo { get; set; } = null!;
+        public DateOnly CustomerInvoiceDate { get; set; }
+        public decimal DeclaredGoodsValue { get; set; }
+        public string? EwayBillNo { get; set; }
+        public DateOnly? EwayBillDate { get; set; }
+        public DateTime? EwayBillValidUpto { get; set; }
+        public string? DocumentType { get; set; } = "TaxInvoice";
+        public int? PackageCount { get; set; }
+        public decimal? WeightKg { get; set; }
+        public string? CommodityDescription { get; set; }
+        public string? DocumentUrl { get; set; }
+    }
+
     public class ShipmentItemDto
     {
         public long Id { get; set; }
@@ -71,6 +102,17 @@ namespace KTransport.API.DTOs
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
 
+        // Hubs & Routing
+        public long? OriginHubId { get; set; }
+        public string? OriginHubName { get; set; }
+        public long? DestinationHubId { get; set; }
+        public string? DestinationHubName { get; set; }
+        public long? CurrentHubId { get; set; }
+        public string? CurrentHubName { get; set; }
+        public string? DeliveryType { get; set; }
+        public string? EwayBillNo { get; set; }
+        public DateTime? EwayBillValidUpto { get; set; }
+
         public ShipmentStatus Status { get; set; }
         public string? Remarks { get; set; }
         public string? BookingClerk { get; set; }
@@ -78,6 +120,7 @@ namespace KTransport.API.DTOs
         public DateTime CreatedAt { get; set; }
         public string? CreatedByName { get; set; }
 
+        public List<ConsignmentInvoiceReferenceDto> InvoiceReferences { get; set; } = new List<ConsignmentInvoiceReferenceDto>();
         public List<ShipmentItemDto> Items { get; set; } = new List<ShipmentItemDto>();
         public List<ShipmentChargeItemDto> ChargeItems { get; set; } = new List<ShipmentChargeItemDto>();
         public List<ShipmentStatusHistoryDto> StatusHistory { get; set; } = new List<ShipmentStatusHistoryDto>();
@@ -118,6 +161,13 @@ namespace KTransport.API.DTOs
         public string? Remarks { get; set; }
         public string? BookingClerk { get; set; }
 
+        public long? OriginHubId { get; set; }
+        public long? DestinationHubId { get; set; }
+        public string? DeliveryType { get; set; }
+        public string? EwayBillNo { get; set; }
+        public DateTime? EwayBillValidUpto { get; set; }
+
+        public List<CreateConsignmentInvoiceReferenceRequest>? CustomerInvoices { get; set; }
         public List<ShipmentItemDto>? Items { get; set; }
         public List<ShipmentChargeItemDto>? ChargeItems { get; set; }
     }
@@ -154,6 +204,13 @@ namespace KTransport.API.DTOs
         public string? Remarks { get; set; }
         public string? BookingClerk { get; set; }
 
+        public long? OriginHubId { get; set; }
+        public long? DestinationHubId { get; set; }
+        public string? DeliveryType { get; set; }
+        public string? EwayBillNo { get; set; }
+        public DateTime? EwayBillValidUpto { get; set; }
+
+        public List<CreateConsignmentInvoiceReferenceRequest>? CustomerInvoices { get; set; }
         public List<ShipmentItemDto>? Items { get; set; }
         public List<ShipmentChargeItemDto>? ChargeItems { get; set; }
     }

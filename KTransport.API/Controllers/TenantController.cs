@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -43,10 +44,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Get all registered tenants with full SaaS details (Superadmin / System Admin only).
+        /// Get all registered tenants with full SaaS details (Super User / System Admin only).
         /// </summary>
         [HttpGet]
-        [Authorize(Roles = "admin")]
+        [Authorize]
+        [RequireSuperUser]
         public async Task<IActionResult> GetAllTenants()
         {
             var tenants = await _tenantService.GetAllTenantsWithDetailsAsync();
@@ -54,10 +56,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Get tenant by ID.
+        /// Get tenant by ID (Super User only).
         /// </summary>
         [HttpGet("{id:guid}")]
         [Authorize]
+        [RequireSuperUser]
         public async Task<IActionResult> GetTenantById(Guid id)
         {
             var tenant = await _tenantService.GetTenantByIdAsync(id);
@@ -70,10 +73,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Toggle tenant active/inactive status (Superadmin only).
+        /// Toggle tenant active/inactive status (Super User only).
         /// </summary>
         [HttpPut("{id:guid}/status")]
-        [Authorize(Roles = "admin")]
+        [Authorize]
+        [RequireSuperUser]
         public async Task<IActionResult> UpdateTenantStatus(Guid id, [FromBody] TenantStatusUpdateDto dto)
         {
             var success = await _tenantService.UpdateTenantStatusAsync(id, dto.IsActive);
@@ -86,10 +90,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Update tenant subscription plan tier (Superadmin only).
+        /// Update tenant subscription plan tier (Super User only).
         /// </summary>
         [HttpPut("{id:guid}/plan")]
-        [Authorize(Roles = "admin")]
+        [Authorize]
+        [RequireSuperUser]
         public async Task<IActionResult> UpdateTenantPlan(Guid id, [FromBody] TenantPlanUpdateDto dto)
         {
             var success = await _tenantService.UpdateTenantSubscriptionPlanAsync(id, dto.PlanTier);
@@ -102,10 +107,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Get menu and sub-report entitlements for a specific tenant ID.
+        /// Get menu and sub-report entitlements for a specific tenant ID (Super User only).
         /// </summary>
         [HttpGet("{id:guid}/entitlements")]
-        [Authorize(Roles = "admin")]
+        [Authorize]
+        [RequireSuperUser]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> GetTenantEntitlements(Guid id)
         {
             var entitlements = await _navService.GetTenantMenuEntitlementsAsync(id);
@@ -113,10 +119,11 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
-        /// Update menu and sub-report entitlements for a specific tenant ID (Superadmin only).
+        /// Update menu and sub-report entitlements for a specific tenant ID (Super User only).
         /// </summary>
         [HttpPut("{id:guid}/entitlements")]
-        [Authorize(Roles = "admin")]
+        [Authorize]
+        [RequireSuperUser]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> UpdateTenantEntitlements(Guid id, [FromBody] TenantMenuEntitlementsDto dto)
         {
             if (!ModelState.IsValid)
