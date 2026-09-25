@@ -165,7 +165,7 @@ using (var scope = app.Services.CreateScope())
 
             if (dbContext.Database.IsRelational())
             {
-                // Baseline existing tables in __EFMigrationsHistory if database pre-existed
+                // 1. Baseline existing tables in __EFMigrationsHistory ONLY if database pre-existed before EF Core migrations
                 dbContext.Database.ExecuteSqlRaw(@"
                     CREATE TABLE IF NOT EXISTS ""__EFMigrationsHistory"" (
                         ""MigrationId"" character varying(150) NOT NULL,
@@ -186,209 +186,103 @@ using (var scope = app.Services.CreateScope())
                     END $$;
                 ");
 
-                // Ensure SaaS Configuration & Subscription tables exist
-                dbContext.Database.ExecuteSqlRaw(@"
-                    CREATE TABLE IF NOT EXISTS subscription_plans (
-                        id uuid PRIMARY KEY,
-                        name character varying(100) NOT NULL,
-                        tier character varying(50) NOT NULL,
-                        description character varying(500) NOT NULL,
-                        max_vehicles integer NOT NULL,
-                        max_users integer NOT NULL,
-                        max_monthly_shipments integer NOT NULL,
-                        storage_limit_mb integer NOT NULL,
-                        monthly_price numeric(14,2) NOT NULL,
-                        is_active boolean DEFAULT true,
-                        created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
-                    );
-
-                    CREATE TABLE IF NOT EXISTS tenant_settings (
-                        id uuid PRIMARY KEY,
-                        tenant_id uuid NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
-                        general_json text NOT NULL,
-                        billing_and_tax_json text NOT NULL,
-                        document_sequences_json text NOT NULL,
-                        operational_workflows_json text NOT NULL,
-                        feature_flags_json text NOT NULL,
-                        integrations_json text NOT NULL,
-                        custom_settings_json text NOT NULL,
-                        created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-                        updated_at timestamp without time zone
-                    );
-
-                    ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS menu_entitlements_json text NULL;
-
-                    CREATE TABLE IF NOT EXISTS tenant_subscriptions (
-                        id uuid PRIMARY KEY,
-                        tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-                        subscription_plan_id uuid NOT NULL REFERENCES subscription_plans(id) ON DELETE CASCADE,
-                        status character varying(50) NOT NULL DEFAULT 'Active',
-                        started_at timestamp without time zone NOT NULL,
-                        expires_at timestamp without time zone,
-                        is_auto_renew boolean DEFAULT true,
-                        created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-                        updated_at timestamp without time zone
-                    );
-
-                    -- Ensure Indian Road Transport / GTA Manifests and Multi-Invoice tables exist
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS origin_hub_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS destination_hub_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS current_hub_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS delivery_type character varying(50) NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS eway_bill_no character varying(50) NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS eway_bill_valid_upto timestamp without time zone NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS invoice_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS consignor_party_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS consignee_party_id bigint NULL;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS paid_amount numeric(14,2) DEFAULT 0;
-                    ALTER TABLE shipments ADD COLUMN IF NOT EXISTS due_amount numeric(14,2) DEFAULT 0;
-
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_mode character varying(50) NULL;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS party_id bigint NULL;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS party_name character varying(150) NULL;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS party_gst_no character varying(30) NULL;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS party_address character varying(300) NULL;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_amount numeric(14,2) DEFAULT 0;
-                    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_amount numeric(14,2) DEFAULT 0;
-
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile character varying(20) NULL;
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001';
-
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS origin_location_id bigint NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS origin_location_name character varying(150) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS destination_location_id bigint NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS destination_location_name character varying(150) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS driver_id bigint NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS driver_name character varying(150) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS driver_mobile character varying(20) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS vehicle_id bigint NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS vehicle_no character varying(50) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS total_weight_tons numeric(12,3) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS total_packages integer DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS total_freight_revenue numeric(14,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS driver_advance_cash numeric(14,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS driver_advance_fuel numeric(14,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS total_expenses numeric(14,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS start_odometer numeric(12,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS end_odometer numeric(12,2) DEFAULT 0;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS departure_time timestamp without time zone NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS arrival_time timestamp without time zone NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS seal_no character varying(100) NULL;
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS remarks character varying(500) NULL;
-
-                    CREATE TABLE IF NOT EXISTS consignment_invoice_references (
-                        id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                        tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
-                        shipment_id bigint NOT NULL,
-                        customer_invoice_no character varying(50) NOT NULL,
-                        customer_invoice_date date NOT NULL DEFAULT CURRENT_DATE,
-                        declared_goods_value numeric(14,2) NOT NULL DEFAULT 0,
-                        eway_bill_no character varying(50) NULL,
-                        eway_bill_date date NULL,
-                        eway_bill_valid_upto timestamp without time zone NULL,
-                        document_type character varying(50) NULL DEFAULT 'TaxInvoice',
-                        package_count integer NULL,
-                        weight_kg numeric(12,3) NULL,
-                        commodity_description character varying(250) NULL,
-                        is_active boolean NOT NULL DEFAULT true,
-                        created_by integer NULL,
-                        created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        CONSTRAINT fk_consignment_invoices_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE,
-                        CONSTRAINT fk_consignment_invoices_shipment FOREIGN KEY (shipment_id) REFERENCES shipments (id) ON DELETE CASCADE
-                    );
-
-                    CREATE INDEX IF NOT EXISTS consignment_invoices_tenant_shipment_inv_idx 
-                        ON consignment_invoice_references (tenant_id, shipment_id, customer_invoice_no);
-
-                    CREATE TABLE IF NOT EXISTS manifests (
-                        id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                        tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
-                        manifest_no character varying(50) NOT NULL,
-                        manifest_date date NOT NULL DEFAULT CURRENT_DATE,
-                        origin_hub_id bigint NULL,
-                        destination_hub_id bigint NULL,
-                        trip_id bigint NULL,
-                        consolidated_eway_bill_no character varying(50) NULL,
-                        consolidated_eway_bill_date timestamp without time zone NULL,
-                        seal_no character varying(100) NULL,
-                        loading_supervisor_name character varying(150) NULL,
-                        remarks character varying(500) NULL,
-                        status integer NOT NULL DEFAULT 0,
-                        total_consignments integer NOT NULL DEFAULT 0,
-                        total_packages integer NOT NULL DEFAULT 0,
-                        total_weight_kg numeric(12,3) NOT NULL DEFAULT 0,
-                        is_active boolean NOT NULL DEFAULT true,
-                        created_by integer NULL,
-                        updated_by integer NULL,
-                        created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at timestamp without time zone NULL,
-                        CONSTRAINT fk_manifests_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE,
-                        CONSTRAINT fk_manifests_origin_hub FOREIGN KEY (origin_hub_id) REFERENCES locations (id) ON DELETE SET NULL,
-                        CONSTRAINT fk_manifests_dest_hub FOREIGN KEY (destination_hub_id) REFERENCES locations (id) ON DELETE SET NULL,
-                        CONSTRAINT fk_manifests_trip FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE SET NULL
-                    );
-
-                    CREATE UNIQUE INDEX IF NOT EXISTS manifests_tenant_manifest_no_key 
-                        ON manifests (tenant_id, manifest_no);
-
-                    CREATE TABLE IF NOT EXISTS manifest_items (
-                        id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                        tenant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
-                        manifest_id bigint NOT NULL,
-                        shipment_id bigint NOT NULL,
-                        target_destination_hub_id bigint NULL,
-                        loaded_packages integer NOT NULL DEFAULT 0,
-                        loaded_weight_kg numeric(12,3) NOT NULL DEFAULT 0,
-                        unloading_status integer NOT NULL DEFAULT 0,
-                        received_packages integer NULL,
-                        shortage_packages integer NULL,
-                        damaged_packages integer NULL,
-                        unloaded_at_hub_id bigint NULL,
-                        unloaded_date timestamp without time zone NULL,
-                        discrepancy_remarks character varying(500) NULL,
-                        is_active boolean NOT NULL DEFAULT true,
-                        created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        CONSTRAINT fk_manifest_items_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE,
-                        CONSTRAINT fk_manifest_items_manifest FOREIGN KEY (manifest_id) REFERENCES manifests (id) ON DELETE CASCADE,
-                        CONSTRAINT fk_manifest_items_shipment FOREIGN KEY (shipment_id) REFERENCES shipments (id) ON DELETE CASCADE,
-                        CONSTRAINT fk_manifest_items_target_hub FOREIGN KEY (target_destination_hub_id) REFERENCES locations (id) ON DELETE SET NULL,
-                        CONSTRAINT fk_manifest_items_unloaded_hub FOREIGN KEY (unloaded_at_hub_id) REFERENCES locations (id) ON DELETE SET NULL
-                    );
-
-                    CREATE INDEX IF NOT EXISTS manifest_items_tenant_manifest_shipment_idx 
-                        ON manifest_items (tenant_id, manifest_id, shipment_id);
-
-                    -- Backfill single invoice shipments into consignment_invoice_references
-                    INSERT INTO consignment_invoice_references (
-                        tenant_id, 
-                        shipment_id, 
-                        customer_invoice_no, 
-                        customer_invoice_date, 
-                        declared_goods_value, 
-                        document_type, 
-                        is_active, 
-                        created_at
-                    )
-                    SELECT 
-                        s.tenant_id,
-                        s.id,
-                        s.invoice_no,
-                        COALESCE(s.invoice_date, s.shipment_date, CURRENT_DATE),
-                        COALESCE(s.goods_value, 0),
-                        'TaxInvoice',
-                        true,
-                        CURRENT_TIMESTAMP
-                    FROM shipments s
-                    WHERE s.invoice_no IS NOT NULL 
-                      AND TRIM(s.invoice_no) <> ''
-                      AND NOT EXISTS (
-                          SELECT 1 FROM consignment_invoice_references cir 
-                          WHERE cir.shipment_id = s.id AND cir.customer_invoice_no = s.invoice_no
-                      );
-                ");
-
+                // 2. Apply all EF Core migrations in sequence (creates tenants, shipments, invoices, manifests, subscription_plans, etc.)
                 dbContext.Database.Migrate();
-                logger.LogInformation("Database migrations applied successfully.");
+                logger.LogInformation("Database migrations applied successfully via EF Core.");
+
+                // 3. Apply post-migration safety patches for any dynamic columns
+                dbContext.Database.ExecuteSqlRaw(@"
+                    DO $$
+                    BEGIN
+                        -- Safely patch tenant_settings if table exists
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tenant_settings') THEN
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tenant_settings' AND column_name = 'menu_entitlements_json') THEN
+                                ALTER TABLE tenant_settings ADD COLUMN menu_entitlements_json text NOT NULL DEFAULT '{}';
+                            END IF;
+                        END IF;
+
+                        -- Safely patch invoices if table exists
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'payment_mode') THEN
+                                ALTER TABLE invoices ADD COLUMN payment_mode character varying(50) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_id') THEN
+                                ALTER TABLE invoices ADD COLUMN party_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_name') THEN
+                                ALTER TABLE invoices ADD COLUMN party_name character varying(150) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_gst_no') THEN
+                                ALTER TABLE invoices ADD COLUMN party_gst_no character varying(30) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_address') THEN
+                                ALTER TABLE invoices ADD COLUMN party_address character varying(300) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'paid_amount') THEN
+                                ALTER TABLE invoices ADD COLUMN paid_amount numeric(14,2) DEFAULT 0;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'due_amount') THEN
+                                ALTER TABLE invoices ADD COLUMN due_amount numeric(14,2) DEFAULT 0;
+                            END IF;
+                        END IF;
+
+                        -- Safely patch shipments if table exists
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shipments') THEN
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'origin_hub_id') THEN
+                                ALTER TABLE shipments ADD COLUMN origin_hub_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'destination_hub_id') THEN
+                                ALTER TABLE shipments ADD COLUMN destination_hub_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'current_hub_id') THEN
+                                ALTER TABLE shipments ADD COLUMN current_hub_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'delivery_type') THEN
+                                ALTER TABLE shipments ADD COLUMN delivery_type character varying(50) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'eway_bill_no') THEN
+                                ALTER TABLE shipments ADD COLUMN eway_bill_no character varying(50) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'eway_bill_valid_upto') THEN
+                                ALTER TABLE shipments ADD COLUMN eway_bill_valid_upto timestamp without time zone NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'invoice_id') THEN
+                                ALTER TABLE shipments ADD COLUMN invoice_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'consignor_party_id') THEN
+                                ALTER TABLE shipments ADD COLUMN consignor_party_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'consignee_party_id') THEN
+                                ALTER TABLE shipments ADD COLUMN consignee_party_id bigint NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'paid_amount') THEN
+                                ALTER TABLE shipments ADD COLUMN paid_amount numeric(14,2) DEFAULT 0;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'due_amount') THEN
+                                ALTER TABLE shipments ADD COLUMN due_amount numeric(14,2) DEFAULT 0;
+                            END IF;
+                        END IF;
+
+                        -- Safely patch trips if table exists
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trips') THEN
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'origin_location_name') THEN
+                                ALTER TABLE trips ADD COLUMN origin_location_name character varying(150) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'destination_location_name') THEN
+                                ALTER TABLE trips ADD COLUMN destination_location_name character varying(150) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'driver_name') THEN
+                                ALTER TABLE trips ADD COLUMN driver_name character varying(150) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'driver_mobile') THEN
+                                ALTER TABLE trips ADD COLUMN driver_mobile character varying(20) NULL;
+                            END IF;
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'vehicle_no') THEN
+                                ALTER TABLE trips ADD COLUMN vehicle_no character varying(50) NULL;
+                            END IF;
+                        END IF;
+                    END $$;
+                ");
             }
 
             // Seed default tenant if not already present
