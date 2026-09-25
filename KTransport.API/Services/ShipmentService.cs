@@ -61,10 +61,10 @@ namespace KTransport.API.Services
 
                 // Resolve or auto-save Consignor Party
                 long? consignorPartyId = request.ConsignorPartyId;
-                string? consignorName = request.ConsignorName;
-                string? consignorGstNo = request.ConsignorGstNo;
-                string? consignorMobile = request.ConsignorMobile;
-                string? consignorAddress = request.ConsignorAddress;
+                string? consignorName = request.ConsignorName?.Trim();
+                string? consignorGstNo = request.ConsignorGstNo?.Trim();
+                string? consignorMobile = request.ConsignorMobile?.Trim();
+                string? consignorAddress = request.ConsignorAddress?.Trim();
 
                 if (consignorPartyId.HasValue)
                 {
@@ -77,29 +77,41 @@ namespace KTransport.API.Services
                         consignorAddress ??= party.Address;
                     }
                 }
-                else if (request.SaveConsignorAsParty && !string.IsNullOrWhiteSpace(consignorName))
+                else if (!string.IsNullOrWhiteSpace(consignorName))
                 {
-                    var newParty = new Party
+                    var existingParty = await _context.Parties
+                        .FirstOrDefaultAsync(p => p.Name.ToLower() == consignorName.ToLower());
+                    if (existingParty != null)
                     {
-                        Name = consignorName.Trim(),
-                        GstNo = consignorGstNo?.Trim(),
-                        Mobile = consignorMobile?.Trim(),
-                        Address = consignorAddress?.Trim(),
-                        PartyType = PartyType.Both,
-                        IsActive = true,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.Parties.Add(newParty);
-                    await _context.SaveChangesAsync();
-                    consignorPartyId = newParty.Id;
+                        consignorPartyId = existingParty.Id;
+                        consignorGstNo ??= existingParty.GstNo;
+                        consignorMobile ??= existingParty.Mobile;
+                        consignorAddress ??= existingParty.Address;
+                    }
+                    else
+                    {
+                        var newParty = new Party
+                        {
+                            Name = consignorName,
+                            GstNo = consignorGstNo,
+                            Mobile = consignorMobile,
+                            Address = consignorAddress,
+                            PartyType = PartyType.Both,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.Parties.Add(newParty);
+                        await _context.SaveChangesAsync();
+                        consignorPartyId = newParty.Id;
+                    }
                 }
 
                 // Resolve or auto-save Consignee Party
                 long? consigneePartyId = request.ConsigneePartyId;
-                string? consigneeName = request.ConsigneeName;
-                string? consigneeGstNo = request.ConsigneeGstNo;
-                string? consigneeMobile = request.ConsigneeMobile;
-                string? consigneeAddress = request.ConsigneeAddress;
+                string? consigneeName = request.ConsigneeName?.Trim();
+                string? consigneeGstNo = request.ConsigneeGstNo?.Trim();
+                string? consigneeMobile = request.ConsigneeMobile?.Trim();
+                string? consigneeAddress = request.ConsigneeAddress?.Trim();
 
                 if (consigneePartyId.HasValue)
                 {
@@ -112,21 +124,33 @@ namespace KTransport.API.Services
                         consigneeAddress ??= party.Address;
                     }
                 }
-                else if (request.SaveConsigneeAsParty && !string.IsNullOrWhiteSpace(consigneeName))
+                else if (!string.IsNullOrWhiteSpace(consigneeName))
                 {
-                    var newParty = new Party
+                    var existingParty = await _context.Parties
+                        .FirstOrDefaultAsync(p => p.Name.ToLower() == consigneeName.ToLower());
+                    if (existingParty != null)
                     {
-                        Name = consigneeName.Trim(),
-                        GstNo = consigneeGstNo?.Trim(),
-                        Mobile = consigneeMobile?.Trim(),
-                        Address = consigneeAddress?.Trim(),
-                        PartyType = PartyType.Both,
-                        IsActive = true,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.Parties.Add(newParty);
-                    await _context.SaveChangesAsync();
-                    consigneePartyId = newParty.Id;
+                        consigneePartyId = existingParty.Id;
+                        consigneeGstNo ??= existingParty.GstNo;
+                        consigneeMobile ??= existingParty.Mobile;
+                        consigneeAddress ??= existingParty.Address;
+                    }
+                    else
+                    {
+                        var newParty = new Party
+                        {
+                            Name = consigneeName,
+                            GstNo = consigneeGstNo,
+                            Mobile = consigneeMobile,
+                            Address = consigneeAddress,
+                            PartyType = PartyType.Both,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.Parties.Add(newParty);
+                        await _context.SaveChangesAsync();
+                        consigneePartyId = newParty.Id;
+                    }
                 }
 
                 // Auto-consolidate GoodsValue and InvoiceNo if multiple customer invoices provided
@@ -361,6 +385,78 @@ namespace KTransport.API.Services
                     }
                 }
 
+                // Resolve or auto-save Consignor Party
+                long? consignorPartyId = request.ConsignorPartyId;
+                string? consignorName = request.ConsignorName?.Trim();
+                string? consignorGstNo = request.ConsignorGstNo?.Trim();
+                string? consignorMobile = request.ConsignorMobile?.Trim();
+                string? consignorAddress = request.ConsignorAddress?.Trim();
+
+                if (!consignorPartyId.HasValue && !string.IsNullOrWhiteSpace(consignorName))
+                {
+                    var existingParty = await _context.Parties
+                        .FirstOrDefaultAsync(p => p.Name.ToLower() == consignorName.ToLower());
+                    if (existingParty != null)
+                    {
+                        consignorPartyId = existingParty.Id;
+                        consignorGstNo ??= existingParty.GstNo;
+                        consignorMobile ??= existingParty.Mobile;
+                        consignorAddress ??= existingParty.Address;
+                    }
+                    else
+                    {
+                        var newParty = new Party
+                        {
+                            Name = consignorName,
+                            GstNo = consignorGstNo,
+                            Mobile = consignorMobile,
+                            Address = consignorAddress,
+                            PartyType = PartyType.Both,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.Parties.Add(newParty);
+                        await _context.SaveChangesAsync();
+                        consignorPartyId = newParty.Id;
+                    }
+                }
+
+                // Resolve or auto-save Consignee Party
+                long? consigneePartyId = request.ConsigneePartyId;
+                string? consigneeName = request.ConsigneeName?.Trim();
+                string? consigneeGstNo = request.ConsigneeGstNo?.Trim();
+                string? consigneeMobile = request.ConsigneeMobile?.Trim();
+                string? consigneeAddress = request.ConsigneeAddress?.Trim();
+
+                if (!consigneePartyId.HasValue && !string.IsNullOrWhiteSpace(consigneeName))
+                {
+                    var existingParty = await _context.Parties
+                        .FirstOrDefaultAsync(p => p.Name.ToLower() == consigneeName.ToLower());
+                    if (existingParty != null)
+                    {
+                        consigneePartyId = existingParty.Id;
+                        consigneeGstNo ??= existingParty.GstNo;
+                        consigneeMobile ??= existingParty.Mobile;
+                        consigneeAddress ??= existingParty.Address;
+                    }
+                    else
+                    {
+                        var newParty = new Party
+                        {
+                            Name = consigneeName,
+                            GstNo = consigneeGstNo,
+                            Mobile = consigneeMobile,
+                            Address = consigneeAddress,
+                            PartyType = PartyType.Both,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.Parties.Add(newParty);
+                        await _context.SaveChangesAsync();
+                        consigneePartyId = newParty.Id;
+                    }
+                }
+
                 shipment.InvoiceNo = invoiceNo;
                 shipment.InvoiceId = request.InvoiceId;
                 if (request.ShipmentDate.HasValue) shipment.ShipmentDate = request.ShipmentDate.Value;
@@ -370,16 +466,16 @@ namespace KTransport.API.Services
                 shipment.TruckNo = request.TruckNo;
                 shipment.TaxTreatment = request.TaxTreatment;
                 shipment.GstPaidBy = request.GstPaidBy;
-                shipment.ConsignorPartyId = request.ConsignorPartyId;
-                shipment.ConsignorName = request.ConsignorName;
-                shipment.ConsignorGstNo = request.ConsignorGstNo;
-                shipment.ConsignorMobile = request.ConsignorMobile;
-                shipment.ConsignorAddress = request.ConsignorAddress;
-                shipment.ConsigneePartyId = request.ConsigneePartyId;
-                shipment.ConsigneeName = request.ConsigneeName;
-                shipment.ConsigneeGstNo = request.ConsigneeGstNo;
-                shipment.ConsigneeMobile = request.ConsigneeMobile;
-                shipment.ConsigneeAddress = request.ConsigneeAddress;
+                shipment.ConsignorPartyId = consignorPartyId;
+                shipment.ConsignorName = consignorName;
+                shipment.ConsignorGstNo = consignorGstNo;
+                shipment.ConsignorMobile = consignorMobile;
+                shipment.ConsignorAddress = consignorAddress;
+                shipment.ConsigneePartyId = consigneePartyId;
+                shipment.ConsigneeName = consigneeName;
+                shipment.ConsigneeGstNo = consigneeGstNo;
+                shipment.ConsigneeMobile = consigneeMobile;
+                shipment.ConsigneeAddress = consigneeAddress;
                 shipment.GoodsValue = goodsValue;
                 shipment.PaymentTerm = request.PaymentTerm;
                 shipment.TotalFreight = request.TotalFreight;

@@ -12,6 +12,7 @@ namespace KTransport.API.Models
         public string AdminPassword { get; set; } = null!;
         public string AdminFullName { get; set; } = null!;
         public string? AdminMobile { get; set; }
+        public string? AdminRole { get; set; } = "admin";
         public string? PlanTier { get; set; } = "Starter"; // Starter, Professional, Enterprise, Custom
         public List<string>? EnabledModules { get; set; } // ["dashboard", "gr", "gr.list", "gr.entry", "challan", "challan.list", "challan.entry", "reports", "system"]
         public List<string>? EnabledReportKeys { get; set; } // ["booking_register", "tax_summary", "party_outstanding", "trip_profitability", "vendor_payables"]

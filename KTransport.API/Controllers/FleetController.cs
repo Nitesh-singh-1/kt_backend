@@ -53,6 +53,15 @@ namespace KTransport.API.Controllers
             return CreatedAtAction(nameof(GetVehicleById), new { id = result.Id }, result);
         }
 
+        [HttpPut("vehicles/{id:long}")]
+        public async Task<ActionResult<VehicleDto>> UpdateVehicle(long id, [FromBody] UpdateVehicleRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var result = await _fleetService.UpdateVehicleAsync(id, request);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+
         [HttpDelete("vehicles/{id:long}")]
         public async Task<ActionResult> DeleteVehicle(long id)
         {
@@ -92,6 +101,15 @@ namespace KTransport.API.Controllers
             return CreatedAtAction(nameof(GetDriverById), new { id = result.Id }, result);
         }
 
+        [HttpPut("drivers/{id:long}")]
+        public async Task<ActionResult<DriverDto>> UpdateDriver(long id, [FromBody] UpdateDriverRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var result = await _fleetService.UpdateDriverAsync(id, request);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+
         [HttpDelete("drivers/{id:long}")]
         public async Task<ActionResult> DeleteDriver(long id)
         {
@@ -129,6 +147,15 @@ namespace KTransport.API.Controllers
             if (!ModelState.IsValid) return BadRequest(ModelState);
             var result = await _fleetService.CreateLocationAsync(request);
             return CreatedAtAction(nameof(GetLocationById), new { id = result.Id }, result);
+        }
+
+        [HttpPut("locations/{id:long}")]
+        public async Task<ActionResult<LocationDto>> UpdateLocation(long id, [FromBody] UpdateLocationRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var result = await _fleetService.UpdateLocationAsync(id, request);
+            if (result == null) return NotFound();
+            return Ok(result);
         }
 
         [HttpDelete("locations/{id:long}")]

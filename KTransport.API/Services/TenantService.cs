@@ -84,6 +84,8 @@ namespace KTransport.API.Services
                 await _context.SaveChangesAsync();
 
                 // 2. Create Admin User for this Tenant
+                var assignedRole = string.IsNullOrWhiteSpace(request.AdminRole) ? "admin" : request.AdminRole.Trim();
+
                 var adminUser = new User
                 {
                     TenantId = tenant.Id,
@@ -91,7 +93,7 @@ namespace KTransport.API.Services
                     Password = BCrypt.Net.BCrypt.HashPassword(request.AdminPassword),
                     FullName = request.AdminFullName.Trim(),
                     Mobile = request.AdminMobile,
-                    Role = "admin",
+                    Role = assignedRole,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 };

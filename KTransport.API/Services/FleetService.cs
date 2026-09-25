@@ -112,8 +112,8 @@ namespace KTransport.API.Services
                 VehicleType = request.VehicleType?.Trim(),
                 OwnerType = request.OwnerType?.Trim(),
                 CapacityTons = request.CapacityTons,
-                EngineNo = request.EngineNo?.Trim(),
-                ChassisNo = request.ChassisNo?.Trim(),
+                EngineNo = request.EngineNo?.Trim().ToUpperInvariant(),
+                ChassisNo = request.ChassisNo?.Trim().ToUpperInvariant(),
                 FitnessValidUntil = request.FitnessValidUntil,
                 InsuranceValidUntil = request.InsuranceValidUntil,
                 PermitValidUntil = request.PermitValidUntil,
@@ -140,6 +140,55 @@ namespace KTransport.API.Services
                 PermitValidUntil = vehicle.PermitValidUntil,
                 IsActive = vehicle.IsActive,
                 CreatedAt = vehicle.CreatedAt
+            };
+        }
+
+        public async Task<VehicleDto?> UpdateVehicleAsync(long id, UpdateVehicleRequest request)
+        {
+            var vehicle = await _context.Vehicles.FirstOrDefaultAsync(v => v.Id == id);
+            if (vehicle == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(request.VehicleNo))
+                vehicle.VehicleNo = request.VehicleNo.Trim().ToUpperInvariant();
+            if (request.VehicleType != null)
+                vehicle.VehicleType = request.VehicleType.Trim();
+            if (request.OwnerType != null)
+                vehicle.OwnerType = request.OwnerType.Trim();
+            if (request.CapacityTons.HasValue)
+                vehicle.CapacityTons = request.CapacityTons.Value;
+            if (request.EngineNo != null)
+                vehicle.EngineNo = request.EngineNo.Trim().ToUpperInvariant();
+            if (request.ChassisNo != null)
+                vehicle.ChassisNo = request.ChassisNo.Trim().ToUpperInvariant();
+            if (request.FitnessValidUntil.HasValue)
+                vehicle.FitnessValidUntil = request.FitnessValidUntil;
+            if (request.InsuranceValidUntil.HasValue)
+                vehicle.InsuranceValidUntil = request.InsuranceValidUntil;
+            if (request.PermitValidUntil.HasValue)
+                vehicle.PermitValidUntil = request.PermitValidUntil;
+            if (request.IsActive.HasValue)
+                vehicle.IsActive = request.IsActive.Value;
+
+            vehicle.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Updated vehicle {VehicleNo} (ID: {Id})", vehicle.VehicleNo, vehicle.Id);
+            return new VehicleDto
+            {
+                Id = vehicle.Id,
+                TenantId = vehicle.TenantId,
+                VehicleNo = vehicle.VehicleNo,
+                VehicleType = vehicle.VehicleType,
+                OwnerType = vehicle.OwnerType,
+                CapacityTons = vehicle.CapacityTons,
+                EngineNo = vehicle.EngineNo,
+                ChassisNo = vehicle.ChassisNo,
+                FitnessValidUntil = vehicle.FitnessValidUntil,
+                InsuranceValidUntil = vehicle.InsuranceValidUntil,
+                PermitValidUntil = vehicle.PermitValidUntil,
+                IsActive = vehicle.IsActive,
+                CreatedAt = vehicle.CreatedAt,
+                UpdatedAt = vehicle.UpdatedAt
             };
         }
 
@@ -237,9 +286,9 @@ namespace KTransport.API.Services
         {
             var driver = new Driver
             {
-                Name = request.Name.Trim(),
+                Name = ToTitleCase(request.Name),
                 Mobile = request.Mobile?.Trim(),
-                LicenseNo = request.LicenseNo?.Trim(),
+                LicenseNo = request.LicenseNo?.Trim().ToUpperInvariant(),
                 LicenseValidUntil = request.LicenseValidUntil,
                 AadharNo = request.AadharNo?.Trim(),
                 Address = request.Address?.Trim(),
@@ -263,6 +312,46 @@ namespace KTransport.API.Services
                 Address = driver.Address,
                 IsActive = driver.IsActive,
                 CreatedAt = driver.CreatedAt
+            };
+        }
+
+        public async Task<DriverDto?> UpdateDriverAsync(long id, UpdateDriverRequest request)
+        {
+            var driver = await _context.Drivers.FirstOrDefaultAsync(d => d.Id == id);
+            if (driver == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(request.Name))
+                driver.Name = ToTitleCase(request.Name);
+            if (request.Mobile != null)
+                driver.Mobile = request.Mobile.Trim();
+            if (request.LicenseNo != null)
+                driver.LicenseNo = request.LicenseNo.Trim().ToUpperInvariant();
+            if (request.LicenseValidUntil.HasValue)
+                driver.LicenseValidUntil = request.LicenseValidUntil;
+            if (request.AadharNo != null)
+                driver.AadharNo = request.AadharNo.Trim();
+            if (request.Address != null)
+                driver.Address = request.Address.Trim();
+            if (request.IsActive.HasValue)
+                driver.IsActive = request.IsActive.Value;
+
+            driver.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Updated driver {Name} (ID: {Id})", driver.Name, driver.Id);
+            return new DriverDto
+            {
+                Id = driver.Id,
+                TenantId = driver.TenantId,
+                Name = driver.Name,
+                Mobile = driver.Mobile,
+                LicenseNo = driver.LicenseNo,
+                LicenseValidUntil = driver.LicenseValidUntil,
+                AadharNo = driver.AadharNo,
+                Address = driver.Address,
+                IsActive = driver.IsActive,
+                CreatedAt = driver.CreatedAt,
+                UpdatedAt = driver.UpdatedAt
             };
         }
 
@@ -370,9 +459,9 @@ namespace KTransport.API.Services
             var loc = new Location
             {
                 Code = code.ToUpperInvariant(),
-                Name = request.Name.Trim(),
-                City = request.City?.Trim(),
-                State = request.State?.Trim(),
+                Name = ToTitleCase(request.Name),
+                City = request.City != null ? ToTitleCase(request.City) : null,
+                State = request.State != null ? ToTitleCase(request.State) : null,
                 Address = request.Address?.Trim(),
                 Pincode = request.Pincode?.Trim(),
                 IsActive = true,
@@ -396,6 +485,52 @@ namespace KTransport.API.Services
                 IsActive = loc.IsActive,
                 CreatedAt = loc.CreatedAt
             };
+        }
+
+        public async Task<LocationDto?> UpdateLocationAsync(long id, UpdateLocationRequest request)
+        {
+            var loc = await _context.Locations.FirstOrDefaultAsync(l => l.Id == id);
+            if (loc == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(request.Code))
+                loc.Code = request.Code.Trim().ToUpperInvariant();
+            if (!string.IsNullOrWhiteSpace(request.Name))
+                loc.Name = ToTitleCase(request.Name);
+            if (request.City != null)
+                loc.City = ToTitleCase(request.City);
+            if (request.State != null)
+                loc.State = ToTitleCase(request.State);
+            if (request.Address != null)
+                loc.Address = request.Address.Trim();
+            if (request.Pincode != null)
+                loc.Pincode = request.Pincode.Trim();
+            if (request.IsActive.HasValue)
+                loc.IsActive = request.IsActive.Value;
+
+            loc.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Updated location {Code} - {Name} (ID: {Id})", loc.Code, loc.Name, loc.Id);
+            return new LocationDto
+            {
+                Id = loc.Id,
+                TenantId = loc.TenantId,
+                Code = loc.Code,
+                Name = loc.Name,
+                City = loc.City,
+                State = loc.State,
+                Address = loc.Address,
+                Pincode = loc.Pincode,
+                IsActive = loc.IsActive,
+                CreatedAt = loc.CreatedAt,
+                UpdatedAt = loc.UpdatedAt
+            };
+        }
+
+        private static string ToTitleCase(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+            return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(input.Trim().ToLowerInvariant());
         }
 
         private static string GenerateLocationCode(string name)

@@ -120,6 +120,42 @@ namespace KTransport.API.DTOs
         public string? Pincode { get; set; }
     }
 
+    public class UpdateVehicleRequest
+    {
+        public string? VehicleNo { get; set; }
+        public string? VehicleType { get; set; }
+        public string? OwnerType { get; set; }
+        public decimal? CapacityTons { get; set; }
+        public string? EngineNo { get; set; }
+        public string? ChassisNo { get; set; }
+        public DateOnly? FitnessValidUntil { get; set; }
+        public DateOnly? InsuranceValidUntil { get; set; }
+        public DateOnly? PermitValidUntil { get; set; }
+        public bool? IsActive { get; set; }
+    }
+
+    public class UpdateDriverRequest
+    {
+        public string? Name { get; set; }
+        public string? Mobile { get; set; }
+        public string? LicenseNo { get; set; }
+        public DateOnly? LicenseValidUntil { get; set; }
+        public string? AadharNo { get; set; }
+        public string? Address { get; set; }
+        public bool? IsActive { get; set; }
+    }
+
+    public class UpdateLocationRequest
+    {
+        public string? Code { get; set; }
+        public string? Name { get; set; }
+        public string? City { get; set; }
+        public string? State { get; set; }
+        public string? Address { get; set; }
+        public string? Pincode { get; set; }
+        public bool? IsActive { get; set; }
+    }
+
     public class LocationLookupDto
     {
         public long Id { get; set; }
