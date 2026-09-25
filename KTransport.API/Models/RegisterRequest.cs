@@ -6,6 +6,6 @@ namespace KTransport.API.Models
         public string Password { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
         public string Mobile { get; set; } = string.Empty;
-        public string Role { get; set; } = "User";
+        public string Role { get; set; } = "SUB_USER";
     }
 }

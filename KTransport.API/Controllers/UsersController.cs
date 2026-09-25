@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using KTransport.API.Authorization;
 using KTransport.API.DTOs;
+using KTransport.API.Models;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -123,6 +124,28 @@ namespace KTransport.API.Controllers
         {
             var tenantId = _tenantContext.CurrentTenantId;
             var result = await _userService.ToggleUserStatusAsync(tenantId, id, request.IsActive);
+
+            if (!result.Success)
+            {
+                return BadRequest(new { success = false, message = result.Message });
+            }
+
+            return Ok(new { success = true, message = result.Message });
+        }
+
+        /// <summary>
+        /// Superadmin direct password reset for a sub-user.
+        /// </summary>
+        [HttpPost("{id:int}/reset-password")]
+        public async Task<IActionResult> AdminResetPassword(int id, [FromBody] AdminResetPasswordRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.NewPassword))
+            {
+                return BadRequest(new { success = false, message = "New password is required." });
+            }
+
+            var tenantId = _tenantContext.CurrentTenantId;
+            var result = await _userService.AdminResetUserPasswordAsync(tenantId, id, request.NewPassword);
 
             if (!result.Success)
             {

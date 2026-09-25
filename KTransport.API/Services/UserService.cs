@@ -283,6 +283,24 @@ namespace KTransport.API.Services
             return (true, "User deactivated successfully.");
         }
 
+        public async Task<(bool Success, string Message)> AdminResetUserPasswordAsync(Guid tenantId, int userId, string newPassword)
+        {
+            if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
+            {
+                return (false, "Password must be at least 6 characters long.");
+            }
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.TenantId == tenantId && u.Id == userId);
+
+            if (user == null) return (false, "User not found.");
+
+            user.Password = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            await _context.SaveChangesAsync();
+
+            return (true, $"Password for user '{user.Username}' was reset successfully.");
+        }
+
         private async Task SaveUserFeatureAssignmentsAsync(Guid tenantId, int userId, string username, List<string> features)
         {
             var setting = await _context.TenantSettings

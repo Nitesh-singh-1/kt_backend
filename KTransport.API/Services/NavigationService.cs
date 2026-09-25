@@ -395,6 +395,14 @@ namespace KTransport.API.Services
                 {
                     new DynamicMenuItemDto
                     {
+                        Id = "system.users",
+                        Title = "Manage Users & Access",
+                        Path = "/users",
+                        Icon = "users",
+                        PermissionKey = "users.manage"
+                    },
+                    new DynamicMenuItemDto
+                    {
                         Id = "system.settings",
                         Title = "SaaS Configuration",
                         Path = "/settings",

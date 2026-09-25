@@ -15,6 +15,8 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly JwtSettings _jwtSettings;
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _resetCodes = new(StringComparer.OrdinalIgnoreCase);
+
         public AuthService(ILogger<AuthService> logger, KTransportDbContext context, IOptions<JwtSettings> jwtSettings)
         {
             _logger = logger;
@@ -120,7 +122,7 @@ namespace KTransport.API.Services
                 // Check if user already exists
                 var existingUser = await _context.Users
                     .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(u => u.Username == request.Username);
+                    .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower());
 
                 if (existingUser != null)
                 {
@@ -131,14 +133,19 @@ namespace KTransport.API.Services
                     };
                 }
 
+                // Never grant admin role via public registration - always default to SUB_USER
+                var assignedRole = string.IsNullOrWhiteSpace(request.Role) || request.Role.Equals("admin", StringComparison.OrdinalIgnoreCase) || request.Role.Equals("SUPERADMIN", StringComparison.OrdinalIgnoreCase)
+                    ? "SUB_USER"
+                    : request.Role;
+
                 // Create new user with BCrypt hashed password
                 var newUser = new User
                 {
-                    Username = request.Username,
+                    Username = request.Username.Trim(),
                     Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
-                    FullName = request.FullName,
-                    Mobile = request.Mobile,
-                    Role = request.Role,
+                    FullName = request.FullName.Trim(),
+                    Mobile = request.Mobile?.Trim(),
+                    Role = assignedRole,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 };
@@ -159,7 +166,7 @@ namespace KTransport.API.Services
                         Id = newUser.Id,
                         Username = newUser.Username,
                         FullName = newUser.FullName ?? string.Empty,
-                        Role = newUser.Role ?? "User",
+                        Role = newUser.Role ?? "SUB_USER",
                         Mobile = newUser.Mobile
                     }
                 };
@@ -230,7 +237,7 @@ namespace KTransport.API.Services
                         Id = user.Id,
                         Username = user.Username,
                         FullName = user.FullName ?? string.Empty,
-                        Role = user.Role ?? "User",
+                        Role = user.Role ?? "SUB_USER",
                         Mobile = user.Mobile
                     }
                 };
@@ -242,6 +249,154 @@ namespace KTransport.API.Services
                 {
                     Success = false,
                     Message = "Invalid token"
+                };
+            }
+        }
+
+        public async Task<RequestResetCodeResponse> RequestPasswordResetCodeAsync(RequestResetCodeRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Password reset verification code requested for username: {Username}", request.Username);
+
+                if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Mobile))
+                {
+                    return new RequestResetCodeResponse
+                    {
+                        Success = false,
+                        Message = "Username and registered mobile number are required."
+                    };
+                }
+
+                var cleanUsername = request.Username.Trim().ToLower();
+                var cleanMobile = new string(request.Mobile.Where(char.IsDigit).ToArray());
+
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername && u.IsActive == true);
+
+                if (user == null)
+                {
+                    return new RequestResetCodeResponse
+                    {
+                        Success = false,
+                        Message = "No active user found with the provided username."
+                    };
+                }
+
+                var userMobileClean = new string((user.Mobile ?? "").Where(char.IsDigit).ToArray());
+                if (!string.IsNullOrEmpty(userMobileClean) && !string.IsNullOrEmpty(cleanMobile))
+                {
+                    if (!userMobileClean.EndsWith(cleanMobile) && !cleanMobile.EndsWith(userMobileClean))
+                    {
+                        return new RequestResetCodeResponse
+                        {
+                            Success = false,
+                            Message = "Mobile number does not match registered account records."
+                        };
+                    }
+                }
+
+                // Generate secure 6-digit OTP code
+                var verificationCode = Random.Shared.Next(100000, 999999).ToString();
+                var expiry = DateTime.UtcNow.AddMinutes(10);
+
+                _resetCodes[cleanUsername] = (verificationCode, expiry);
+
+                _logger.LogInformation("Generated verification code for {Username}: {Code} (Valid for 10 mins)", cleanUsername, verificationCode);
+
+                return new RequestResetCodeResponse
+                {
+                    Success = true,
+                    Message = $"Verification code generated successfully. Valid for 10 minutes.",
+                    VerificationCode = verificationCode,
+                    ExpiresInSeconds = 600
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error requesting password reset code");
+                return new RequestResetCodeResponse
+                {
+                    Success = false,
+                    Message = "An error occurred while generating verification code."
+                };
+            }
+        }
+
+        public async Task<ResetPasswordResponse> VerifyAndResetPasswordAsync(VerifyAndResetPasswordRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Verifying reset code for username: {Username}", request.Username);
+
+                if (string.IsNullOrWhiteSpace(request.Username) || 
+                    string.IsNullOrWhiteSpace(request.VerificationCode) || 
+                    string.IsNullOrWhiteSpace(request.NewPassword))
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "Username, verification code, and new password are required."
+                    };
+                }
+
+                var cleanUsername = request.Username.Trim().ToLower();
+                var cleanCode = request.VerificationCode.Trim();
+
+                if (!_resetCodes.TryGetValue(cleanUsername, out var stored) || stored.Expiry < DateTime.UtcNow)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "Verification code has expired or was not requested. Please request a new code."
+                    };
+                }
+
+                if (stored.Code != cleanCode)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "Invalid verification code. Please check and try again."
+                    };
+                }
+
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername && u.IsActive == true);
+
+                if (user == null)
+                {
+                    return new ResetPasswordResponse
+                    {
+                        Success = false,
+                        Message = "User not found or inactive."
+                    };
+                }
+
+                // Update password with BCrypt hash
+                user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+                await _context.SaveChangesAsync();
+
+                // Consume verification code
+                _resetCodes.TryRemove(cleanUsername, out _);
+
+                _logger.LogInformation("Password reset successfully verified for user: {Username}", user.Username);
+
+                return new ResetPasswordResponse
+                {
+                    Success = true,
+                    Message = "Password has been reset successfully. You can now sign in with your new password."
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error verifying and resetting password for {Username}", request.Username);
+                return new ResetPasswordResponse
+                {
+                    Success = false,
+                    Message = "An error occurred while updating password."
                 };
             }
         }
@@ -261,9 +416,10 @@ namespace KTransport.API.Services
                     };
                 }
 
+                var cleanUsername = request.Username.Trim().ToLower();
                 var user = await _context.Users
                     .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(u => u.Username == request.Username && u.IsActive == true);
+                    .FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername && u.IsActive == true);
 
                 if (user == null)
                 {
@@ -277,13 +433,19 @@ namespace KTransport.API.Services
                 // Verify mobile if provided
                 if (!string.IsNullOrWhiteSpace(request.Mobile) && !string.IsNullOrWhiteSpace(user.Mobile))
                 {
-                    if (user.Mobile.Trim() != request.Mobile.Trim())
+                    var reqMobile = new string(request.Mobile.Where(char.IsDigit).ToArray());
+                    var userMobile = new string(user.Mobile.Where(char.IsDigit).ToArray());
+
+                    if (!string.IsNullOrEmpty(userMobile) && !string.IsNullOrEmpty(reqMobile))
                     {
-                        return new ResetPasswordResponse
+                        if (!userMobile.EndsWith(reqMobile) && !reqMobile.EndsWith(userMobile))
                         {
-                            Success = false,
-                            Message = "Mobile number does not match registered user details."
-                        };
+                            return new ResetPasswordResponse
+                            {
+                                Success = false,
+                                Message = "Mobile number does not match registered user details."
+                            };
+                        }
                     }
                 }
 

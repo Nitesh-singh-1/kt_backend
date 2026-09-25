@@ -70,6 +70,44 @@ namespace KTransport.API.Controllers
             return Ok(response);
         }
 
+        [HttpPost("forgot-password/request-code")]
+        [AllowAnonymous]
+        public async Task<ActionResult<RequestResetCodeResponse>> RequestPasswordResetCode([FromBody] RequestResetCodeRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var response = await _authService.RequestPasswordResetCodeAsync(request);
+
+            if (!response.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost("forgot-password/verify-and-reset")]
+        [AllowAnonymous]
+        public async Task<ActionResult<ResetPasswordResponse>> VerifyAndResetPassword([FromBody] VerifyAndResetPasswordRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var response = await _authService.VerifyAndResetPasswordAsync(request);
+
+            if (!response.Success)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
         [HttpPost("reset-password")]
         [AllowAnonymous]
         public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ForgotPasswordRequest request)
