@@ -15,8 +15,11 @@ services:
       - JwtSettings__Issuer=${JWT_ISSUER:-KTransportAPI}
       - JwtSettings__Audience=${JWT_AUDIENCE:-KTransportClient}
       - JwtSettings__ExpiryInMinutes=${JWT_EXPIRY:-60}
+      - Logging__LogLevel__Default=Information
+      - Logging__LogLevel__Microsoft.EntityFrameworkCore=Information
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - kt_network
@@ -33,6 +36,12 @@ services:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - kt_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-kt}"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
     restart: unless-stopped
     networks:
       - kt_network
@@ -43,3 +52,4 @@ networks:
 
 volumes:
   kt_postgres_data:
+

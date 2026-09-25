@@ -195,13 +195,13 @@ namespace KTransport.API.Services
                 }
             }
 
-            // 3. LR / Truck Challan (Manifest)
+            // 3. Manifest & Dispatch (LR / Truck Challan)
             if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST"))
             {
                 menu.Add(new DynamicMenuItemDto
                 {
                     Id = "trips",
-                    Title = "LR / Truck Challan",
+                    Title = "Manifest & Dispatch (Challans)",
                     Path = "/trips",
                     Icon = "truck",
                     PermissionKey = "trips.view"
