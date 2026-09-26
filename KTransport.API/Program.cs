@@ -2,10 +2,14 @@ using KTransport.API.Data;
 using KTransport.API.Models;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Threading.RateLimiting;
 
 // Enable Npgsql legacy timestamp behavior for compatibility with 'timestamp without time zone' columns
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -18,6 +22,23 @@ builder.Services.AddControllers();
 // Configure JWT Settings
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
 var jwtSettings = builder.Configuration.GetSection("JwtSettings").Get<JwtSettings>();
+
+// Fail fast if critical secrets are missing rather than silently starting with an insecure/empty signing key.
+// Values must come from appsettings.{Environment}.json, environment variables (ConnectionStrings__DefaultConnection,
+// JwtSettings__Secret), or `dotnet user-secrets` for local development.
+if (string.IsNullOrWhiteSpace(jwtSettings?.Secret))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:Secret is not configured. Set it via appsettings.{Environment}.json, the JwtSettings__Secret " +
+        "environment variable, or 'dotnet user-secrets set JwtSettings:Secret \"...\"' for local development.");
+}
+
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is not configured. Set it via appsettings.{Environment}.json, the " +
+        "ConnectionStrings__DefaultConnection environment variable, or 'dotnet user-secrets' for local development.");
+}
 
 // Add HttpContextAccessor and Multi-Tenancy Context
 builder.Services.AddHttpContextAccessor();
@@ -77,6 +98,13 @@ builder.Services.AddScoped<INavigationService, NavigationService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IVerificationCodeService, VerificationCodeService>();
+builder.Services.AddScoped<IInvitationService, InvitationService>();
+
+// Email / notification infrastructure
+builder.Services.Configure<KTransport.API.Services.Email.EmailSettings>(builder.Configuration.GetSection("Email"));
+builder.Services.AddScoped<KTransport.API.Services.Email.IEmailSender, KTransport.API.Services.Email.SmtpEmailSender>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -118,18 +146,47 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// Allowed browser origins come from configuration (Cors:AllowedOrigins), never a wildcard-all policy.
+// Note: the Electron desktop build disables webSecurity and is not subject to browser CORS at all —
+// this policy only matters for the web frontend accessed directly through a browser.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        }
+        else
+        {
+            // No origins configured: reject all cross-origin browser requests rather than allowing everything.
+            policy.WithOrigins(Array.Empty<string>());
+        }
+    });
+});
+
+// Basic abuse protection on auth/onboarding endpoints (brute force, credential stuffing, bot signups).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddFixedWindowLimiter("AuthPolicy", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 10;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
     });
 });
 
 var app = builder.Build();
+
+// Consistent JSON error envelope for any unhandled exception (must be first to wrap everything).
+app.UseMiddleware<KTransport.API.Middleware.ExceptionHandlingMiddleware>();
 
 // Configure the HTTP request pipeline.
 app.UseSwagger();
@@ -139,12 +196,19 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
 app.UseHttpsRedirection();
+
+app.UseCors("AllowReactApp");
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.UseCors("AllowReactApp");
 
 app.MapControllers();
 
@@ -165,6 +229,16 @@ using (var scope = app.Services.CreateScope())
 
             if (dbContext.Database.IsRelational())
             {
+                // 0. Ensure the database itself exists. Migrate() creates tables (not the database),
+                //    and the baseline SQL below needs a connectable database — so on a brand-new
+                //    deployment we create the empty database first, then baseline + migrate.
+                var dbCreator = dbContext.Database.GetService<IRelationalDatabaseCreator>();
+                if (!dbCreator.Exists())
+                {
+                    dbCreator.Create();
+                    logger.LogInformation("Created new empty database for first-time initialization.");
+                }
+
                 // 1. Baseline existing tables in __EFMigrationsHistory ONLY if database pre-existed before EF Core migrations
                 dbContext.Database.ExecuteSqlRaw(@"
                     CREATE TABLE IF NOT EXISTS ""__EFMigrationsHistory"" (
@@ -190,99 +264,11 @@ using (var scope = app.Services.CreateScope())
                 dbContext.Database.Migrate();
                 logger.LogInformation("Database migrations applied successfully via EF Core.");
 
-                // 3. Apply post-migration safety patches for any dynamic columns
-                dbContext.Database.ExecuteSqlRaw(@"
-                    DO $$
-                    BEGIN
-                        -- Safely patch tenant_settings if table exists
-                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tenant_settings') THEN
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tenant_settings' AND column_name = 'menu_entitlements_json') THEN
-                                ALTER TABLE tenant_settings ADD COLUMN menu_entitlements_json text NOT NULL DEFAULT '{}';
-                            END IF;
-                        END IF;
-
-                        -- Safely patch invoices if table exists
-                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'payment_mode') THEN
-                                ALTER TABLE invoices ADD COLUMN payment_mode character varying(50) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_id') THEN
-                                ALTER TABLE invoices ADD COLUMN party_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_name') THEN
-                                ALTER TABLE invoices ADD COLUMN party_name character varying(150) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_gst_no') THEN
-                                ALTER TABLE invoices ADD COLUMN party_gst_no character varying(30) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'party_address') THEN
-                                ALTER TABLE invoices ADD COLUMN party_address character varying(300) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'paid_amount') THEN
-                                ALTER TABLE invoices ADD COLUMN paid_amount numeric(14,2) DEFAULT 0;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'due_amount') THEN
-                                ALTER TABLE invoices ADD COLUMN due_amount numeric(14,2) DEFAULT 0;
-                            END IF;
-                        END IF;
-
-                        -- Safely patch shipments if table exists
-                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shipments') THEN
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'origin_hub_id') THEN
-                                ALTER TABLE shipments ADD COLUMN origin_hub_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'destination_hub_id') THEN
-                                ALTER TABLE shipments ADD COLUMN destination_hub_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'current_hub_id') THEN
-                                ALTER TABLE shipments ADD COLUMN current_hub_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'delivery_type') THEN
-                                ALTER TABLE shipments ADD COLUMN delivery_type character varying(50) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'eway_bill_no') THEN
-                                ALTER TABLE shipments ADD COLUMN eway_bill_no character varying(50) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'eway_bill_valid_upto') THEN
-                                ALTER TABLE shipments ADD COLUMN eway_bill_valid_upto timestamp without time zone NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'invoice_id') THEN
-                                ALTER TABLE shipments ADD COLUMN invoice_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'consignor_party_id') THEN
-                                ALTER TABLE shipments ADD COLUMN consignor_party_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'consignee_party_id') THEN
-                                ALTER TABLE shipments ADD COLUMN consignee_party_id bigint NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'paid_amount') THEN
-                                ALTER TABLE shipments ADD COLUMN paid_amount numeric(14,2) DEFAULT 0;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shipments' AND column_name = 'due_amount') THEN
-                                ALTER TABLE shipments ADD COLUMN due_amount numeric(14,2) DEFAULT 0;
-                            END IF;
-                        END IF;
-
-                        -- Safely patch trips if table exists
-                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trips') THEN
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'origin_location_name') THEN
-                                ALTER TABLE trips ADD COLUMN origin_location_name character varying(150) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'destination_location_name') THEN
-                                ALTER TABLE trips ADD COLUMN destination_location_name character varying(150) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'driver_name') THEN
-                                ALTER TABLE trips ADD COLUMN driver_name character varying(150) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'driver_mobile') THEN
-                                ALTER TABLE trips ADD COLUMN driver_mobile character varying(20) NULL;
-                            END IF;
-                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'vehicle_no') THEN
-                                ALTER TABLE trips ADD COLUMN vehicle_no character varying(50) NULL;
-                            END IF;
-                        END IF;
-                    END $$;
-                ");
+                // NOTE: the previous ad-hoc "ALTER TABLE ... IF NOT EXISTS" startup patch block was
+                // removed here. Every column it added is already created by the EF migrations above, so
+                // it was redundant — and its `DEFAULT '{}'` literal was parsed as a String.Format
+                // placeholder by ExecuteSqlRaw, throwing FormatException on every boot and preventing
+                // a fresh database from being seeded. Schema now comes solely from EF migrations.
             }
 
             // Seed default tenant if not already present
@@ -358,8 +344,15 @@ using (var scope = app.Services.CreateScope())
                 }
             }
 
-            // Seed default admin user if not already present
-            if (!dbContext.Users.Any(u => u.Username == "admin"))
+            // Seed the default admin user, or repair its login on a fresh DB.
+            // The InitialCreate migration seeds an admin via HasData with a stale placeholder password
+            // hash that does NOT actually verify against "admin123". On a fresh database that row is
+            // created by Migrate() before this block runs, so we detect the untouched stale hash and
+            // reset it to a real BCrypt hash of "admin123". An admin whose password was already changed
+            // (any other hash) is left untouched.
+            const string StaleSeedAdminHash = "$2a$11$0aBw4j5tM1Ew2k5hF8O/TehI5jY9K2HkZ0K6o0tM6dYp/1R9Gq8m6";
+            var seededAdmin = dbContext.Users.IgnoreQueryFilters().FirstOrDefault(u => u.Username == "admin");
+            if (seededAdmin == null)
             {
                 dbContext.Users.Add(new User
                 {
@@ -373,6 +366,12 @@ using (var scope = app.Services.CreateScope())
                     Mobile = "9504600060"
                 });
                 dbContext.SaveChanges();
+            }
+            else if (seededAdmin.Password == StaleSeedAdminHash)
+            {
+                seededAdmin.Password = BCrypt.Net.BCrypt.HashPassword("admin123");
+                dbContext.SaveChanges();
+                logger.LogInformation("Repaired default admin login on first-time initialization.");
             }
 
             logger.LogInformation("Database startup initialization completed successfully.");

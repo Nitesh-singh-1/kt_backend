@@ -6,6 +6,7 @@ using KTransport.API.Models;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace KTransport.API.Controllers
 {
@@ -27,6 +28,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPost("onboard")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<TenantOnboardingResponse>> OnboardTenant([FromBody] TenantOnboardingRequest request)
         {
             if (!ModelState.IsValid)
@@ -48,7 +50,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<IActionResult> GetAllTenants()
         {
             var tenants = await _tenantService.GetAllTenantsWithDetailsAsync();
@@ -60,7 +62,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("{id:guid}")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<IActionResult> GetTenantById(Guid id)
         {
             var tenant = await _tenantService.GetTenantByIdAsync(id);
@@ -77,7 +79,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPut("{id:guid}/status")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<IActionResult> UpdateTenantStatus(Guid id, [FromBody] TenantStatusUpdateDto dto)
         {
             var success = await _tenantService.UpdateTenantStatusAsync(id, dto.IsActive);
@@ -94,7 +96,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPut("{id:guid}/plan")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<IActionResult> UpdateTenantPlan(Guid id, [FromBody] TenantPlanUpdateDto dto)
         {
             var success = await _tenantService.UpdateTenantSubscriptionPlanAsync(id, dto.PlanTier);
@@ -111,7 +113,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("{id:guid}/entitlements")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> GetTenantEntitlements(Guid id)
         {
             var entitlements = await _navService.GetTenantMenuEntitlementsAsync(id);
@@ -123,7 +125,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPut("{id:guid}/entitlements")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> UpdateTenantEntitlements(Guid id, [FromBody] TenantMenuEntitlementsDto dto)
         {
             if (!ModelState.IsValid)
@@ -133,6 +135,36 @@ namespace KTransport.API.Controllers
 
             var updated = await _navService.UpdateTenantMenuEntitlementsAsync(id, dto);
             return Ok(updated);
+        }
+
+        /// <summary>
+        /// List the users of a specific tenant (Platform operator only).
+        /// </summary>
+        [HttpGet("{id:guid}/users")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<IActionResult> GetTenantUsers(Guid id)
+        {
+            var users = await _tenantService.GetTenantUsersAsync(id);
+            return Ok(users);
+        }
+
+        /// <summary>
+        /// Set a tenant user's role — e.g. promote to admin or demote to standard user (Platform operator only).
+        /// Used to assign/repair an organization's administrator.
+        /// </summary>
+        [HttpPut("{id:guid}/users/{userId:int}/role")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<IActionResult> SetTenantUserRole(Guid id, int userId, [FromBody] SetUserRoleRequest dto)
+        {
+            var (success, message) = await _tenantService.SetTenantUserRoleAsync(id, userId, dto.Role);
+            if (!success)
+            {
+                return BadRequest(new { success = false, message });
+            }
+
+            return Ok(new { success = true, message });
         }
     }
 }

@@ -17,11 +17,43 @@ namespace KTransport.API.Controllers
     {
         private readonly IUserService _userService;
         private readonly ITenantContext _tenantContext;
+        private readonly IInvitationService _invitationService;
 
-        public UsersController(IUserService userService, ITenantContext tenantContext)
+        public UsersController(IUserService userService, ITenantContext tenantContext, IInvitationService invitationService)
         {
             _userService = userService;
             _tenantContext = tenantContext;
+            _invitationService = invitationService;
+        }
+
+        private int? CurrentUserId =>
+            int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
+
+        /// <summary>Invite a teammate by email. They set their own username/password via the emailed link.</summary>
+        [HttpPost("invite")]
+        public async Task<IActionResult> InviteUser([FromBody] CreateInviteRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var result = await _invitationService.CreateInviteAsync(_tenantContext.CurrentTenantId, CurrentUserId, request);
+            if (!result.Success) return BadRequest(new { success = false, message = result.Message });
+            return Ok(new { success = true, message = result.Message, invite = result.Data });
+        }
+
+        /// <summary>List this organization's invitations (pending/accepted/revoked/expired).</summary>
+        [HttpGet("invites")]
+        public async Task<IActionResult> GetInvites()
+        {
+            var invites = await _invitationService.GetInvitesAsync(_tenantContext.CurrentTenantId);
+            return Ok(invites);
+        }
+
+        /// <summary>Revoke a pending invitation.</summary>
+        [HttpPost("invites/{id:long}/revoke")]
+        public async Task<IActionResult> RevokeInvite(long id)
+        {
+            var result = await _invitationService.RevokeInviteAsync(_tenantContext.CurrentTenantId, id);
+            if (!result.Success) return BadRequest(new { success = false, message = result.Message });
+            return Ok(new { success = true, message = result.Message });
         }
 
         /// <summary>

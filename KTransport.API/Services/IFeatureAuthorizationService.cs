@@ -15,9 +15,18 @@ namespace KTransport.API.Services
         Task<FeatureAuthorizationResult> AuthorizeFeatureAsync(ClaimsPrincipal user, Guid tenantId, string featureCode);
 
         /// <summary>
-        /// Validates whether the caller is a Super User / Tenant Owner.
+        /// Validates whether the caller is a Super User / Tenant Owner within their own organization.
+        /// NOTE: this is tenant-scoped in effect — any tenant's admin passes this. It must NOT be used
+        /// to gate cross-tenant / platform-wide operations; use <see cref="IsPlatformAdmin"/> for those.
         /// </summary>
         bool IsSuperUser(ClaimsPrincipal user);
+
+        /// <summary>
+        /// Validates whether the caller is the PLATFORM operator: a super user belonging to the
+        /// default/platform tenant. Only a platform admin may manage other tenants (list all,
+        /// suspend, change plans, etc.). An onboarded client's admin is never a platform admin.
+        /// </summary>
+        bool IsPlatformAdmin(ClaimsPrincipal user);
 
         /// <summary>
         /// Returns the set of all features subscribed to by the organization.

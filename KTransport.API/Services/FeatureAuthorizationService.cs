@@ -43,6 +43,20 @@ namespace KTransport.API.Services
                    string.Equals(role, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
         }
 
+        public bool IsPlatformAdmin(ClaimsPrincipal user)
+        {
+            if (!IsSuperUser(user))
+            {
+                return false;
+            }
+
+            // Platform authority is reserved for super users of the default/platform tenant only.
+            // Onboarded clients live in their own tenants and can therefore never be platform admins,
+            // regardless of the role string on their account.
+            var tenantClaim = user.FindFirst("tenant_id")?.Value ?? user.FindFirst("TenantId")?.Value;
+            return Guid.TryParse(tenantClaim, out var tenantId) && tenantId == TenantContext.DefaultTenantId;
+        }
+
         public async Task<HashSet<string>> GetSubscribedFeaturesAsync(Guid tenantId)
         {
             var setting = await _context.TenantSettings

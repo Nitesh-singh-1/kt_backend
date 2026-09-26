@@ -12,6 +12,7 @@ namespace KTransport.API.Models
         public string AdminPassword { get; set; } = null!;
         public string AdminFullName { get; set; } = null!;
         public string? AdminMobile { get; set; }
+        public string? AdminEmail { get; set; }
         public string? AdminRole { get; set; } = "admin";
         public string? PlanTier { get; set; } = "Starter"; // Starter, Professional, Enterprise, Custom
         public List<string>? EnabledModules { get; set; } // ["dashboard", "gr", "gr.list", "gr.entry", "challan", "challan.list", "challan.entry", "reports", "system"]
@@ -53,6 +54,24 @@ namespace KTransport.API.Models
     public class TenantPlanUpdateDto
     {
         public string PlanTier { get; set; } = "Starter";
+    }
+
+    public class TenantUserDto
+    {
+        public int Id { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string FullName { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string? Mobile { get; set; }
+        public string? Email { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsAdmin { get; set; }
+    }
+
+    public class SetUserRoleRequest
+    {
+        public int UserId { get; set; }
+        public string Role { get; set; } = "admin"; // "admin" or "SUB_USER"
     }
 
     public class TenantStatusUpdateDto

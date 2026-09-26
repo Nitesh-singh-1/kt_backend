@@ -12,5 +12,9 @@ namespace KTransport.API.Services
         Task<ResetPasswordResponse> VerifyAndResetPasswordAsync(VerifyAndResetPasswordRequest request);
         Task<ResetPasswordResponse> ResetPasswordAsync(ForgotPasswordRequest request);
         Task<ResetPasswordResponse> ChangePasswordAsync(int userId, ChangePasswordRequest request);
+        Task<MyProfileDto?> GetMyProfileAsync(int userId);
+        Task<(bool Success, string Message, MyProfileDto? Profile)> UpdateMyProfileAsync(int userId, UpdateProfileRequest request);
+        Task<AuthResponse> RefreshTokenAsync(string refreshToken);
+        Task RevokeRefreshTokenAsync(string refreshToken);
     }
 }

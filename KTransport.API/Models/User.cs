@@ -26,6 +26,8 @@ public partial class User : ITenantScopedEntity
 
     public string? Mobile { get; set; }
 
+    public string? Email { get; set; }
+
     public virtual ICollection<GstBill> GstBillCreatedByNavigations { get; set; } = new List<GstBill>();
 
     public virtual ICollection<GstBill> GstBillUpdatedByNavigations { get; set; } = new List<GstBill>();

@@ -67,6 +67,10 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<ConsignmentInvoiceReference> ConsignmentInvoiceReferences { get; set; }
     public virtual DbSet<Manifest> Manifests { get; set; }
     public virtual DbSet<ManifestItem> ManifestItems { get; set; }
+    public virtual DbSet<AuditLog> AuditLogs { get; set; }
+    public virtual DbSet<VerificationCode> VerificationCodes { get; set; }
+    public virtual DbSet<Invitation> Invitations { get; set; }
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
     public override int SaveChanges()
     {
@@ -332,6 +336,9 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.Mobile)
                 .HasMaxLength(10)
                 .HasColumnName("mobile");
+            entity.Property(e => e.Email)
+                .HasMaxLength(150)
+                .HasColumnName("email");
             entity.Property(e => e.Password)
                 .HasMaxLength(255)
                 .HasColumnName("password");
@@ -1586,6 +1593,107 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.UnloadedAtHubId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_manifest_items_unloaded_hub");
+        });
+
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("audit_logs_pkey");
+            entity.ToTable("audit_logs");
+
+            entity.HasIndex(e => new { e.TenantId, e.CreatedAt }, "audit_logs_tenant_created_at_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Username).HasMaxLength(100).HasColumnName("username");
+            entity.Property(e => e.Action).HasMaxLength(100).HasColumnName("action");
+            entity.Property(e => e.Success).HasDefaultValue(true).HasColumnName("success");
+            entity.Property(e => e.EntityType).HasMaxLength(100).HasColumnName("entity_type");
+            entity.Property(e => e.EntityId).HasMaxLength(100).HasColumnName("entity_id");
+            entity.Property(e => e.Details).HasMaxLength(1000).HasColumnName("details");
+            entity.Property(e => e.IpAddress).HasMaxLength(64).HasColumnName("ip_address");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_audit_logs_tenant");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_audit_logs_user");
+        });
+
+        modelBuilder.Entity<VerificationCode>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("verification_codes_pkey");
+            entity.ToTable("verification_codes");
+
+            entity.HasIndex(e => new { e.Username, e.Purpose, e.CreatedAt }, "verification_codes_username_purpose_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Username).HasMaxLength(50).HasColumnName("username");
+            entity.Property(e => e.Purpose).HasMaxLength(50).HasColumnName("purpose");
+            entity.Property(e => e.CodeHash).HasMaxLength(255).HasColumnName("code_hash");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.ConsumedAt).HasColumnType("timestamp without time zone").HasColumnName("consumed_at");
+            entity.Property(e => e.AttemptCount).HasDefaultValue(0).HasColumnName("attempt_count");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            // Intentionally NOT tenant-scoped — used pre-authentication, keyed by globally-unique username.
+        });
+
+        modelBuilder.Entity<Invitation>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("invitations_pkey");
+            entity.ToTable("invitations");
+
+            entity.HasIndex(e => e.Token, "invitations_token_key").IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.Email }, "invitations_tenant_email_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.Email).HasMaxLength(150).HasColumnName("email");
+            entity.Property(e => e.Role).HasMaxLength(50).HasColumnName("role");
+            entity.Property(e => e.AssignedFeaturesJson).HasColumnName("assigned_features_json");
+            entity.Property(e => e.Token).HasMaxLength(128).HasColumnName("token");
+            entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending").HasColumnName("status");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.InvitedByUserId).HasColumnName("invited_by_user_id");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.AcceptedAt).HasColumnType("timestamp without time zone").HasColumnName("accepted_at");
+
+            // NOT filtered by tenant query filter for the accept flow (looked up by token pre-auth);
+            // admin-side listing filters by tenant explicitly in the service.
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_invitations_tenant");
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("refresh_tokens_pkey");
+            entity.ToTable("refresh_tokens");
+
+            entity.HasIndex(e => e.TokenHash, "refresh_tokens_token_hash_key").IsUnique();
+            entity.HasIndex(e => e.UserId, "refresh_tokens_user_id_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.TokenHash).HasMaxLength(64).HasColumnName("token_hash");
+            entity.Property(e => e.ExpiresAt).HasColumnType("timestamp without time zone").HasColumnName("expires_at");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.RevokedAt).HasColumnType("timestamp without time zone").HasColumnName("revoked_at");
+            entity.Property(e => e.ReplacedByHash).HasMaxLength(64).HasColumnName("replaced_by_hash");
+
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_refresh_tokens_user");
         });
 
         OnModelCreatingPartial(modelBuilder);

@@ -3,6 +3,7 @@ using System;
 using KTransport.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KTransport.API.Migrations
 {
     [DbContext(typeof(KTransportDbContext))]
-    partial class KTransportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926171830_AddEmailAndVerificationCodes")]
+    partial class AddEmailAndVerificationCodes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1077,81 +1080,6 @@ namespace KTransport.API.Migrations
                     b.ToTable("gst_bills", (string)null);
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Invitation", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime?>("AcceptedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("accepted_at");
-
-                    b.Property<string>("AssignedFeaturesJson")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("assigned_features_json");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("email");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<int?>("InvitedByUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("invited_by_user_id");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Pending")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Token")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("token");
-
-                    b.HasKey("Id")
-                        .HasName("invitations_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "Email" }, "invitations_tenant_email_idx");
-
-                    b.HasIndex(new[] { "Token" }, "invitations_token_key")
-                        .IsUnique();
-
-                    b.ToTable("invitations", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.Invoice", b =>
                 {
                     b.Property<long>("Id")
@@ -2119,55 +2047,6 @@ namespace KTransport.API.Migrations
                     b.HasIndex(new[] { "TenantId", "ShipmentId" }, "pod_records_tenant_shipment_idx");
 
                     b.ToTable("pod_records", (string)null);
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.RefreshToken", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<string>("ReplacedByHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("replaced_by_hash");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("token_hash");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("refresh_tokens_pkey");
-
-                    b.HasIndex(new[] { "TokenHash" }, "refresh_tokens_token_hash_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "UserId" }, "refresh_tokens_user_id_idx");
-
-                    b.ToTable("refresh_tokens", (string)null);
                 });
 
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>
@@ -3992,18 +3871,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("UpdatedByNavigation");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.Invitation", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_invitations_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.Invoice", b =>
                 {
                     b.HasOne("KTransport.API.Models.Party", "Party")
@@ -4222,18 +4089,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Shipment");
 
                     b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.RefreshToken", b =>
-                {
-                    b.HasOne("KTransport.API.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_refresh_tokens_user");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>

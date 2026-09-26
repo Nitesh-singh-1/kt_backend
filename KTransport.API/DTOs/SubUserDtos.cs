@@ -21,6 +21,10 @@ namespace KTransport.API.DTOs
         [MaxLength(15)]
         public string? Mobile { get; set; }
 
+        [MaxLength(150)]
+        [EmailAddress]
+        public string? Email { get; set; }
+
         public string Role { get; set; } = "SUB_USER";
 
         public List<string> AssignedFeatures { get; set; } = new();
@@ -33,6 +37,10 @@ namespace KTransport.API.DTOs
 
         [MaxLength(15)]
         public string? Mobile { get; set; }
+
+        [MaxLength(150)]
+        [EmailAddress]
+        public string? Email { get; set; }
 
         public string? Role { get; set; }
 
@@ -57,6 +65,7 @@ namespace KTransport.API.DTOs
         public string FullName { get; set; } = string.Empty;
         public string Role { get; set; } = "SUB_USER";
         public string? Mobile { get; set; }
+        public string? Email { get; set; }
         public bool IsActive { get; set; }
         public DateTime? CreatedAt { get; set; }
         public List<string> AssignedFeatures { get; set; } = new();

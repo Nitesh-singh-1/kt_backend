@@ -3,6 +3,7 @@ using System;
 using KTransport.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KTransport.API.Migrations
 {
     [DbContext(typeof(KTransportDbContext))]
-    partial class KTransportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926215308_AddInvitations")]
+    partial class AddInvitations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2121,55 +2124,6 @@ namespace KTransport.API.Migrations
                     b.ToTable("pod_records", (string)null);
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.RefreshToken", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("expires_at");
-
-                    b.Property<string>("ReplacedByHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("replaced_by_hash");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("revoked_at");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("token_hash");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("refresh_tokens_pkey");
-
-                    b.HasIndex(new[] { "TokenHash" }, "refresh_tokens_token_hash_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "UserId" }, "refresh_tokens_user_id_idx");
-
-                    b.ToTable("refresh_tokens", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>
                 {
                     b.Property<long>("Id")
@@ -4222,18 +4176,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Shipment");
 
                     b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.RefreshToken", b =>
-                {
-                    b.HasOne("KTransport.API.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_refresh_tokens_user");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>

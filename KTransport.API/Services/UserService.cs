@@ -15,16 +15,18 @@ namespace KTransport.API.Services
     {
         private readonly KTransportDbContext _context;
         private readonly IFeatureAuthorizationService _authService;
+        private readonly IAuditLogService _auditLogService;
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        public UserService(KTransportDbContext context, IFeatureAuthorizationService authService)
+        public UserService(KTransportDbContext context, IFeatureAuthorizationService authService, IAuditLogService auditLogService)
         {
             _context = context;
             _authService = authService;
+            _auditLogService = auditLogService;
         }
 
         public async Task<List<SubUserDetailsDto>> GetTenantUsersAsync(Guid tenantId)
@@ -75,6 +77,7 @@ namespace KTransport.API.Services
                     FullName = u.FullName ?? string.Empty,
                     Role = u.Role ?? "SUB_USER",
                     Mobile = u.Mobile,
+                    Email = u.Email,
                     IsActive = u.IsActive ?? true,
                     CreatedAt = u.CreatedAt,
                     AssignedFeatures = assigned ?? new List<string>(),
@@ -125,6 +128,7 @@ namespace KTransport.API.Services
                 FullName = user.FullName ?? string.Empty,
                 Role = user.Role ?? "SUB_USER",
                 Mobile = user.Mobile,
+                Email = user.Email,
                 IsActive = user.IsActive ?? true,
                 CreatedAt = user.CreatedAt,
                 AssignedFeatures = assigned,
@@ -172,6 +176,7 @@ namespace KTransport.API.Services
                 Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
                 FullName = request.FullName.Trim(),
                 Mobile = request.Mobile?.Trim(),
+                Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
                 Role = string.IsNullOrWhiteSpace(request.Role) ? "SUB_USER" : request.Role,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -183,6 +188,8 @@ namespace KTransport.API.Services
             // 4. Save assigned feature overrides in TenantSettings
             await SaveUserFeatureAssignmentsAsync(tenantId, newUser.Id, newUser.Username, validAssigned);
 
+            await _auditLogService.LogAsync("UserCreated", tenantId: tenantId, entityType: "User", entityId: newUser.Id.ToString(), details: $"Created sub-user '{newUser.Username}' with role '{newUser.Role}'");
+
             var effective = await _authService.GetEffectiveFeaturesForUserAsync(tenantId, newUser.Role, newUser.Username);
 
             var result = new SubUserDetailsDto
@@ -193,6 +200,7 @@ namespace KTransport.API.Services
                 FullName = newUser.FullName ?? string.Empty,
                 Role = newUser.Role ?? "SUB_USER",
                 Mobile = newUser.Mobile,
+                Email = newUser.Email,
                 IsActive = newUser.IsActive ?? true,
                 CreatedAt = newUser.CreatedAt,
                 AssignedFeatures = validAssigned,
@@ -214,6 +222,7 @@ namespace KTransport.API.Services
 
             if (!string.IsNullOrWhiteSpace(request.FullName)) user.FullName = request.FullName.Trim();
             if (request.Mobile != null) user.Mobile = request.Mobile.Trim();
+            if (request.Email != null) user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
             if (!string.IsNullOrWhiteSpace(request.Role)) user.Role = request.Role.Trim();
             if (request.IsActive.HasValue) user.IsActive = request.IsActive.Value;
 

@@ -169,7 +169,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("/api/configuration/tenants")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<IActionResult> GetAllTenants()
         {
             var tenants = await _context.Tenants
@@ -206,7 +206,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("/api/configuration/tenants/{tenantId:guid}/menu-entitlements")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> GetEntitlementsForTenant(Guid tenantId)
         {
             var entitlements = await _navService.GetTenantMenuEntitlementsAsync(tenantId);
@@ -216,9 +216,12 @@ namespace KTransport.API.Controllers
         /// <summary>
         /// Update menu, page, and report entitlements for the current tenant (Super User only).
         /// </summary>
+        // Locked to the platform operator: a tenant must NEVER be able to expand its own entitlement
+        // set (that is what it paid for). Tenant self-service config lives on ConfigurationController
+        // (branding/numbering/tax/workflows); paid-feature DISTRIBUTION to sub-users lives on UsersController.
         [HttpPut("/api/configuration/menu-entitlements")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> UpdateEntitlements([FromBody] TenantMenuEntitlementsDto dto)
         {
             if (!ModelState.IsValid)
@@ -236,7 +239,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPut("/api/configuration/tenants/{tenantId:guid}/menu-entitlements")]
         [Authorize]
-        [RequireSuperUser]
+        [RequirePlatformAdmin]
         public async Task<ActionResult<TenantMenuEntitlementsDto>> UpdateEntitlementsForTenant(Guid tenantId, [FromBody] TenantMenuEntitlementsDto dto)
         {
             if (!ModelState.IsValid)

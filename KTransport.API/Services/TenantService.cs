@@ -10,6 +10,7 @@ using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
+using KTransport.API.Services.Email;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,16 +23,22 @@ namespace KTransport.API.Services
         private readonly ILogger<TenantService> _logger;
         private readonly KTransportDbContext _context;
         private readonly JwtSettings _jwtSettings;
+        private readonly IAuditLogService _auditLogService;
+        private readonly Email.IEmailSender _emailSender;
         private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         public TenantService(
-            ILogger<TenantService> logger, 
-            KTransportDbContext context, 
-            IOptions<JwtSettings> jwtSettings)
+            ILogger<TenantService> logger,
+            KTransportDbContext context,
+            IOptions<JwtSettings> jwtSettings,
+            IAuditLogService auditLogService,
+            Email.IEmailSender emailSender)
         {
             _logger = logger;
             _context = context;
             _jwtSettings = jwtSettings.Value;
+            _auditLogService = auditLogService;
+            _emailSender = emailSender;
         }
 
         public async Task<TenantOnboardingResponse> OnboardTenantAsync(TenantOnboardingRequest request)
@@ -83,8 +90,13 @@ namespace KTransport.API.Services
                 _context.Tenants.Add(tenant);
                 await _context.SaveChangesAsync();
 
-                // 2. Create Admin User for this Tenant
-                var assignedRole = string.IsNullOrWhiteSpace(request.AdminRole) ? "admin" : request.AdminRole.Trim();
+                // 2. Create the tenant's own admin user.
+                // The role is FORCED server-side to the standard tenant-admin role and the caller-supplied
+                // request.AdminRole is intentionally ignored: this endpoint is public self-signup, so honoring
+                // an arbitrary role would let a signup pick a privileged role string. The onboarded admin is a
+                // TENANT admin only — platform authority additionally requires membership in the default tenant
+                // (see FeatureAuthorizationService.IsPlatformAdmin), which onboarded tenants never have.
+                const string assignedRole = "admin";
 
                 var adminUser = new User
                 {
@@ -93,6 +105,7 @@ namespace KTransport.API.Services
                     Password = BCrypt.Net.BCrypt.HashPassword(request.AdminPassword),
                     FullName = request.AdminFullName.Trim(),
                     Mobile = request.AdminMobile,
+                    Email = string.IsNullOrWhiteSpace(request.AdminEmail) ? null : request.AdminEmail.Trim(),
                     Role = assignedRole,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
@@ -173,7 +186,14 @@ namespace KTransport.API.Services
                 _context.TenantSettings.Add(setting);
                 await _context.SaveChangesAsync();
 
-                // 5. Generate JWT Token for immediate login
+                // 5. Send welcome email to the new admin (best effort — never blocks onboarding).
+                if (!string.IsNullOrWhiteSpace(adminUser.Email))
+                {
+                    var (subject, html) = EmailTemplates.Welcome(adminUser.FullName ?? adminUser.Username, tenant.Name, adminUser.Username);
+                    await _emailSender.SendAsync(adminUser.Email!, subject, html);
+                }
+
+                // 6. Generate JWT Token for immediate login
                 var token = GenerateJwtToken(adminUser);
 
                 return new TenantOnboardingResponse
@@ -192,7 +212,8 @@ namespace KTransport.API.Services
                         Username = adminUser.Username,
                         FullName = adminUser.FullName ?? string.Empty,
                         Role = adminUser.Role ?? "admin",
-                        Mobile = adminUser.Mobile
+                        Mobile = adminUser.Mobile,
+                        Email = adminUser.Email
                     }
                 };
             }
@@ -310,6 +331,9 @@ namespace KTransport.API.Services
 
             tenant.IsActive = isActive;
             await _context.SaveChangesAsync();
+
+            await _auditLogService.LogAsync("TenantStatusChanged", tenantId: tenantId, entityType: "Tenant", entityId: tenantId.ToString(), details: $"Status set to {(isActive ? "Active" : "Inactive")}");
+
             return true;
         }
 
@@ -346,7 +370,66 @@ namespace KTransport.API.Services
             }
 
             await _context.SaveChangesAsync();
+
+            await _auditLogService.LogAsync("PlanChanged", tenantId: tenantId, entityType: "Tenant", entityId: tenantId.ToString(), details: $"Plan changed to {planTier}");
+
             return true;
+        }
+
+        private static readonly string[] AdminRoleValues = { "admin", "superadmin", "tenantadmin", "super_user", "tenant_owner" };
+
+        public async Task<IEnumerable<TenantUserDto>> GetTenantUsersAsync(Guid tenantId)
+        {
+            var users = await _context.Users
+                .IgnoreQueryFilters()
+                .Where(u => u.TenantId == tenantId)
+                .OrderBy(u => u.FullName)
+                .ToListAsync();
+
+            return users.Select(u => new TenantUserDto
+            {
+                Id = u.Id,
+                Username = u.Username,
+                FullName = u.FullName ?? string.Empty,
+                Role = u.Role ?? "SUB_USER",
+                Mobile = u.Mobile,
+                Email = u.Email,
+                IsActive = u.IsActive ?? true,
+                IsAdmin = AdminRoleValues.Contains((u.Role ?? "").ToLowerInvariant())
+            });
+        }
+
+        public async Task<(bool Success, string Message)> SetTenantUserRoleAsync(Guid tenantId, int userId, string role)
+        {
+            // Constrain to a safe, known set — never let an arbitrary/elevated role string be injected.
+            var normalized = (role ?? "").Trim();
+            var isAdmin = string.Equals(normalized, "admin", StringComparison.OrdinalIgnoreCase);
+            var isStandard = string.Equals(normalized, "SUB_USER", StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(normalized, "user", StringComparison.OrdinalIgnoreCase);
+
+            if (!isAdmin && !isStandard)
+            {
+                return (false, "Role must be either 'admin' or 'SUB_USER'.");
+            }
+
+            var user = await _context.Users
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == tenantId);
+
+            if (user == null)
+            {
+                return (false, "User not found in this organization.");
+            }
+
+            var targetRole = isAdmin ? "admin" : "SUB_USER";
+            var previous = user.Role ?? "SUB_USER";
+            user.Role = targetRole;
+            await _context.SaveChangesAsync();
+
+            await _auditLogService.LogAsync("TenantUserRoleChanged", tenantId: tenantId, entityType: "User",
+                entityId: userId.ToString(), details: $"Role changed from '{previous}' to '{targetRole}' by platform operator");
+
+            return (true, $"{user.Username} is now {(isAdmin ? "an administrator" : "a standard user")} of this organization.");
         }
 
         private string GenerateJwtToken(User user)

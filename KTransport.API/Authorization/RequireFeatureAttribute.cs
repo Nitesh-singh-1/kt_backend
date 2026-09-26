@@ -85,4 +85,41 @@ namespace KTransport.API.Authorization
             return Task.CompletedTask;
         }
     }
+
+    /// <summary>
+    /// Restricts an endpoint to the PLATFORM operator (a super user of the default/platform tenant).
+    /// Use this for cross-tenant / platform-wide management — an onboarded client's admin must never pass.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+    public class RequirePlatformAdminAttribute : Attribute, IAsyncAuthorizationFilter
+    {
+        public Task OnAuthorizationAsync(AuthorizationFilterContext context)
+        {
+            var user = context.HttpContext.User;
+            if (user == null || user.Identity == null || !user.Identity.IsAuthenticated)
+            {
+                context.Result = new UnauthorizedObjectResult(new
+                {
+                    success = false,
+                    message = "Authentication is required to access this endpoint."
+                });
+                return Task.CompletedTask;
+            }
+
+            var authService = context.HttpContext.RequestServices.GetRequiredService<IFeatureAuthorizationService>();
+            if (!authService.IsPlatformAdmin(user))
+            {
+                context.Result = new ObjectResult(new
+                {
+                    success = false,
+                    message = "Access denied: platform administration is restricted to the platform operator."
+                })
+                {
+                    StatusCode = 403
+                };
+            }
+
+            return Task.CompletedTask;
+        }
+    }
 }

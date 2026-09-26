@@ -1,27 +1,51 @@
 using KTransport.API.Data;
 using KTransport.API.Models;
+using KTransport.API.Services.Email;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace KTransport.API.Services
 {
     public class AuthService : IAuthService
     {
+        private const string PasswordResetPurpose = "PasswordReset";
+        private const int ResetCodeValidMinutes = 10;
+
+        private static readonly HashSet<string> AdminRoleValues = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "admin", "superadmin", "tenantadmin", "super_user", "tenant_owner"
+        };
+
+        // Platform operator = admin-class role AND membership in the default/platform tenant.
+        private static bool ComputeIsPlatformAdmin(User user) =>
+            AdminRoleValues.Contains(user.Role ?? "") && user.TenantId == TenantContext.DefaultTenantId;
+
         private readonly ILogger<AuthService> _logger;
         private readonly KTransportDbContext _context;
         private readonly JwtSettings _jwtSettings;
+        private readonly IAuditLogService _auditLogService;
+        private readonly IVerificationCodeService _verificationCodeService;
+        private readonly IEmailSender _emailSender;
 
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _resetCodes = new(StringComparer.OrdinalIgnoreCase);
-
-        public AuthService(ILogger<AuthService> logger, KTransportDbContext context, IOptions<JwtSettings> jwtSettings)
+        public AuthService(
+            ILogger<AuthService> logger,
+            KTransportDbContext context,
+            IOptions<JwtSettings> jwtSettings,
+            IAuditLogService auditLogService,
+            IVerificationCodeService verificationCodeService,
+            IEmailSender emailSender)
         {
             _logger = logger;
             _context = context;
             _jwtSettings = jwtSettings.Value;
+            _auditLogService = auditLogService;
+            _verificationCodeService = verificationCodeService;
+            _emailSender = emailSender;
         }
 
         public async Task<AuthResponse> LoginAsync(LoginRequest request)
@@ -37,6 +61,7 @@ namespace KTransport.API.Services
 
                 if (user == null)
                 {
+                    await _auditLogService.LogAsync("LoginFailed", success: false, username: request.Username, details: "Unknown username");
                     return new AuthResponse
                     {
                         Success = false,
@@ -77,6 +102,7 @@ namespace KTransport.API.Services
 
                 if (!passwordValid)
                 {
+                    await _auditLogService.LogAsync("LoginFailed", success: false, tenantId: user.TenantId, userId: user.Id, username: user.Username, details: "Incorrect password");
                     return new AuthResponse
                     {
                         Success = false,
@@ -86,19 +112,25 @@ namespace KTransport.API.Services
 
                 // Generate JWT token
                 var token = GenerateJwtToken(user);
+                var refreshToken = await CreateRefreshTokenAsync(user.Id);
+
+                await _auditLogService.LogAsync("Login", tenantId: user.TenantId, userId: user.Id, username: user.Username);
 
                 return new AuthResponse
                 {
                     Success = true,
                     Message = "Login successful",
                     Token = token,
+                    RefreshToken = refreshToken,
                     User = new UserDto
                     {
                         Id = user.Id,
                         Username = user.Username,
                         FullName = user.FullName ?? string.Empty,
                         Role = user.Role ?? "User",
-                        Mobile = user.Mobile
+                        Mobile = user.Mobile,
+                        Email = user.Email,
+                        IsPlatformAdmin = ComputeIsPlatformAdmin(user)
                     }
                 };
             }
@@ -145,6 +177,7 @@ namespace KTransport.API.Services
                     Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
                     FullName = request.FullName.Trim(),
                     Mobile = request.Mobile?.Trim(),
+                    Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
                     Role = assignedRole,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
@@ -155,19 +188,22 @@ namespace KTransport.API.Services
 
                 // Generate JWT token
                 var token = GenerateJwtToken(newUser);
+                var refreshToken = await CreateRefreshTokenAsync(newUser.Id);
 
                 return new AuthResponse
                 {
                     Success = true,
                     Message = "Registration successful",
                     Token = token,
+                    RefreshToken = refreshToken,
                     User = new UserDto
                     {
                         Id = newUser.Id,
                         Username = newUser.Username,
                         FullName = newUser.FullName ?? string.Empty,
                         Role = newUser.Role ?? "SUB_USER",
-                        Mobile = newUser.Mobile
+                        Mobile = newUser.Mobile,
+                        Email = newUser.Email
                     }
                 };
             }
@@ -238,7 +274,8 @@ namespace KTransport.API.Services
                         Username = user.Username,
                         FullName = user.FullName ?? string.Empty,
                         Role = user.Role ?? "SUB_USER",
-                        Mobile = user.Mobile
+                        Mobile = user.Mobile,
+                        Email = user.Email
                     }
                 };
             }
@@ -297,20 +334,43 @@ namespace KTransport.API.Services
                     }
                 }
 
-                // Generate secure 6-digit OTP code
-                var verificationCode = Random.Shared.Next(100000, 999999).ToString();
-                var expiry = DateTime.UtcNow.AddMinutes(10);
+                // Generate + persist a 6-digit OTP (hashed, with expiry) in the DB.
+                var verificationCode = await _verificationCodeService.GenerateAsync(cleanUsername, PasswordResetPurpose, ResetCodeValidMinutes);
 
-                _resetCodes[cleanUsername] = (verificationCode, expiry);
+                await _auditLogService.LogAsync("PasswordResetRequested", tenantId: user.TenantId, userId: user.Id, username: user.Username);
 
-                _logger.LogInformation("Generated verification code for {Username}: {Code} (Valid for 10 mins)", cleanUsername, verificationCode);
+                // Deliver via email when possible; never expose the code in the API response in that case.
+                var emailed = false;
+                if (!string.IsNullOrWhiteSpace(user.Email))
+                {
+                    var (subject, html) = EmailTemplates.PasswordResetOtp(user.FullName ?? user.Username, verificationCode, ResetCodeValidMinutes);
+                    emailed = await _emailSender.SendAsync(user.Email!, subject, html);
+                }
 
+                if (emailed)
+                {
+                    return new RequestResetCodeResponse
+                    {
+                        Success = true,
+                        Message = $"A verification code has been sent to your registered email. Valid for {ResetCodeValidMinutes} minutes.",
+                        ExpiresInSeconds = ResetCodeValidMinutes * 60
+                    };
+                }
+
+                // No deliverable email channel (email disabled, or user has no email on file).
+                // The code was logged server-side; only return it in the response when email delivery
+                // is not enabled at all (dev convenience) — never when email is enabled but merely failed/missing.
+                _logger.LogInformation("Verification code for {Username}: {Code} (valid {Minutes} min)", cleanUsername, verificationCode, ResetCodeValidMinutes);
+
+                var includeCodeInResponse = !_emailSender.IsEnabled;
                 return new RequestResetCodeResponse
                 {
                     Success = true,
-                    Message = $"Verification code generated successfully. Valid for 10 minutes.",
-                    VerificationCode = verificationCode,
-                    ExpiresInSeconds = 600
+                    Message = includeCodeInResponse
+                        ? $"Verification code generated (email delivery disabled). Valid for {ResetCodeValidMinutes} minutes."
+                        : $"If the account has a registered email, a verification code has been sent. Valid for {ResetCodeValidMinutes} minutes.",
+                    VerificationCode = includeCodeInResponse ? verificationCode : null,
+                    ExpiresInSeconds = ResetCodeValidMinutes * 60
                 };
             }
             catch (Exception ex)
@@ -342,23 +402,25 @@ namespace KTransport.API.Services
                 }
 
                 var cleanUsername = request.Username.Trim().ToLower();
-                var cleanCode = request.VerificationCode.Trim();
 
-                if (!_resetCodes.TryGetValue(cleanUsername, out var stored) || stored.Expiry < DateTime.UtcNow)
+                var verifyResult = await _verificationCodeService.VerifyAsync(cleanUsername, PasswordResetPurpose, request.VerificationCode);
+
+                if (verifyResult != VerificationResult.Success)
                 {
-                    return new ResetPasswordResponse
+                    var message = verifyResult switch
                     {
-                        Success = false,
-                        Message = "Verification code has expired or was not requested. Please request a new code."
+                        VerificationResult.Expired => "Verification code has expired. Please request a new code.",
+                        VerificationResult.NotFound => "No verification code was requested for this account, or it has already been used. Please request a new code.",
+                        VerificationResult.TooManyAttempts => "Too many incorrect attempts. This code has been disabled — please request a new one.",
+                        _ => "Invalid verification code. Please check and try again."
                     };
-                }
 
-                if (stored.Code != cleanCode)
-                {
+                    await _auditLogService.LogAsync("PasswordResetFailed", success: false, username: cleanUsername, details: verifyResult.ToString());
+
                     return new ResetPasswordResponse
                     {
                         Success = false,
-                        Message = "Invalid verification code. Please check and try again."
+                        Message = message
                     };
                 }
 
@@ -379,10 +441,9 @@ namespace KTransport.API.Services
                 user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 await _context.SaveChangesAsync();
 
-                // Consume verification code
-                _resetCodes.TryRemove(cleanUsername, out _);
-
                 _logger.LogInformation("Password reset successfully verified for user: {Username}", user.Username);
+
+                await _auditLogService.LogAsync("PasswordReset", tenantId: user.TenantId, userId: user.Id, username: user.Username, details: "Via OTP verification");
 
                 return new ResetPasswordResponse
                 {
@@ -455,6 +516,8 @@ namespace KTransport.API.Services
 
                 _logger.LogInformation("Password reset successfully for user: {Username}", user.Username);
 
+                await _auditLogService.LogAsync("PasswordReset", tenantId: user.TenantId, userId: user.Id, username: user.Username, details: "Via mobile verification");
+
                 return new ResetPasswordResponse
                 {
                     Success = true,
@@ -523,6 +586,8 @@ namespace KTransport.API.Services
                 user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
                 await _context.SaveChangesAsync();
 
+                await _auditLogService.LogAsync("PasswordChanged", tenantId: user.TenantId, userId: user.Id, username: user.Username);
+
                 return new ResetPasswordResponse
                 {
                     Success = true,
@@ -538,6 +603,143 @@ namespace KTransport.API.Services
                     Message = "An error occurred while changing password."
                 };
             }
+        }
+
+        public async Task<MyProfileDto?> GetMyProfileAsync(int userId)
+        {
+            var user = await _context.Users
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null) return null;
+
+            return new MyProfileDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                FullName = user.FullName ?? string.Empty,
+                Role = user.Role ?? "SUB_USER",
+                Mobile = user.Mobile,
+                Email = user.Email
+            };
+        }
+
+        public async Task<(bool Success, string Message, MyProfileDto? Profile)> UpdateMyProfileAsync(int userId, UpdateProfileRequest request)
+        {
+            try
+            {
+                var user = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive == true);
+
+                if (user == null)
+                {
+                    return (false, "User not found.", null);
+                }
+
+                if (request.FullName != null) user.FullName = request.FullName.Trim();
+                if (request.Mobile != null) user.Mobile = string.IsNullOrWhiteSpace(request.Mobile) ? null : request.Mobile.Trim();
+                if (request.Email != null) user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+
+                await _context.SaveChangesAsync();
+
+                await _auditLogService.LogAsync("ProfileUpdated", tenantId: user.TenantId, userId: user.Id, username: user.Username);
+
+                return (true, "Profile updated successfully.", new MyProfileDto
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    FullName = user.FullName ?? string.Empty,
+                    Role = user.Role ?? "SUB_USER",
+                    Mobile = user.Mobile,
+                    Email = user.Email
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating profile for user ID {UserId}", userId);
+                return (false, "An error occurred while updating your profile.", null);
+            }
+        }
+
+        public async Task<AuthResponse> RefreshTokenAsync(string refreshToken)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                return new AuthResponse { Success = false, Message = "Refresh token is required." };
+            }
+
+            var hash = HashToken(refreshToken);
+            var stored = await _context.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash);
+
+            if (stored == null || stored.RevokedAt != null || stored.ExpiresAt <= DateTime.UtcNow)
+            {
+                return new AuthResponse { Success = false, Message = "Invalid or expired refresh token." };
+            }
+
+            var user = await _context.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == stored.UserId && u.IsActive == true);
+            if (user == null)
+            {
+                return new AuthResponse { Success = false, Message = "User not found or inactive." };
+            }
+
+            // Rotate: issue a new refresh token and revoke the old one (linked for reuse detection).
+            var newRefresh = await CreateRefreshTokenAsync(user.Id);
+            stored.RevokedAt = DateTime.UtcNow;
+            stored.ReplacedByHash = HashToken(newRefresh);
+            await _context.SaveChangesAsync();
+
+            return new AuthResponse
+            {
+                Success = true,
+                Message = "Token refreshed.",
+                Token = GenerateJwtToken(user),
+                RefreshToken = newRefresh,
+                User = new UserDto
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    FullName = user.FullName ?? string.Empty,
+                    Role = user.Role ?? "SUB_USER",
+                    Mobile = user.Mobile,
+                    Email = user.Email,
+                    IsPlatformAdmin = ComputeIsPlatformAdmin(user)
+                }
+            };
+        }
+
+        public async Task RevokeRefreshTokenAsync(string refreshToken)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken)) return;
+            var hash = HashToken(refreshToken);
+            var stored = await _context.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash && t.RevokedAt == null);
+            if (stored != null)
+            {
+                stored.RevokedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        private async Task<string> CreateRefreshTokenAsync(int userId)
+        {
+            var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                .Replace("+", "-").Replace("/", "_").TrimEnd('=');
+
+            _context.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = userId,
+                TokenHash = HashToken(raw),
+                ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenDays <= 0 ? 7 : _jwtSettings.RefreshTokenDays),
+                CreatedAt = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+            return raw;
+        }
+
+        private static string HashToken(string token)
+        {
+            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+            return Convert.ToHexString(bytes).ToLowerInvariant();
         }
 
         private string GenerateJwtToken(User user)
