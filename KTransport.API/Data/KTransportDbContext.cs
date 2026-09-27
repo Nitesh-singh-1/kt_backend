@@ -67,6 +67,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<VehicleLoan> VehicleLoans { get; set; }
     public virtual DbSet<EmptyTripLog> EmptyTripLogs { get; set; }
     public virtual DbSet<DriverLedgerEntry> DriverLedgerEntries { get; set; }
+    public virtual DbSet<VehicleInsuranceClaim> VehicleInsuranceClaims { get; set; }
     public virtual DbSet<CargoClaim> CargoClaims { get; set; }
     public virtual DbSet<TenantSetting> TenantSettings { get; set; }
     public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
@@ -1590,6 +1591,44 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.DriverId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_driver_ledger_driver");
+        });
+
+        modelBuilder.Entity<VehicleInsuranceClaim>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("vehicle_insurance_claims_pkey");
+            entity.ToTable("vehicle_insurance_claims");
+
+            entity.HasIndex(e => new { e.TenantId, e.Status }, "vehicle_insurance_claims_tenant_status_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.VehicleId).HasColumnName("vehicle_id");
+            entity.Property(e => e.VehicleNo).HasMaxLength(50).HasColumnName("vehicle_no");
+            entity.Property(e => e.ClaimNo).HasMaxLength(60).HasColumnName("claim_no");
+            entity.Property(e => e.InsurerName).HasMaxLength(150).HasColumnName("insurer_name");
+            entity.Property(e => e.PolicyNo).HasMaxLength(80).HasColumnName("policy_no");
+            entity.Property(e => e.ClaimType).HasMaxLength(60).HasColumnName("claim_type");
+            entity.Property(e => e.IncidentDate).HasColumnName("incident_date");
+            entity.Property(e => e.ClaimDate).HasColumnName("claim_date");
+            entity.Property(e => e.ClaimAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("claim_amount");
+            entity.Property(e => e.ApprovedAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("approved_amount");
+            entity.Property(e => e.Status).HasConversion<int>().HasColumnName("status");
+            entity.Property(e => e.SurveyorName).HasMaxLength(150).HasColumnName("surveyor_name");
+            entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_vehicle_insurance_claims_tenant");
+
+            entity.HasOne(d => d.Vehicle).WithMany()
+                .HasForeignKey(d => d.VehicleId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_vehicle_insurance_claims_vehicle");
         });
 
         modelBuilder.Entity<CargoClaim>(entity =>
