@@ -343,6 +343,18 @@ namespace KTransport.API.Services
                     });
                 }
 
+                if (IsEnabled("master_data.spares") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.spares",
+                        Title = "Spare Parts Stock",
+                        Path = "/spare-parts",
+                        Icon = "cog",
+                        PermissionKey = "fleet.view"
+                    });
+                }
+
                 if (IsEnabled("master_data.rates") || IsEnabled("rates") || IsEnabled("master_data"))
                 {
                     masterChildren.Add(new DynamicMenuItemDto
@@ -650,6 +662,7 @@ namespace KTransport.API.Services
                 "master_data.fleet",
                 "master_data.compliance",
                 "master_data.tyres",
+                "master_data.spares",
                 "master_data.rates",
                 "master_data.vendorrates",
                 "vendors",

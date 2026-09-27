@@ -91,6 +91,7 @@ builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
 builder.Services.AddScoped<IQuotationService, QuotationService>();
 builder.Services.AddScoped<IVendorRateContractService, VendorRateContractService>();
 builder.Services.AddScoped<ITyreService, TyreService>();
+builder.Services.AddScoped<ISparePartService, SparePartService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();

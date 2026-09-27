@@ -63,6 +63,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<Quotation> Quotations { get; set; }
     public virtual DbSet<VendorRateContract> VendorRateContracts { get; set; }
     public virtual DbSet<Tyre> Tyres { get; set; }
+    public virtual DbSet<SparePart> SpareParts { get; set; }
     public virtual DbSet<CargoClaim> CargoClaims { get; set; }
     public virtual DbSet<TenantSetting> TenantSettings { get; set; }
     public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
@@ -1451,6 +1452,36 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.VehicleId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_tyres_vehicle");
+        });
+
+        modelBuilder.Entity<SparePart>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("spare_parts_pkey");
+            entity.ToTable("spare_parts");
+
+            entity.HasIndex(e => new { e.TenantId, e.PartName }, "spare_parts_tenant_name_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.PartName).HasMaxLength(150).HasColumnName("part_name");
+            entity.Property(e => e.PartNo).HasMaxLength(80).HasColumnName("part_no");
+            entity.Property(e => e.Category).HasMaxLength(60).HasColumnName("category");
+            entity.Property(e => e.Unit).HasMaxLength(20).HasColumnName("unit");
+            entity.Property(e => e.StockQuantity).HasPrecision(12, 2).HasDefaultValue(0).HasColumnName("stock_quantity");
+            entity.Property(e => e.ReorderLevel).HasPrecision(12, 2).HasDefaultValue(0).HasColumnName("reorder_level");
+            entity.Property(e => e.UnitCost).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("unit_cost");
+            entity.Property(e => e.StoreLocation).HasMaxLength(120).HasColumnName("store_location");
+            entity.Property(e => e.Supplier).HasMaxLength(150).HasColumnName("supplier");
+            entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_spare_parts_tenant");
         });
 
         modelBuilder.Entity<CargoClaim>(entity =>
