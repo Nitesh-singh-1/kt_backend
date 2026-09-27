@@ -9,6 +9,7 @@ namespace KTransport.API.Services
     {
         Task<List<PodRecordDto>> GetPodsAsync(PodStatus? status = null, string? search = null);
         Task<PodRecordDto?> GetPodByShipmentIdAsync(long shipmentId);
+        Task<List<PodPendingShipmentDto>> GetPendingPodShipmentsAsync();
         Task<PodRecordDto> UploadPodAsync(UploadPodRequest request, int? userId = null);
         Task<PodRecordDto?> VerifyPodAsync(long id, VerifyPodRequest request, int? userId = null);
         Task<bool> DeletePodAsync(long id);

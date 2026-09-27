@@ -42,4 +42,17 @@ namespace KTransport.API.DTOs
         public string? RejectionReason { get; set; }
         public string? Remarks { get; set; }
     }
+
+    /// <summary>Lightweight shipment shape for the POD-upload dropdown (consignments still awaiting a POD).</summary>
+    public class PodPendingShipmentDto
+    {
+        public long Id { get; set; }
+        public string? ShipmentNo { get; set; }
+        public string? ConsignorName { get; set; }
+        public string? ConsigneeName { get; set; }
+        public string? FromLocation { get; set; }
+        public string? ToLocation { get; set; }
+        public ShipmentStatus Status { get; set; }
+        public string StatusName => Status.ToString();
+    }
 }

@@ -41,6 +41,13 @@ namespace KTransport.API.Controllers
             return Ok(pod);
         }
 
+        [HttpGet("pending-shipments")]
+        public async Task<ActionResult<List<PodPendingShipmentDto>>> GetPendingShipments()
+        {
+            var shipments = await _podService.GetPendingPodShipmentsAsync();
+            return Ok(shipments);
+        }
+
         [HttpPost("upload")]
         public async Task<ActionResult<PodRecordDto>> UploadPod([FromBody] UploadPodRequest request)
         {

@@ -87,9 +87,60 @@ namespace KTransport.API.Services
                 pod.UpdatedAt = DateTime.UtcNow;
             }
 
+            // Advance the consignment on POD upload so it reflects "POD received, awaiting verification"
+            // (the office Verify step still owns the final transition to Delivered).
+            if (shipment != null
+                && shipment.Status != ShipmentStatus.Delivered
+                && shipment.Status != ShipmentStatus.Cancelled
+                && shipment.Status != ShipmentStatus.OutForDelivery)
+            {
+                var previousStatus = shipment.Status;
+                shipment.Status = ShipmentStatus.OutForDelivery;
+
+                _context.ShipmentStatusHistories.Add(new ShipmentStatusHistory
+                {
+                    ShipmentId = shipment.Id,
+                    FromStatus = previousStatus,
+                    ToStatus = ShipmentStatus.OutForDelivery,
+                    Location = shipment.ToLocation ?? "Destination Hub",
+                    Remarks = $"POD uploaded by driver — awaiting verification (received by {request.ReceiverName.Trim()}).",
+                    ChangedByUserId = userId,
+                    ChangedAt = DateTime.UtcNow
+                });
+            }
+
             await _context.SaveChangesAsync();
             _logger.LogInformation("Uploaded POD for Shipment ID: {ShipmentId}", request.ShipmentId);
             return MapToDto(pod);
+        }
+
+        public async Task<List<PodPendingShipmentDto>> GetPendingPodShipmentsAsync()
+        {
+            // Consignments that still need a POD: active, not draft/delivered/cancelled, and with no POD record yet.
+            var podShipmentIds = await _context.PodRecords.Select(p => p.ShipmentId).ToListAsync();
+            var withPod = podShipmentIds.ToHashSet();
+
+            var shipments = await _context.Shipments.AsNoTracking()
+                .Where(s => s.IsActive
+                    && s.Status != ShipmentStatus.Draft
+                    && s.Status != ShipmentStatus.Delivered
+                    && s.Status != ShipmentStatus.Cancelled)
+                .OrderByDescending(s => s.ShipmentDate).ThenByDescending(s => s.Id)
+                .ToListAsync();
+
+            return shipments
+                .Where(s => !withPod.Contains(s.Id))
+                .Select(s => new PodPendingShipmentDto
+                {
+                    Id = s.Id,
+                    ShipmentNo = s.ShipmentNo,
+                    ConsignorName = s.ConsignorName,
+                    ConsigneeName = s.ConsigneeName,
+                    FromLocation = s.FromLocation,
+                    ToLocation = s.ToLocation,
+                    Status = s.Status
+                })
+                .ToList();
         }
 
         public async Task<PodRecordDto?> VerifyPodAsync(long id, VerifyPodRequest request, int? userId = null)
