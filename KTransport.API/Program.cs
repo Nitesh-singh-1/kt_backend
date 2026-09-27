@@ -94,6 +94,7 @@ builder.Services.AddScoped<ITyreService, TyreService>();
 builder.Services.AddScoped<ISparePartService, SparePartService>();
 builder.Services.AddScoped<IVehicleLoanService, VehicleLoanService>();
 builder.Services.AddScoped<IEmptyTripLogService, EmptyTripLogService>();
+builder.Services.AddScoped<IDriverLedgerService, DriverLedgerService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();

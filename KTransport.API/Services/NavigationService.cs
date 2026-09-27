@@ -380,6 +380,18 @@ namespace KTransport.API.Services
                     });
                 }
 
+                if (IsEnabled("master_data.driverledger") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("DRIVER") || IsEnabled("VEHICLE"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.driverledger",
+                        Title = "Driver Ledger",
+                        Path = "/driver-ledger",
+                        Icon = "users",
+                        PermissionKey = "fleet.view"
+                    });
+                }
+
                 if (IsEnabled("master_data.rates") || IsEnabled("rates") || IsEnabled("master_data"))
                 {
                     masterChildren.Add(new DynamicMenuItemDto
@@ -690,6 +702,7 @@ namespace KTransport.API.Services
                 "master_data.tyres",
                 "master_data.spares",
                 "master_data.loans",
+                "master_data.driverledger",
                 "master_data.rates",
                 "master_data.vendorrates",
                 "vendors",
