@@ -153,6 +153,19 @@ namespace KTransport.API.Services
                 });
             }
 
+            // 1b. Business Analytics (sales-vs-recovery, margin, trends)
+            if (IsEnabled("analytics"))
+            {
+                menu.Add(new DynamicMenuItemDto
+                {
+                    Id = "analytics",
+                    Title = "Business Analytics",
+                    Path = "/analytics",
+                    Icon = "barChart",
+                    PermissionKey = "dashboard.view"
+                });
+            }
+
             // 2. Consignments (Bilty / GR Booking)
             if (IsEnabled("consignments") || IsEnabled("consignments.create") || IsEnabled("consignments.all") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
             {
@@ -193,6 +206,19 @@ namespace KTransport.API.Services
                         Children = grChildren
                     });
                 }
+            }
+
+            // 2b. Quotations (sales enquiries → booking)
+            if (IsEnabled("quotations"))
+            {
+                menu.Add(new DynamicMenuItemDto
+                {
+                    Id = "quotations",
+                    Title = "Quotations & Enquiries",
+                    Path = "/quotations",
+                    Icon = "fileText",
+                    PermissionKey = "quotations.view"
+                });
             }
 
             // 3. Manifest & Dispatch (LR / Truck Challan)
@@ -290,6 +316,54 @@ namespace KTransport.API.Services
                         Path = "/fleet",
                         Icon = "truck",
                         PermissionKey = "fleet.view"
+                    });
+
+                    if (IsEnabled("master_data.compliance") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
+                    {
+                        masterChildren.Add(new DynamicMenuItemDto
+                        {
+                            Id = "master_data.compliance",
+                            Title = "Fleet Compliance",
+                            Path = "/fleet/compliance",
+                            Icon = "info",
+                            PermissionKey = "fleet.view"
+                        });
+                    }
+                }
+
+                if (IsEnabled("master_data.tyres") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.tyres",
+                        Title = "Tyre Management",
+                        Path = "/tyres",
+                        Icon = "truck",
+                        PermissionKey = "fleet.view"
+                    });
+                }
+
+                if (IsEnabled("master_data.rates") || IsEnabled("rates") || IsEnabled("master_data"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.rates",
+                        Title = "Rate Contracts",
+                        Path = "/rates",
+                        Icon = "fileText",
+                        PermissionKey = "rates.view"
+                    });
+                }
+
+                if (IsEnabled("master_data.vendorrates") || IsEnabled("master_data") || IsEnabled("VENDOR"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.vendorrates",
+                        Title = "Vendor Hire Rates",
+                        Path = "/vendor-rates",
+                        Icon = "truck",
+                        PermissionKey = "vendors.view"
                     });
                 }
 
@@ -565,6 +639,7 @@ namespace KTransport.API.Services
                 "consignments",
                 "consignments.create",
                 "consignments.all",
+                "quotations",
                 "trips",
                 "pod",
                 "billing",
@@ -573,8 +648,13 @@ namespace KTransport.API.Services
                 "master_data",
                 "master_data.parties",
                 "master_data.fleet",
+                "master_data.compliance",
+                "master_data.tyres",
+                "master_data.rates",
+                "master_data.vendorrates",
                 "vendors",
                 "claims",
+                "analytics",
                 "reports",
                 "reports.booking_register",
                 "reports.tax_summary",

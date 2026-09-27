@@ -118,6 +118,14 @@ namespace KTransport.API.Controllers
             return NoContent();
         }
 
+        // Compliance — expiring / expired statutory documents across the fleet
+        [HttpGet("compliance")]
+        public async Task<ActionResult<ComplianceOverviewDto>> GetComplianceAlerts([FromQuery] int withinDays = 30)
+        {
+            var result = await _fleetService.GetComplianceAlertsAsync(withinDays);
+            return Ok(result);
+        }
+
         // Locations
         [HttpGet("locations")]
         public async Task<ActionResult<List<LocationDto>>> GetLocations([FromQuery] string? search = null)

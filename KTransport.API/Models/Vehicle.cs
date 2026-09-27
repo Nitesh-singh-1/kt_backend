@@ -29,6 +29,10 @@ namespace KTransport.API.Models
 
         public DateOnly? PermitValidUntil { get; set; }
 
+        public DateOnly? PucValidUntil { get; set; } // Pollution Under Control certificate
+
+        public DateOnly? TaxValidUntil { get; set; } // Road Tax
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -1,3 +1,4 @@
+using KTransport.API.DTOs;
 using KTransport.API.Models;
 
 namespace KTransport.API.Services
@@ -7,5 +8,6 @@ namespace KTransport.API.Services
         Task<DashboardResponse> GetDashboardStatsAsync();
         Task<RevenueResponse> GetRevenueStatsAsync();
         Task<DashboardResponse> GetDashboardStatsByDateRangeAsync(DateTime startDate, DateTime endDate);
+        Task<BusinessAnalyticsDto> GetBusinessAnalyticsAsync(int months = 6);
     }
 }

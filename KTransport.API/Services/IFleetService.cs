@@ -29,5 +29,8 @@ namespace KTransport.API.Services
         Task<LocationDto> CreateLocationAsync(CreateLocationRequest request);
         Task<LocationDto?> UpdateLocationAsync(long id, UpdateLocationRequest request);
         Task<bool> DeleteLocationAsync(long id);
+
+        // Compliance
+        Task<ComplianceOverviewDto> GetComplianceAlertsAsync(int withinDays = 30);
     }
 }

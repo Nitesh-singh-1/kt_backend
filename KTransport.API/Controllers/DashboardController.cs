@@ -52,6 +52,16 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
+        /// Get business analytics / KPIs (sales-vs-recovery, margin, trend, top customers) over a rolling window.
+        /// </summary>
+        [HttpGet("analytics")]
+        public async Task<ActionResult<KTransport.API.DTOs.BusinessAnalyticsDto>> GetBusinessAnalytics([FromQuery] int months = 6)
+        {
+            var result = await _dashboardService.GetBusinessAnalyticsAsync(months);
+            return Ok(result);
+        }
+
+        /// <summary>
         /// Get dashboard statistics for a specific date range
         /// </summary>
         [HttpGet("stats/daterange")]

@@ -1,4 +1,6 @@
+using System.Globalization;
 using KTransport.API.Data;
+using KTransport.API.DTOs;
 using KTransport.API.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -172,6 +174,193 @@ namespace KTransport.API.Services
                     Message = "An error occurred while retrieving revenue statistics"
                 };
             }
+        }
+
+        public async Task<BusinessAnalyticsDto> GetBusinessAnalyticsAsync(int months = 6)
+        {
+            if (months < 1) months = 1;
+            if (months > 24) months = 24;
+
+            var today = DateTime.Today;
+            var startMonth = new DateTime(today.Year, today.Month, 1).AddMonths(-(months - 1));
+            var startDate = DateOnly.FromDateTime(startMonth);
+            var endDate = DateOnly.FromDateTime(today);
+
+            // Pull the window into memory (bounded by the selected months) so we can group by month in C#.
+            var invoices = await _context.Invoices
+                .AsNoTracking()
+                .Where(i => i.IsActive && i.InvoiceDate >= startDate && i.InvoiceDate <= endDate)
+                .Select(i => new
+                {
+                    i.InvoiceDate,
+                    i.PartyName,
+                    i.GrandTotal,
+                    i.PaidAmount,
+                    i.DueAmount,
+                    i.PaymentStatus,
+                    i.PaymentMode
+                })
+                .ToListAsync();
+
+            var live = invoices.Where(i => i.PaymentStatus != InvoicePaymentStatus.Cancelled).ToList();
+
+            var totalBilled = live.Sum(i => i.GrandTotal);
+            var totalCollected = live.Sum(i => i.PaidAmount);
+            var totalOutstanding = live.Sum(i => i.DueAmount);
+
+            var expenseRows = await _context.TripExpenses
+                .AsNoTracking()
+                .Where(e => e.ExpenseDate >= startDate && e.ExpenseDate <= endDate)
+                .Select(e => new { e.Amount, e.PaymentMode })
+                .ToListAsync();
+
+            var operatingExpenses = expenseRows.Sum(e => e.Amount);
+            var grossMargin = totalBilled - operatingExpenses;
+
+            // Monthly trend (billed vs collected) for each month in the window.
+            var trend = new List<MonthlyTrendPointDto>();
+            for (var m = 0; m < months; m++)
+            {
+                var month = startMonth.AddMonths(m);
+                var monthInvoices = live.Where(i => i.InvoiceDate.Year == month.Year && i.InvoiceDate.Month == month.Month).ToList();
+                trend.Add(new MonthlyTrendPointDto
+                {
+                    Month = month.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                    Label = month.ToString("MMM yyyy", CultureInfo.InvariantCulture),
+                    Billed = monthInvoices.Sum(i => i.GrandTotal),
+                    Collected = monthInvoices.Sum(i => i.PaidAmount)
+                });
+            }
+
+            var topCustomers = live
+                .GroupBy(i => string.IsNullOrWhiteSpace(i.PartyName) ? "Unknown Party" : i.PartyName!)
+                .Select(g => new TopCustomerDto
+                {
+                    Name = g.Key,
+                    Billed = g.Sum(x => x.GrandTotal),
+                    Collected = g.Sum(x => x.PaidAmount),
+                    Outstanding = g.Sum(x => x.DueAmount),
+                    InvoiceCount = g.Count()
+                })
+                .OrderByDescending(c => c.Billed)
+                .Take(5)
+                .ToList();
+
+            var statusBreakdown = live
+                .GroupBy(i => i.PaymentStatus)
+                .Select(g => new StatusAmountDto
+                {
+                    Status = g.Key.ToString(),
+                    Count = g.Count(),
+                    Amount = g.Sum(x => x.GrandTotal)
+                })
+                .OrderBy(s => s.Status)
+                .ToList();
+
+            // Vehicle-wise profitability from trips (revenue vs expenses incl. driver advances) in the window.
+            var trips = await _context.Trips
+                .AsNoTracking()
+                .Where(t => t.IsActive && t.TripDate >= startDate && t.TripDate <= endDate)
+                .Select(t => new
+                {
+                    t.VehicleNo,
+                    t.OriginLocationName,
+                    t.TotalFreightRevenue,
+                    t.TotalExpenses,
+                    t.DriverAdvanceCash,
+                    t.DriverAdvanceFuel
+                })
+                .ToListAsync();
+
+            var vehicleProfitability = trips
+                .GroupBy(t => string.IsNullOrWhiteSpace(t.VehicleNo) ? "Unassigned" : t.VehicleNo!)
+                .Select(g =>
+                {
+                    var revenue = g.Sum(x => x.TotalFreightRevenue);
+                    var expenses = g.Sum(x => x.TotalExpenses + x.DriverAdvanceCash + x.DriverAdvanceFuel);
+                    var profit = revenue - expenses;
+                    return new VehicleProfitDto
+                    {
+                        VehicleNo = g.Key,
+                        Trips = g.Count(),
+                        Revenue = revenue,
+                        Expenses = expenses,
+                        Profit = profit,
+                        MarginPct = revenue > 0 ? Math.Round(profit / revenue * 100m, 1) : 0m
+                    };
+                })
+                .OrderByDescending(v => v.Revenue)
+                .Take(10)
+                .ToList();
+
+            // Branch-wise profitability (trips grouped by originating branch/location).
+            var branchProfitability = trips
+                .GroupBy(t => string.IsNullOrWhiteSpace(t.OriginLocationName) ? "Unassigned" : t.OriginLocationName!)
+                .Select(g =>
+                {
+                    var revenue = g.Sum(x => x.TotalFreightRevenue);
+                    var expenses = g.Sum(x => x.TotalExpenses + x.DriverAdvanceCash + x.DriverAdvanceFuel);
+                    var profit = revenue - expenses;
+                    return new BranchProfitDto
+                    {
+                        Branch = g.Key,
+                        Trips = g.Count(),
+                        Revenue = revenue,
+                        Expenses = expenses,
+                        Profit = profit,
+                        MarginPct = revenue > 0 ? Math.Round(profit / revenue * 100m, 1) : 0m
+                    };
+                })
+                .OrderByDescending(b => b.Revenue)
+                .Take(10)
+                .ToList();
+
+            // Cash & bank flow: inflow from invoice collections by mode, outflow from trip expenses by mode.
+            var inflowByMode = live
+                .Where(i => i.PaidAmount > 0)
+                .GroupBy(i => string.IsNullOrWhiteSpace(i.PaymentMode) ? "Unspecified" : i.PaymentMode!)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.PaidAmount));
+
+            var outflowByMode = expenseRows
+                .GroupBy(e => string.IsNullOrWhiteSpace(e.PaymentMode) ? "Unspecified" : e.PaymentMode!)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
+
+            var cashFlowByMode = inflowByMode.Keys.Union(outflowByMode.Keys)
+                .Select(mode =>
+                {
+                    inflowByMode.TryGetValue(mode, out var inf);
+                    outflowByMode.TryGetValue(mode, out var outf);
+                    return new CashFlowModeDto { Mode = mode, Inflow = inf, Outflow = outf, Net = inf - outf };
+                })
+                .OrderByDescending(c => c.Inflow + c.Outflow)
+                .ToList();
+
+            var totalInflow = inflowByMode.Values.Sum();
+            var totalOutflow = outflowByMode.Values.Sum();
+
+            return new BusinessAnalyticsDto
+            {
+                Months = months,
+                PeriodLabel = $"{startMonth:MMM yyyy} – {today:MMM yyyy}",
+                TotalBilled = totalBilled,
+                TotalCollected = totalCollected,
+                TotalOutstanding = totalOutstanding,
+                InvoiceCount = live.Count,
+                CancelledCount = invoices.Count - live.Count,
+                CollectionRatePct = totalBilled > 0 ? Math.Round(totalCollected / totalBilled * 100m, 1) : 0m,
+                OperatingExpenses = operatingExpenses,
+                GrossMargin = grossMargin,
+                GrossMarginPct = totalBilled > 0 ? Math.Round(grossMargin / totalBilled * 100m, 1) : 0m,
+                TotalInflow = totalInflow,
+                TotalOutflow = totalOutflow,
+                NetCashFlow = totalInflow - totalOutflow,
+                MonthlyTrend = trend,
+                TopCustomers = topCustomers,
+                PaymentStatusBreakdown = statusBreakdown,
+                VehicleProfitability = vehicleProfitability,
+                BranchProfitability = branchProfitability,
+                CashFlowByMode = cashFlowByMode
+            };
         }
 
         public async Task<DashboardResponse> GetDashboardStatsByDateRangeAsync(DateTime startDate, DateTime endDate)

@@ -50,6 +50,8 @@ namespace KTransport.API.Services
                 FitnessValidUntil = v.FitnessValidUntil,
                 InsuranceValidUntil = v.InsuranceValidUntil,
                 PermitValidUntil = v.PermitValidUntil,
+                PucValidUntil = v.PucValidUntil,
+                TaxValidUntil = v.TaxValidUntil,
                 IsActive = v.IsActive,
                 CreatedAt = v.CreatedAt,
                 UpdatedAt = v.UpdatedAt
@@ -98,6 +100,8 @@ namespace KTransport.API.Services
                 FitnessValidUntil = v.FitnessValidUntil,
                 InsuranceValidUntil = v.InsuranceValidUntil,
                 PermitValidUntil = v.PermitValidUntil,
+                PucValidUntil = v.PucValidUntil,
+                TaxValidUntil = v.TaxValidUntil,
                 IsActive = v.IsActive,
                 CreatedAt = v.CreatedAt,
                 UpdatedAt = v.UpdatedAt
@@ -117,6 +121,8 @@ namespace KTransport.API.Services
                 FitnessValidUntil = request.FitnessValidUntil,
                 InsuranceValidUntil = request.InsuranceValidUntil,
                 PermitValidUntil = request.PermitValidUntil,
+                PucValidUntil = request.PucValidUntil,
+                TaxValidUntil = request.TaxValidUntil,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -138,6 +144,8 @@ namespace KTransport.API.Services
                 FitnessValidUntil = vehicle.FitnessValidUntil,
                 InsuranceValidUntil = vehicle.InsuranceValidUntil,
                 PermitValidUntil = vehicle.PermitValidUntil,
+                PucValidUntil = vehicle.PucValidUntil,
+                TaxValidUntil = vehicle.TaxValidUntil,
                 IsActive = vehicle.IsActive,
                 CreatedAt = vehicle.CreatedAt
             };
@@ -166,6 +174,10 @@ namespace KTransport.API.Services
                 vehicle.InsuranceValidUntil = request.InsuranceValidUntil;
             if (request.PermitValidUntil.HasValue)
                 vehicle.PermitValidUntil = request.PermitValidUntil;
+            if (request.PucValidUntil.HasValue)
+                vehicle.PucValidUntil = request.PucValidUntil;
+            if (request.TaxValidUntil.HasValue)
+                vehicle.TaxValidUntil = request.TaxValidUntil;
             if (request.IsActive.HasValue)
                 vehicle.IsActive = request.IsActive.Value;
 
@@ -186,6 +198,8 @@ namespace KTransport.API.Services
                 FitnessValidUntil = vehicle.FitnessValidUntil,
                 InsuranceValidUntil = vehicle.InsuranceValidUntil,
                 PermitValidUntil = vehicle.PermitValidUntil,
+                PucValidUntil = vehicle.PucValidUntil,
+                TaxValidUntil = vehicle.TaxValidUntil,
                 IsActive = vehicle.IsActive,
                 CreatedAt = vehicle.CreatedAt,
                 UpdatedAt = vehicle.UpdatedAt
@@ -524,6 +538,79 @@ namespace KTransport.API.Services
                 IsActive = loc.IsActive,
                 CreatedAt = loc.CreatedAt,
                 UpdatedAt = loc.UpdatedAt
+            };
+        }
+
+        // Compliance — aggregate expiring / expired statutory documents across the active fleet.
+        public async Task<ComplianceOverviewDto> GetComplianceAlertsAsync(int withinDays = 30)
+        {
+            if (withinDays < 0) withinDays = 0;
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            var vehicles = await _context.Vehicles.AsNoTracking()
+                .Where(v => v.IsActive)
+                .Select(v => new
+                {
+                    v.Id,
+                    v.VehicleNo,
+                    v.FitnessValidUntil,
+                    v.InsuranceValidUntil,
+                    v.PermitValidUntil,
+                    v.PucValidUntil,
+                    v.TaxValidUntil
+                })
+                .ToListAsync();
+
+            var drivers = await _context.Drivers.AsNoTracking()
+                .Where(d => d.IsActive)
+                .Select(d => new { d.Id, d.Name, d.LicenseValidUntil })
+                .ToListAsync();
+
+            var alerts = new List<ComplianceAlertDto>();
+            var tracked = 0;
+
+            void Add(string entityType, long id, string name, string docType, DateOnly? expiry)
+            {
+                if (!expiry.HasValue) return;
+                tracked++;
+                var days = expiry.Value.DayNumber - today.DayNumber;
+                if (days > withinDays) return; // healthy and outside the alert window
+                alerts.Add(new ComplianceAlertDto
+                {
+                    EntityType = entityType,
+                    EntityId = id,
+                    EntityName = name,
+                    DocumentType = docType,
+                    ExpiryDate = expiry.Value,
+                    DaysToExpiry = days,
+                    Status = days < 0 ? "Expired" : days <= 7 ? "Critical" : days <= 30 ? "Warning" : "Upcoming"
+                });
+            }
+
+            foreach (var v in vehicles)
+            {
+                Add("Vehicle", v.Id, v.VehicleNo, "Insurance", v.InsuranceValidUntil);
+                Add("Vehicle", v.Id, v.VehicleNo, "Fitness Certificate", v.FitnessValidUntil);
+                Add("Vehicle", v.Id, v.VehicleNo, "National / State Permit", v.PermitValidUntil);
+                Add("Vehicle", v.Id, v.VehicleNo, "PUC (Pollution)", v.PucValidUntil);
+                Add("Vehicle", v.Id, v.VehicleNo, "Road Tax", v.TaxValidUntil);
+            }
+
+            foreach (var d in drivers)
+            {
+                Add("Driver", d.Id, d.Name, "Driving License", d.LicenseValidUntil);
+            }
+
+            var ordered = alerts.OrderBy(a => a.DaysToExpiry).ToList();
+
+            return new ComplianceOverviewDto
+            {
+                ExpiredCount = ordered.Count(a => a.Status == "Expired"),
+                CriticalCount = ordered.Count(a => a.Status == "Critical"),
+                WarningCount = ordered.Count(a => a.Status == "Warning"),
+                UpcomingCount = ordered.Count(a => a.Status == "Upcoming"),
+                TrackedDocuments = tracked,
+                Alerts = ordered
             };
         }
 

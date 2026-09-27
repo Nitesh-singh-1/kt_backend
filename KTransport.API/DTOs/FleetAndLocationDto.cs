@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace KTransport.API.DTOs
@@ -17,6 +18,8 @@ namespace KTransport.API.DTOs
         public DateOnly? FitnessValidUntil { get; set; }
         public DateOnly? InsuranceValidUntil { get; set; }
         public DateOnly? PermitValidUntil { get; set; }
+        public DateOnly? PucValidUntil { get; set; }
+        public DateOnly? TaxValidUntil { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -36,6 +39,8 @@ namespace KTransport.API.DTOs
         public DateOnly? FitnessValidUntil { get; set; }
         public DateOnly? InsuranceValidUntil { get; set; }
         public DateOnly? PermitValidUntil { get; set; }
+        public DateOnly? PucValidUntil { get; set; }
+        public DateOnly? TaxValidUntil { get; set; }
     }
 
     public class VehicleLookupDto
@@ -131,6 +136,8 @@ namespace KTransport.API.DTOs
         public DateOnly? FitnessValidUntil { get; set; }
         public DateOnly? InsuranceValidUntil { get; set; }
         public DateOnly? PermitValidUntil { get; set; }
+        public DateOnly? PucValidUntil { get; set; }
+        public DateOnly? TaxValidUntil { get; set; }
         public bool? IsActive { get; set; }
     }
 
@@ -164,5 +171,35 @@ namespace KTransport.API.DTOs
         public string? City { get; set; }
         public string? State { get; set; }
         public string? Pincode { get; set; }
+    }
+
+    // --- Fleet Compliance (document expiry tracking) ---
+
+    /// <summary>A single expiring / expired statutory document for a vehicle or driver.</summary>
+    public class ComplianceAlertDto
+    {
+        /// <summary>"Vehicle" or "Driver".</summary>
+        public string EntityType { get; set; } = null!;
+        public long EntityId { get; set; }
+        /// <summary>Registration number (vehicle) or driver name.</summary>
+        public string EntityName { get; set; } = null!;
+        /// <summary>Human label, e.g. "Insurance", "Fitness Certificate", "Driving License".</summary>
+        public string DocumentType { get; set; } = null!;
+        public DateOnly ExpiryDate { get; set; }
+        /// <summary>Days until expiry; negative when already expired.</summary>
+        public int DaysToExpiry { get; set; }
+        /// <summary>"Expired", "Critical" (&lt;=7d), "Warning" (&lt;=30d) or "Upcoming".</summary>
+        public string Status { get; set; } = null!;
+    }
+
+    public class ComplianceOverviewDto
+    {
+        public int ExpiredCount { get; set; }
+        public int CriticalCount { get; set; }
+        public int WarningCount { get; set; }
+        public int UpcomingCount { get; set; }
+        /// <summary>Total statutory documents inspected across active vehicles and drivers.</summary>
+        public int TrackedDocuments { get; set; }
+        public List<ComplianceAlertDto> Alerts { get; set; } = new();
     }
 }
