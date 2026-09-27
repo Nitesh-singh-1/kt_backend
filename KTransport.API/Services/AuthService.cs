@@ -343,8 +343,11 @@ namespace KTransport.API.Services
                 var emailed = false;
                 if (!string.IsNullOrWhiteSpace(user.Email))
                 {
-                    var (subject, html) = EmailTemplates.PasswordResetOtp(user.FullName ?? user.Username, verificationCode, ResetCodeValidMinutes);
-                    emailed = await _emailSender.SendAsync(user.Email!, subject, html);
+                    // White-label: brand the email with the user's own organization name.
+                    var brand = (await _context.Tenants.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(t => t.Id == user.TenantId))?.Name;
+                    var (subject, html) = EmailTemplates.PasswordResetOtp(brand ?? "", user.FullName ?? user.Username, verificationCode, ResetCodeValidMinutes);
+                    emailed = await _emailSender.SendAsync(user.Email!, subject, html, brand);
                 }
 
                 if (emailed)

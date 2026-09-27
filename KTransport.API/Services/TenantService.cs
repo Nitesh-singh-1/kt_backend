@@ -189,8 +189,8 @@ namespace KTransport.API.Services
                 // 5. Send welcome email to the new admin (best effort — never blocks onboarding).
                 if (!string.IsNullOrWhiteSpace(adminUser.Email))
                 {
-                    var (subject, html) = EmailTemplates.Welcome(adminUser.FullName ?? adminUser.Username, tenant.Name, adminUser.Username);
-                    await _emailSender.SendAsync(adminUser.Email!, subject, html);
+                    var (subject, html) = EmailTemplates.Welcome(tenant.Name, adminUser.FullName ?? adminUser.Username, adminUser.Username);
+                    await _emailSender.SendAsync(adminUser.Email!, subject, html, tenant.Name);
                 }
 
                 // 6. Generate JWT Token for immediate login

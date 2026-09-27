@@ -108,8 +108,9 @@ namespace KTransport.API.Services
             var inviterName = invitedByUserId.HasValue
                 ? (await _context.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == invitedByUserId.Value))?.FullName ?? ""
                 : "";
-            var (subject, html) = EmailTemplates.TeamInvite(tenant?.Name ?? "your organization", inviterName ?? "", acceptUrl, InviteValidDays);
-            var emailSent = await _emailSender.SendAsync(email, subject, html);
+            var brandName = tenant?.Name ?? "your organization";
+            var (subject, html) = EmailTemplates.TeamInvite(brandName, inviterName ?? "", acceptUrl, InviteValidDays);
+            var emailSent = await _emailSender.SendAsync(email, subject, html, brandName);
 
             await _auditLogService.LogAsync("UserInvited", tenantId: tenantId, userId: invitedByUserId, entityType: "Invitation", entityId: invite.Id.ToString(), details: $"Invited {email} as {role}");
 

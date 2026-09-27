@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using KTransport.API.Authorization;
 using KTransport.API.Models;
 using KTransport.API.Services;
+using KTransport.API.Services.Email;
 
 namespace KTransport.API.Controllers
 {
@@ -15,13 +17,43 @@ namespace KTransport.API.Controllers
         private readonly ILogger<AuthController> _logger;
         private readonly IFeatureAuthorizationService _authorizationService;
         private readonly IInvitationService _invitationService;
+        private readonly IEmailSender _emailSender;
 
-        public AuthController(IAuthService authService, ILogger<AuthController> logger, IFeatureAuthorizationService authorizationService, IInvitationService invitationService)
+        public AuthController(IAuthService authService, ILogger<AuthController> logger, IFeatureAuthorizationService authorizationService, IInvitationService invitationService, IEmailSender emailSender)
         {
             _authService = authService;
             _logger = logger;
             _authorizationService = authorizationService;
             _invitationService = invitationService;
+            _emailSender = emailSender;
+        }
+
+        /// <summary>Admin diagnostic: send a test email to verify SMTP configuration.</summary>
+        [HttpPost("test-email")]
+        [Authorize]
+        [RequireSuperUser]
+        public async Task<IActionResult> TestEmail([FromBody] TestEmailRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.To))
+            {
+                return BadRequest(new { success = false, message = "A recipient email ('to') is required." });
+            }
+
+            var sent = await _emailSender.SendAsync(
+                request.To.Trim(),
+                "KTransport SMTP test",
+                "<p>This is a test email from KTransport. If you received it, your SMTP configuration is working.</p>");
+
+            return Ok(new
+            {
+                success = sent,
+                emailEnabled = _emailSender.IsEnabled,
+                message = sent
+                    ? "Test email handed off to the SMTP server successfully. Check the inbox (and spam)."
+                    : (_emailSender.IsEnabled
+                        ? "SMTP is enabled but the send failed — check the server logs for the SMTP error (bad credentials, unverified sender, etc.)."
+                        : "Email is disabled (Email:Enabled=false) — the message was only logged, not sent.")
+            });
         }
 
         /// <summary>Public: fetch invitation info (org, email, role) for the accept-invite page.</summary>

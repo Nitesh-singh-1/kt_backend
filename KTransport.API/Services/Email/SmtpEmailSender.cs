@@ -19,7 +19,7 @@ namespace KTransport.API.Services.Email
 
         public bool IsEnabled => _settings.Enabled && !string.IsNullOrWhiteSpace(_settings.Host);
 
-        public async Task<bool> SendAsync(string toAddress, string subject, string htmlBody)
+        public async Task<bool> SendAsync(string toAddress, string subject, string htmlBody, string? fromDisplayName = null)
         {
             if (string.IsNullOrWhiteSpace(toAddress))
             {
@@ -37,9 +37,10 @@ namespace KTransport.API.Services.Email
 
             try
             {
+                var displayName = string.IsNullOrWhiteSpace(fromDisplayName) ? _settings.FromName : fromDisplayName;
                 using var message = new MailMessage
                 {
-                    From = new MailAddress(_settings.FromAddress, _settings.FromName),
+                    From = new MailAddress(_settings.FromAddress, displayName),
                     Subject = subject,
                     Body = htmlBody,
                     IsBodyHtml = true

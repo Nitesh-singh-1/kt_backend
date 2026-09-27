@@ -14,6 +14,11 @@ namespace KTransport.API.Models
         public string RefreshToken { get; set; } = string.Empty;
     }
 
+    public class TestEmailRequest
+    {
+        public string To { get; set; } = string.Empty;
+    }
+
     public class UserDto
     {
         public int Id { get; set; }
