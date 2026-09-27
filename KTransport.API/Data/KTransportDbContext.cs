@@ -65,6 +65,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<Tyre> Tyres { get; set; }
     public virtual DbSet<SparePart> SpareParts { get; set; }
     public virtual DbSet<VehicleLoan> VehicleLoans { get; set; }
+    public virtual DbSet<EmptyTripLog> EmptyTripLogs { get; set; }
     public virtual DbSet<CargoClaim> CargoClaims { get; set; }
     public virtual DbSet<TenantSetting> TenantSettings { get; set; }
     public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
@@ -1521,6 +1522,41 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.VehicleId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_vehicle_loans_vehicle");
+        });
+
+        modelBuilder.Entity<EmptyTripLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("empty_trip_logs_pkey");
+            entity.ToTable("empty_trip_logs");
+
+            entity.HasIndex(e => new { e.TenantId, e.TripDate }, "empty_trip_logs_tenant_date_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.VehicleId).HasColumnName("vehicle_id");
+            entity.Property(e => e.VehicleNo).HasMaxLength(50).HasColumnName("vehicle_no");
+            entity.Property(e => e.DriverName).HasMaxLength(150).HasColumnName("driver_name");
+            entity.Property(e => e.FromLocation).HasMaxLength(150).HasColumnName("from_location");
+            entity.Property(e => e.ToLocation).HasMaxLength(150).HasColumnName("to_location");
+            entity.Property(e => e.TripDate).HasColumnName("trip_date");
+            entity.Property(e => e.DistanceKm).HasPrecision(12, 2).HasDefaultValue(0).HasColumnName("distance_km");
+            entity.Property(e => e.FuelCost).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("fuel_cost");
+            entity.Property(e => e.Reason).HasMaxLength(80).HasColumnName("reason");
+            entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_empty_trip_logs_tenant");
+
+            entity.HasOne(d => d.Vehicle).WithMany()
+                .HasForeignKey(d => d.VehicleId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_empty_trip_logs_vehicle");
         });
 
         modelBuilder.Entity<CargoClaim>(entity =>

@@ -234,6 +234,19 @@ namespace KTransport.API.Services
                 });
             }
 
+            // 3b. Empty / Deadhead trip log
+            if (IsEnabled("empty_trips") || IsEnabled("trips") || IsEnabled("MANIFEST"))
+            {
+                menu.Add(new DynamicMenuItemDto
+                {
+                    Id = "empty_trips",
+                    Title = "Empty Trip Log",
+                    Path = "/empty-trips",
+                    Icon = "truck",
+                    PermissionKey = "trips.view"
+                });
+            }
+
             // 4. POD & Deliveries
             if (IsEnabled("pod") || IsEnabled("POD"))
             {
@@ -665,6 +678,7 @@ namespace KTransport.API.Services
                 "consignments.all",
                 "quotations",
                 "trips",
+                "empty_trips",
                 "pod",
                 "billing",
                 "billing.invoices",
