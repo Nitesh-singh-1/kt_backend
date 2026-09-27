@@ -355,6 +355,18 @@ namespace KTransport.API.Services
                     });
                 }
 
+                if (IsEnabled("master_data.loans") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
+                {
+                    masterChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "master_data.loans",
+                        Title = "Vehicle EMI / Loans",
+                        Path = "/vehicle-loans",
+                        Icon = "barChart",
+                        PermissionKey = "fleet.view"
+                    });
+                }
+
                 if (IsEnabled("master_data.rates") || IsEnabled("rates") || IsEnabled("master_data"))
                 {
                     masterChildren.Add(new DynamicMenuItemDto
@@ -663,6 +675,7 @@ namespace KTransport.API.Services
                 "master_data.compliance",
                 "master_data.tyres",
                 "master_data.spares",
+                "master_data.loans",
                 "master_data.rates",
                 "master_data.vendorrates",
                 "vendors",

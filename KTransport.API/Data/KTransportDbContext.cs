@@ -64,6 +64,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<VendorRateContract> VendorRateContracts { get; set; }
     public virtual DbSet<Tyre> Tyres { get; set; }
     public virtual DbSet<SparePart> SpareParts { get; set; }
+    public virtual DbSet<VehicleLoan> VehicleLoans { get; set; }
     public virtual DbSet<CargoClaim> CargoClaims { get; set; }
     public virtual DbSet<TenantSetting> TenantSettings { get; set; }
     public virtual DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
@@ -1482,6 +1483,44 @@ public partial class KTransportDbContext : DbContext
             entity.HasOne(d => d.Tenant).WithMany()
                 .HasForeignKey(d => d.TenantId)
                 .HasConstraintName("fk_spare_parts_tenant");
+        });
+
+        modelBuilder.Entity<VehicleLoan>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("vehicle_loans_pkey");
+            entity.ToTable("vehicle_loans");
+
+            entity.HasIndex(e => new { e.TenantId, e.VehicleId }, "vehicle_loans_tenant_vehicle_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.VehicleId).HasColumnName("vehicle_id");
+            entity.Property(e => e.VehicleNo).HasMaxLength(50).HasColumnName("vehicle_no");
+            entity.Property(e => e.Lender).HasMaxLength(150).HasColumnName("lender");
+            entity.Property(e => e.LoanAccountNo).HasMaxLength(60).HasColumnName("loan_account_no");
+            entity.Property(e => e.PrincipalAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("principal_amount");
+            entity.Property(e => e.EmiAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("emi_amount");
+            entity.Property(e => e.TenureMonths).HasDefaultValue(0).HasColumnName("tenure_months");
+            entity.Property(e => e.EmisPaid).HasDefaultValue(0).HasColumnName("emis_paid");
+            entity.Property(e => e.InterestRate).HasPrecision(6, 2).HasDefaultValue(0).HasColumnName("interest_rate");
+            entity.Property(e => e.LoanStartDate).HasColumnName("loan_start_date");
+            entity.Property(e => e.NextDueDate).HasColumnName("next_due_date");
+            entity.Property(e => e.IsClosed).HasDefaultValue(false).HasColumnName("is_closed");
+            entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_vehicle_loans_tenant");
+
+            entity.HasOne(d => d.Vehicle).WithMany()
+                .HasForeignKey(d => d.VehicleId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_vehicle_loans_vehicle");
         });
 
         modelBuilder.Entity<CargoClaim>(entity =>
