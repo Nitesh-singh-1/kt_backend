@@ -31,6 +31,12 @@ namespace KTransport.API.DTOs
         public string DateFormat { get; set; } = "DD/MM/YYYY";
         public string TimeFormat { get; set; } = "12h";
         public string Address { get; set; } = "123 Logistics Park, Transport Nagar";
+
+        // Bilty / GR print preferences. Persisted alongside the rest of General.
+        // BiltyPreset: "standard" (spacious, one copy per page) or "dense" (3 copies per A4).
+        public string BiltyPreset { get; set; } = "standard";
+        // PrintDisclaimer: appended to every Bilty copy. Empty = frontend renders its default.
+        public string PrintDisclaimer { get; set; } = string.Empty;
     }
 
     public class BillingAndTaxSettingsDto
