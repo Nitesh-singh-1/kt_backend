@@ -43,8 +43,12 @@ namespace KTransport.API.DTOs
         [StringLength(150, MinimumLength = 2, ErrorMessage = "Party name must be between 2 and 150 characters.")]
         public string PartyName { get; set; } = null!;
 
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Party mobile must be a valid 10-digit Indian mobile number.")]
         public string? PartyMobile { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid GSTIN format.")]
         public string? PartyGstNo { get; set; }
+
         public string? FromLocation { get; set; }
         public string? ToLocation { get; set; }
         public string? VehicleType { get; set; }
@@ -52,7 +56,10 @@ namespace KTransport.API.DTOs
         public decimal? WeightKg { get; set; }
         public decimal? RatePerUnit { get; set; }
         public string? RateBasis { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Estimated freight cannot be negative.")]
         public decimal EstimatedFreight { get; set; } = 0;
+
         public string? Terms { get; set; }
         public string? Notes { get; set; }
     }
@@ -63,7 +70,11 @@ namespace KTransport.API.DTOs
         public DateOnly? ValidUntil { get; set; }
         public long? PartyId { get; set; }
         public string? PartyName { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Party mobile must be a valid 10-digit Indian mobile number.")]
         public string? PartyMobile { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid GSTIN format.")]
         public string? PartyGstNo { get; set; }
         public string? FromLocation { get; set; }
         public string? ToLocation { get; set; }

@@ -1,18 +1,40 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using KTransport.API.DTOs;
 
 namespace KTransport.API.Models
 {
     public class TenantOnboardingRequest
     {
+        [Required(ErrorMessage = "Organization name is required.")]
+        [StringLength(200, MinimumLength = 2)]
         public string OrganizationName { get; set; } = null!;
+
+        [Required(ErrorMessage = "Organization code is required.")]
+        [StringLength(20, MinimumLength = 2)]
+        [RegularExpression(@"^[A-Z0-9_-]+$", ErrorMessage = "Organization code may contain only A-Z, 0-9, underscore or hyphen.")]
         public string OrganizationCode { get; set; } = null!;
+
+        [Required(ErrorMessage = "Admin username is required.")]
+        [StringLength(50, MinimumLength = 3)]
         public string AdminUsername { get; set; } = null!;
+
+        [Required(ErrorMessage = "Admin password is required.")]
+        [StringLength(200, MinimumLength = 6, ErrorMessage = "Password must be at least 6 characters.")]
         public string AdminPassword { get; set; } = null!;
+
+        [Required(ErrorMessage = "Admin full name is required.")]
+        [StringLength(150)]
         public string AdminFullName { get; set; } = null!;
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Mobile number must be a valid 10-digit Indian mobile number.")]
         public string? AdminMobile { get; set; }
+
+        [EmailAddress(ErrorMessage = "Invalid email address format.")]
+        [StringLength(150)]
         public string? AdminEmail { get; set; }
+
         public string? AdminRole { get; set; } = "admin";
         public string? PlanTier { get; set; } = "Starter"; // Starter, Professional, Enterprise, Custom
         public List<string>? EnabledModules { get; set; } // ["dashboard", "gr", "gr.list", "gr.entry", "challan", "challan.list", "challan.entry", "reports", "system"]

@@ -57,7 +57,7 @@ namespace KTransport.API.DTOs
         [MaxLength(100)]
         public string FullName { get; set; } = string.Empty;
 
-        [MaxLength(10)]
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Mobile number must be a valid 10-digit Indian mobile number.")]
         public string? Mobile { get; set; }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using KTransport.API.Models;
 
 namespace KTransport.API.DTOs
@@ -77,6 +78,8 @@ namespace KTransport.API.DTOs
         public string? VehicleNo { get; set; }
         public long? DriverId { get; set; }
         public string? DriverName { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Driver mobile must be a valid 10-digit Indian mobile number.")]
         public string? DriverMobile { get; set; }
         public long? OriginLocationId { get; set; }
         public string? OriginLocationName { get; set; }
@@ -97,6 +100,8 @@ namespace KTransport.API.DTOs
         public string? VehicleNo { get; set; }
         public long? DriverId { get; set; }
         public string? DriverName { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Driver mobile must be a valid 10-digit Indian mobile number.")]
         public string? DriverMobile { get; set; }
         public long? OriginLocationId { get; set; }
         public string? OriginLocationName { get; set; }

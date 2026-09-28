@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 using KTransport.API.Models;
 
 namespace KTransport.API.DTOs
@@ -26,10 +27,18 @@ namespace KTransport.API.DTOs
 
     public class UploadPodRequest
     {
+        [Range(1, long.MaxValue, ErrorMessage = "Shipment is required.")]
         public long ShipmentId { get; set; }
+
         public DateOnly? DeliveryDate { get; set; }
+
+        [Required(ErrorMessage = "Receiver / consignee signatory name is required.")]
+        [StringLength(150, MinimumLength = 2)]
         public string ReceiverName { get; set; } = null!;
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Receiver mobile must be a valid 10-digit Indian mobile number.")]
         public string? ReceiverMobile { get; set; }
+
         public string? ReceiverAadharOrId { get; set; }
         public string? DocumentUrl { get; set; }
         public string? SignatureUrl { get; set; }

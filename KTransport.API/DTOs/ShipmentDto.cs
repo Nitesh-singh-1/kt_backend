@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using KTransport.API.Models;
 
 namespace KTransport.API.DTOs
@@ -141,15 +142,25 @@ namespace KTransport.API.DTOs
 
         public long? ConsignorPartyId { get; set; }
         public string? ConsignorName { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid Consignor GSTIN format.")]
         public string? ConsignorGstNo { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Consignor mobile must be a valid 10-digit Indian mobile number.")]
         public string? ConsignorMobile { get; set; }
+
         public string? ConsignorAddress { get; set; }
         public bool SaveConsignorAsParty { get; set; } = false;
 
         public long? ConsigneePartyId { get; set; }
         public string? ConsigneeName { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid Consignee GSTIN format.")]
         public string? ConsigneeGstNo { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Consignee mobile must be a valid 10-digit Indian mobile number.")]
         public string? ConsigneeMobile { get; set; }
+
         public string? ConsigneeAddress { get; set; }
         public bool SaveConsigneeAsParty { get; set; } = false;
 
@@ -186,14 +197,24 @@ namespace KTransport.API.DTOs
 
         public long? ConsignorPartyId { get; set; }
         public string? ConsignorName { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid Consignor GSTIN format.")]
         public string? ConsignorGstNo { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Consignor mobile must be a valid 10-digit Indian mobile number.")]
         public string? ConsignorMobile { get; set; }
+
         public string? ConsignorAddress { get; set; }
 
         public long? ConsigneePartyId { get; set; }
         public string? ConsigneeName { get; set; }
+
+        [RegularExpression(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$", ErrorMessage = "Invalid Consignee GSTIN format.")]
         public string? ConsigneeGstNo { get; set; }
+
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Consignee mobile must be a valid 10-digit Indian mobile number.")]
         public string? ConsigneeMobile { get; set; }
+
         public string? ConsigneeAddress { get; set; }
 
         public decimal GoodsValue { get; set; }

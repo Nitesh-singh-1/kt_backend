@@ -18,11 +18,11 @@ namespace KTransport.API.DTOs
         [MaxLength(100)]
         public string FullName { get; set; } = string.Empty;
 
-        [MaxLength(15)]
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Mobile number must be a valid 10-digit Indian mobile number.")]
         public string? Mobile { get; set; }
 
         [MaxLength(150)]
-        [EmailAddress]
+        [EmailAddress(ErrorMessage = "Invalid email address format.")]
         public string? Email { get; set; }
 
         public string Role { get; set; } = "SUB_USER";
@@ -35,7 +35,7 @@ namespace KTransport.API.DTOs
         [MaxLength(100)]
         public string? FullName { get; set; }
 
-        [MaxLength(15)]
+        [RegularExpression(@"^[6-9]\d{9}$", ErrorMessage = "Mobile number must be a valid 10-digit Indian mobile number.")]
         public string? Mobile { get; set; }
 
         [MaxLength(150)]
