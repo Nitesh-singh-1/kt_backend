@@ -1,0 +1,51 @@
+# TASK-013 slice 1: minimal CI for the .NET 8 backend.
+# Runs on every push and PR to any branch.
+#
+# What it does:
+#   1. Restores + builds in Release
+#   2. Runs the xUnit test project (KTransport.API.Tests)
+#
+# Not yet:
+#   - Docker image build (would require GHCR secrets to publish; the Dockerfile
+#     is here so a future slice can add `docker build` + push).
+#   - Integration tests against Postgres via Testcontainers (added when we have
+#     more service-level tests to justify the ~30s cold start).
+
+name: kt_backend CI
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore KTransport.API.sln
+
+      - name: Build (Release)
+        run: dotnet build KTransport.API.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test KTransport.API.Tests/KTransport.API.Tests.csproj --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: KTransport.API.Tests/TestResults/**/*
+          retention-days: 14
