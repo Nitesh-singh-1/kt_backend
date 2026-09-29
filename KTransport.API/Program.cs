@@ -10,11 +10,40 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Threading.RateLimiting;
+using Polly;
+using Polly.Retry;
+using Serilog;
+using Serilog.Events;
 
 // Enable Npgsql legacy timestamp behavior for compatibility with 'timestamp without time zone' columns
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// TASK-010: Serilog replaces the built-in ILogger sinks so every log line is emitted as
+// structured JSON with a CorrelationId enrichment (populated per-request by
+// CorrelationIdMiddleware). Config is loaded from appsettings.{Environment}.json under
+// the "Serilog" section; when nothing is configured we fall back to Console-only at
+// Information level (Debug in Development). Health-check hits are noisy and are filtered
+// out so they don't drown real signal in the logs.
+builder.Host.UseSerilog((context, services, config) =>
+{
+    config
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithThreadId()
+        .Filter.ByExcluding(logEvent =>
+            logEvent.Properties.TryGetValue("RequestPath", out var path) &&
+            path.ToString().Contains("/health"))
+        .MinimumLevel.Is(context.HostingEnvironment.IsDevelopment() ? LogEventLevel.Debug : LogEventLevel.Information)
+        .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+        .WriteTo.Console(
+            outputTemplate:
+                "[{Timestamp:HH:mm:ss} {Level:u3}] {CorrelationId} {Message:lj} {Properties:j}{NewLine}{Exception}");
+});
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -191,10 +220,27 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+// TASK-010: health checks — /health is liveness (process up), /health/ready runs a
+// lightweight DB ping so a load balancer knows to stop routing traffic while the
+// database is unreachable. The check has a short timeout so a slow DB doesn't hold
+// the probe hostage.
+builder.Services
+    .AddHealthChecks()
+    .AddDbContextCheck<KTransportDbContext>(name: "database", tags: new[] { "ready" });
+
 var app = builder.Build();
 
-// Consistent JSON error envelope for any unhandled exception (must be first to wrap everything).
+// TASK-010: correlation-id middleware must run BEFORE ExceptionHandlingMiddleware and
+// before request logging so the same X-Request-Id appears in the response header, in
+// the structured request log line, and in the error envelope if anything throws.
+app.UseMiddleware<KTransport.API.Middleware.CorrelationIdMiddleware>();
+
+// Consistent JSON error envelope for any unhandled exception (must wrap everything past this point).
 app.UseMiddleware<KTransport.API.Middleware.ExceptionHandlingMiddleware>();
+
+// One structured log line per request (method, path, status, elapsed ms + CorrelationId).
+// Health-check hits are excluded via the filter set up in the host config above.
+app.UseSerilogRequestLogging();
 
 // Configure the HTTP request pipeline.
 app.UseSwagger();
@@ -220,19 +266,50 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Automatically apply pending database migrations and seed data on startup with retry resilience
+// TASK-010: health endpoints for orchestrators/load balancers.
+//   /health        — liveness. Always returns Healthy while the process is up.
+//   /health/ready  — readiness. Runs only the checks tagged "ready" (currently the DB
+//                    ping). Returns 503 while the DB is unreachable so the LB stops
+//                    routing traffic during an outage.
+// Both are AllowAnonymous — health probes must not need a JWT.
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false, // exclude all named checks — pure "am I up?" liveness
+});
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+});
+
+// Automatically apply pending database migrations and seed data on startup with retry resilience.
+// TASK-010: replaced a hand-rolled for-loop-with-Thread.Sleep with a Polly async retry
+// policy — same behaviour (up to 10 attempts) but with exponential backoff, jitter to
+// prevent thundering-herd on restart, and awaited waits instead of blocking the pool.
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     var logger = services.GetRequiredService<ILogger<Program>>();
-    var maxRetries = 10;
-    var delay = TimeSpan.FromSeconds(3);
+    const int maxRetries = 10;
 
-    for (int retry = 1; retry <= maxRetries; retry++)
+    var jitter = new Random();
+    AsyncRetryPolicy retryPolicy = Policy
+        .Handle<Exception>()
+        .WaitAndRetryAsync(
+            retryCount: maxRetries - 1, // WaitAndRetry counts RETRIES, not attempts
+            sleepDurationProvider: attempt =>
+                TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, attempt)))
+                + TimeSpan.FromMilliseconds(jitter.Next(0, 500)),
+            onRetry: (ex, wait, attempt, _) =>
+                logger.LogWarning(ex,
+                    "Database migration/seeding attempt {Attempt} failed; retrying in {WaitSeconds:F1}s...",
+                    attempt, wait.TotalSeconds));
+
+    try
     {
-        try
+        await retryPolicy.ExecuteAsync(async () =>
         {
-            logger.LogInformation("Attempting database migration and schema sync (Attempt {Retry}/{MaxRetries})...", retry, maxRetries);
+            await Task.Yield(); // yield control so Polly's async plumbing runs cleanly
+            logger.LogInformation("Attempting database migration and schema sync...");
             var dbContext = services.GetRequiredService<KTransportDbContext>();
 
             if (dbContext.Database.IsRelational())
@@ -383,20 +460,15 @@ using (var scope = app.Services.CreateScope())
             }
 
             logger.LogInformation("Database startup initialization completed successfully.");
-            break; // Migration and seeding succeeded, exit retry loop
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Database migration/seeding attempt {Retry} failed. Waiting {Delay}s before retry...", retry, delay.TotalSeconds);
-            if (retry == maxRetries)
-            {
-                logger.LogError(ex, "FATAL: Database migration and seeding failed after {MaxRetries} attempts.", maxRetries);
-            }
-            else
-            {
-                Thread.Sleep(delay);
-            }
-        }
+        });
+    }
+    catch (Exception ex)
+    {
+        // All Polly retries exhausted. Log fatally — the app will still call app.Run() so
+        // /health returns 200 (the process is alive) but /health/ready will fail on the
+        // DB check, telling any load balancer to keep traffic away until the operator
+        // resolves the underlying issue.
+        logger.LogError(ex, "FATAL: Database migration and seeding failed after {MaxRetries} attempts.", maxRetries);
     }
 }
 

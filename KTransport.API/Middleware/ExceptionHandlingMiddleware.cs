@@ -30,7 +30,13 @@ namespace KTransport.API.Middleware
             }
             catch (Exception ex)
             {
-                var traceId = context.TraceIdentifier;
+                // Prefer the CorrelationId set by CorrelationIdMiddleware so the value
+                // clients see in the X-Request-Id response header matches what's in the
+                // error envelope (and in the logs). Fall back to the ASP.NET-generated
+                // TraceIdentifier for defence in depth if this middleware runs without
+                // its upstream partner.
+                var traceId = (context.Items[CorrelationIdMiddleware.ItemKey] as string)
+                    ?? context.TraceIdentifier;
                 _logger.LogError(ex, "Unhandled exception (traceId {TraceId}) on {Method} {Path}",
                     traceId, context.Request.Method, context.Request.Path);
 
