@@ -27,10 +27,13 @@ namespace KTransport.API.Controllers
         public async Task<ActionResult<List<PartyDto>>> GetParties(
             [FromQuery] string? search = null,
             [FromQuery] PartyType? partyType = null,
-            [FromQuery] bool activeOnly = true)
+            [FromQuery] bool activeOnly = true,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
         {
             var parties = await _partyService.GetPartiesAsync(search, partyType, activeOnly);
-            return Ok(parties);
+            var slice = PaginationHelper.Paginate(parties, HttpContext, page, pageSize);
+            return Ok(slice);
         }
 
         [HttpGet("lookup")]

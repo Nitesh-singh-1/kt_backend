@@ -25,10 +25,14 @@ namespace KTransport.API.Controllers
 
         // Vendor Master
         [HttpGet]
-        public async Task<ActionResult<List<VendorDto>>> GetVendors([FromQuery] string? search = null)
+        public async Task<ActionResult<List<VendorDto>>> GetVendors(
+            [FromQuery] string? search = null,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
         {
             var vendors = await _vendorService.GetVendorsAsync(search);
-            return Ok(vendors);
+            var slice = PaginationHelper.Paginate(vendors, HttpContext, page, pageSize);
+            return Ok(slice);
         }
 
         [HttpGet("lookup")]

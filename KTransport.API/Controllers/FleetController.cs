@@ -24,10 +24,14 @@ namespace KTransport.API.Controllers
 
         // Vehicles
         [HttpGet("vehicles")]
-        public async Task<ActionResult<List<VehicleDto>>> GetVehicles([FromQuery] string? search = null)
+        public async Task<ActionResult<List<VehicleDto>>> GetVehicles(
+            [FromQuery] string? search = null,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
         {
             var result = await _fleetService.GetVehiclesAsync(search);
-            return Ok(result);
+            var slice = PaginationHelper.Paginate(result, HttpContext, page, pageSize);
+            return Ok(slice);
         }
 
         [HttpGet("vehicles/lookup")]
@@ -72,10 +76,14 @@ namespace KTransport.API.Controllers
 
         // Drivers
         [HttpGet("drivers")]
-        public async Task<ActionResult<List<DriverDto>>> GetDrivers([FromQuery] string? search = null)
+        public async Task<ActionResult<List<DriverDto>>> GetDrivers(
+            [FromQuery] string? search = null,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
         {
             var result = await _fleetService.GetDriversAsync(search);
-            return Ok(result);
+            var slice = PaginationHelper.Paginate(result, HttpContext, page, pageSize);
+            return Ok(slice);
         }
 
         [HttpGet("drivers/lookup")]
@@ -128,10 +136,14 @@ namespace KTransport.API.Controllers
 
         // Locations
         [HttpGet("locations")]
-        public async Task<ActionResult<List<LocationDto>>> GetLocations([FromQuery] string? search = null)
+        public async Task<ActionResult<List<LocationDto>>> GetLocations(
+            [FromQuery] string? search = null,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
         {
             var result = await _fleetService.GetLocationsAsync(search);
-            return Ok(result);
+            var slice = PaginationHelper.Paginate(result, HttpContext, page, pageSize);
+            return Ok(slice);
         }
 
         [HttpGet("locations/lookup")]
