@@ -396,7 +396,7 @@ using (var scope = app.Services.CreateScope())
                         MaxVehicles = 50,
                         MaxUsers = 15,
                         MaxMonthlyShipments = 1000,
-                        MonthlyPrice = 3999m,
+                        MonthlyPrice = 2999m,
                         IsActive = true
                     },
                     new SubscriptionPlan
@@ -427,6 +427,22 @@ using (var scope = app.Services.CreateScope())
                     });
                     dbContext.SaveChanges();
                 }
+            }
+
+            // Self-heal the Professional plan's price on a DB that was already seeded before
+            // this price change shipped. The block above only inserts on a fresh DB
+            // (`!SubscriptionPlans.Any()`), so an existing deployment's row would otherwise
+            // keep the old 3999 forever. Mirrors the admin-password self-heal pattern below:
+            // only touch the row if it's still at the OLD price, so an operator who has since
+            // manually repriced it isn't overwritten.
+            const decimal OldProfessionalPrice = 3999m;
+            const decimal NewProfessionalPrice = 2999m;
+            var professionalPlan = dbContext.SubscriptionPlans.FirstOrDefault(p => p.Tier == "Professional");
+            if (professionalPlan != null && professionalPlan.MonthlyPrice == OldProfessionalPrice)
+            {
+                professionalPlan.MonthlyPrice = NewProfessionalPrice;
+                dbContext.SaveChanges();
+                logger.LogInformation("Repriced Professional Tier from {Old} to {New} on startup.", OldProfessionalPrice, NewProfessionalPrice);
             }
 
             // Seed the default admin user, or repair its login on a fresh DB.
