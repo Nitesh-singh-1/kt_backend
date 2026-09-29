@@ -39,6 +39,21 @@ namespace KTransport.API.Controllers
         }
 
         /// <summary>
+        /// Platform-operator view of any tenant's usage snapshot (TASK-009). Same shape as
+        /// the tenant-self version above but keyed by the {id} route rather than the JWT.
+        /// Restricted to platform admins so a tenant admin can't peek at another tenant's
+        /// counts.
+        /// </summary>
+        [HttpGet("{id:guid}/usage")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<ActionResult<TenantUsageDto>> GetTenantUsage(Guid id)
+        {
+            var snapshot = await _tenantService.GetUsageSnapshotAsync(id);
+            return Ok(snapshot);
+        }
+
+        /// <summary>
         /// Onboard a new tenant organization, its administrator, and initial module pack.
         /// </summary>
         [HttpPost("onboard")]
