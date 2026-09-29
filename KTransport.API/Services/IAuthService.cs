@@ -16,5 +16,13 @@ namespace KTransport.API.Services
         Task<(bool Success, string Message, MyProfileDto? Profile)> UpdateMyProfileAsync(int userId, UpdateProfileRequest request);
         Task<AuthResponse> RefreshTokenAsync(string refreshToken);
         Task RevokeRefreshTokenAsync(string refreshToken);
+
+        /// <summary>
+        /// Anonymous availability probe for new usernames (used by the onboard + user-add forms).
+        /// Returns Valid=false with a Reason when the input is empty / too short / too long /
+        /// contains disallowed characters — the DB is only hit for well-formed candidates.
+        /// Comparison is case-insensitive to match the Register/Onboarding duplicate checks.
+        /// </summary>
+        Task<(bool Valid, bool Available, string? Reason)> IsUsernameAvailableAsync(string? candidate);
     }
 }

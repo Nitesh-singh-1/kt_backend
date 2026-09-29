@@ -723,6 +723,40 @@ namespace KTransport.API.Services
             }
         }
 
+        // Allowed character set for a username. Kept restrictive on purpose so we can:
+        //   1) reject noise (whitespace, symbols) before touching the DB, and
+        //   2) drop the query entirely for anything that could never register — which shrinks
+        //      the surface area of the anonymous availability endpoint against enumeration/probing.
+        private static readonly System.Text.RegularExpressions.Regex _usernamePattern =
+            new(@"^[A-Za-z0-9._-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public async Task<(bool Valid, bool Available, string? Reason)> IsUsernameAvailableAsync(string? candidate)
+        {
+            var input = (candidate ?? string.Empty).Trim();
+
+            if (input.Length == 0)
+                return (false, false, "Username is required.");
+            if (input.Length < 3)
+                return (false, false, "Username must be at least 3 characters.");
+            if (input.Length > 50)
+                return (false, false, "Username cannot exceed 50 characters.");
+            if (!_usernamePattern.IsMatch(input))
+                return (false, false, "Only letters, numbers, dot, underscore and hyphen are allowed.");
+
+            // Case-insensitive match to line up with the Register/Onboarding duplicate checks.
+            // EF Core parameterises the value; a plain equality on ToLower() is safe against
+            // injection but not necessarily index-friendly — that is acceptable here because
+            // the input is length-capped, the endpoint is rate-limited, and the users table is
+            // small at this scale. Revisit with a functional lower(username) index if it grows.
+            var normalized = input.ToLowerInvariant();
+            var taken = await _context.Users
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .AnyAsync(u => u.Username.ToLower() == normalized);
+
+            return (true, !taken, null);
+        }
+
         private async Task<string> CreateRefreshTokenAsync(int userId)
         {
             var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))

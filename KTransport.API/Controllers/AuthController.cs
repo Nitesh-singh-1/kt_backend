@@ -114,6 +114,26 @@ namespace KTransport.API.Controllers
             return Ok(response);
         }
 
+        /// <summary>
+        /// Public username availability check for onboarding / user creation forms.
+        /// Anonymous but rate-limited via the class-level AuthPolicy so it can't be used for
+        /// unbounded enumeration. Input is validated and length-capped before the DB is
+        /// touched, so malformed probes never reach the query.
+        /// </summary>
+        [HttpGet("username-available")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CheckUsernameAvailable([FromQuery(Name = "u")] string? u)
+        {
+            var (valid, available, reason) = await _authService.IsUsernameAvailableAsync(u);
+            if (!valid)
+            {
+                // Response shape matches the "not available" case (available:false) plus a
+                // reason, so a caller doesn't need two branches for "invalid" vs "taken".
+                return Ok(new { available = false, valid = false, message = reason });
+            }
+            return Ok(new { available, valid = true });
+        }
+
         /// <summary>Exchange a valid refresh token for a new access token (rotates the refresh token).</summary>
         [HttpPost("refresh")]
         [AllowAnonymous]
