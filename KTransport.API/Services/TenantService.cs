@@ -510,5 +510,82 @@ namespace KTransport.API.Services
                 }
             };
         }
+
+        // ---------- TASK-007 slice 1: tenant usage snapshot ----------
+        // Threshold at which a resource is considered "critical" and a warning is surfaced
+        // to the tenant. Kept as a constant here; move to tenant_config later if a client
+        // wants to override it per-org.
+        private const int CriticalPercent = 80;
+
+        public async Task<TenantUsageDto> GetUsageSnapshotAsync(Guid tenantId)
+        {
+            // We do the counts and the plan lookup directly here rather than call into
+            // ITenantConfigurationService.GetSubscriptionDetailsAsync so this endpoint
+            // stays open to every authenticated tenant user (the configuration service
+            // sits behind [RequireSuperUser] on its controller).
+            var subscription = await _context.TenantSubscriptions
+                .IgnoreQueryFilters()
+                .Include(s => s.SubscriptionPlan)
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+            var vehicleCount = await _context.Vehicles
+                .IgnoreQueryFilters()
+                .CountAsync(v => v.TenantId == tenantId);
+
+            var userCount = await _context.Users
+                .IgnoreQueryFilters()
+                .CountAsync(u => u.TenantId == tenantId);
+
+            var startOfMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthlyShipmentCount = await _context.Shipments
+                .IgnoreQueryFilters()
+                .CountAsync(s => s.TenantId == tenantId && s.CreatedAt >= startOfMonth);
+
+            // Fallback matches the "Starter Tier" defaults used elsewhere so a fresh tenant
+            // without an explicit subscription row still gets sensible numbers.
+            var planTier = subscription?.SubscriptionPlan?.Tier ?? "Starter";
+            var planStatus = subscription?.Status ?? "Active";
+            var maxVehicles = subscription?.SubscriptionPlan?.MaxVehicles ?? 10;
+            var maxUsers = subscription?.SubscriptionPlan?.MaxUsers ?? 3;
+            var maxMonthlyShipments = subscription?.SubscriptionPlan?.MaxMonthlyShipments ?? 500;
+
+            var vehicles = BuildResource(vehicleCount, maxVehicles);
+            var users = BuildResource(userCount, maxUsers);
+            var shipments = BuildResource(monthlyShipmentCount, maxMonthlyShipments);
+
+            var warnings = new List<string>();
+            if (vehicles.IsCritical)
+                warnings.Add($"Fleet quota near limit — {vehicles.Current} of {vehicles.Max} vehicles used ({vehicles.Percent}%).");
+            if (users.IsCritical)
+                warnings.Add($"User seat quota near limit — {users.Current} of {users.Max} seats used ({users.Percent}%).");
+            if (shipments.IsCritical)
+                warnings.Add($"Monthly shipment quota near limit — {shipments.Current} of {shipments.Max} shipments this month ({shipments.Percent}%).");
+
+            return new TenantUsageDto
+            {
+                PlanTier = planTier,
+                PlanStatus = planStatus,
+                ExpiresAt = subscription?.ExpiresAt,
+                Vehicles = vehicles,
+                Users = users,
+                MonthlyShipments = shipments,
+                Warnings = warnings,
+            };
+        }
+
+        private static ResourceUsageDto BuildResource(int current, int max)
+        {
+            // Percent is clamped to 0..100 and rounded so the UI can render a bar directly.
+            // A max of 0 shouldn't happen in practice (Starter defaults are non-zero) but
+            // guard against divide-by-zero anyway.
+            int percent = max <= 0 ? 0 : (int)Math.Min(100, Math.Round((decimal)current * 100 / max));
+            return new ResourceUsageDto
+            {
+                Current = current,
+                Max = max,
+                Percent = percent,
+                IsCritical = percent >= CriticalPercent,
+            };
+        }
     }
 }

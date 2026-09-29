@@ -22,5 +22,12 @@ namespace KTransport.API.Services
         /// to admin / standard user. Returns (success, message).
         /// </summary>
         Task<(bool Success, string Message)> SetTenantUserRoleAsync(Guid tenantId, int userId, string role);
+
+        /// <summary>
+        /// Snapshot of the tenant's current usage vs. plan limits, safe for any authenticated user
+        /// of the tenant to read (used by the plan-usage warning banner). No enforcement or state
+        /// change — pure derived read.
+        /// </summary>
+        Task<TenantUsageDto> GetUsageSnapshotAsync(Guid tenantId);
     }
 }

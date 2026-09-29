@@ -16,11 +16,26 @@ namespace KTransport.API.Controllers
     {
         private readonly ITenantService _tenantService;
         private readonly INavigationService _navService;
+        private readonly ITenantContext _tenantContext;
 
-        public TenantController(ITenantService tenantService, INavigationService navService)
+        public TenantController(ITenantService tenantService, INavigationService navService, ITenantContext tenantContext)
         {
             _tenantService = tenantService;
             _navService = navService;
+            _tenantContext = tenantContext;
+        }
+
+        /// <summary>
+        /// Current tenant's usage vs. plan limits. Any authenticated user of the tenant can
+        /// call this so the frontend can show plan-warning banners without needing
+        /// super-user access. Tenant scope comes from the JWT — never a query parameter.
+        /// </summary>
+        [HttpGet("usage")]
+        [Authorize]
+        public async Task<ActionResult<TenantUsageDto>> GetMyUsage()
+        {
+            var snapshot = await _tenantService.GetUsageSnapshotAsync(_tenantContext.CurrentTenantId);
+            return Ok(snapshot);
         }
 
         /// <summary>
