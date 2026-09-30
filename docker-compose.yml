@@ -1,7 +1,20 @@
 version: '3.8'
 
+# Deploy model: kt_backend and ktFrontend are SEPARATE git repos, each with its own
+# GitHub Actions workflow that builds its own image and pushes to GHCR
+# (ghcr.io/nitesh-singh-1/kt_backend, ghcr.io/nitesh-singh-1/ktfrontend) on every push
+# to main. This ONE compose file is the source of truth on the VPS
+# (/opt/ktransport/docker-compose.yml) and orchestrates both. Each repo's deploy
+# workflow only ever touches its own service:
+#   ssh vps "cd /opt/ktransport && docker compose pull api  && docker compose up -d api"
+#   ssh vps "cd /opt/ktransport && docker compose pull web  && docker compose up -d web"
+# `api` also keeps its local `build:` block so `docker compose up --build` still works
+# for local dev without needing GHCR. `web`'s Dockerfile lives in the ktFrontend repo,
+# which isn't present here, so it's image-only — build it via `cd ktFrontend && docker build .`.
+
 services:
   api:
+    image: ${API_IMAGE:-ghcr.io/nitesh-singh-1/kt_backend:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -31,6 +44,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - kt_network
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/nitesh-singh-1/ktfrontend:latest}
+    container_name: kt_web
+    ports:
+      - "${WEB_PORT:-80}:80"
     restart: unless-stopped
     networks:
       - kt_network
