@@ -1,0 +1,99 @@
+version: '3.8'
+
+# UAT — same VPS as prod, fully isolated stack. Lives at /opt/ktransport-uat/
+# (a SEPARATE directory from prod's /opt/ktransport/), which matters because
+# Docker Compose derives its project name from the directory name by default —
+# that alone gives this stack its own network namespace, so `api` here can
+# never resolve to prod's `api` container even though both exist on the same
+# host. On top of that isolation-by-directory, every piece that could
+# otherwise collide or leak between environments is deliberately separated:
+#
+#   - Container names suffixed _uat (no name collision even if Docker's
+#     per-project namespacing were ever bypassed).
+#   - Ports offset from prod (8081/8082/5433 vs 8080/80/5432) — cannot
+#     collide on the same host.
+#   - A dedicated named volume (kt_postgres_data_uat) — a completely
+#     separate Postgres data directory, not a schema/tenant split inside
+#     prod's database. UAT migrations, seed data, and test records can
+#     NEVER touch prod's rows, by construction, not by convention.
+#   - A dedicated JWT_SECRET and POSTGRES_PASSWORD in .env (in /opt/ktransport-uat/) (never the
+#     same values as prod's .env) — a token minted by UAT is cryptographically
+#     invalid against prod's API and vice versa, even if someone tried to
+#     replay one across environments.
+#   - Images tagged `:uat` (built from the `develop` branch), never `:latest`
+#     (prod's tag, built from `main`) — pulling here can never accidentally
+#     grab a prod build or vice versa.
+#
+# Deploy trigger: .github/workflows/deploy-uat.yml on push to `develop`.
+# Promoting UAT-tested code to prod = merge `develop` -> `main`, which
+# triggers the existing deploy.yml (prod, docker-compose.yml, :latest tag).
+
+services:
+  api:
+    image: ${API_IMAGE_UAT:-ghcr.io/nitesh-singh-1/kt_backend:uat}
+    container_name: kt_api_uat
+    ports:
+      - "${API_PORT_UAT:-8081}:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${POSTGRES_DB:-kt_uat};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (in /opt/ktransport-uat/)};Trust Server Certificate=true;
+      - JwtSettings__Secret=${JWT_SECRET:?Set JWT_SECRET in .env (in /opt/ktransport-uat/) to a random 32+ character string — MUST differ from prod's}
+      - JwtSettings__Issuer=${JWT_ISSUER:-KTransportAPI-UAT}
+      - JwtSettings__Audience=${JWT_AUDIENCE:-KTransportClient-UAT}
+      - JwtSettings__ExpiryInMinutes=${JWT_EXPIRY:-60}
+      - Cors__AllowedOrigins__0=${CORS_ORIGIN_0:-http://localhost:8082}
+      - Cors__AllowedOrigins__1=${CORS_ORIGIN_1:-}
+      - Email__Enabled=${EMAIL_ENABLED:-false}
+      - Email__Host=${EMAIL_HOST:-}
+      - Email__Port=${EMAIL_PORT:-587}
+      - Email__UseSsl=${EMAIL_USE_SSL:-true}
+      - Email__Username=${EMAIL_USERNAME:-}
+      - Email__Password=${EMAIL_PASSWORD:-}
+      - Email__FromAddress=${EMAIL_FROM_ADDRESS:-}
+      - Email__FromName=${EMAIL_FROM_NAME:-KTransport UAT}
+      - App__FrontendBaseUrl=${FRONTEND_BASE_URL:-http://localhost:8082}
+      - Logging__LogLevel__Default=Information
+      - Logging__LogLevel__Microsoft.EntityFrameworkCore=Information
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - kt_network_uat
+
+  web:
+    image: ${WEB_IMAGE_UAT:-ghcr.io/nitesh-singh-1/ktfrontend:uat}
+    container_name: kt_web_uat
+    ports:
+      - "${WEB_PORT_UAT:-8082}:80"
+    restart: unless-stopped
+    networks:
+      - kt_network_uat
+
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-17.1-alpine}
+    container_name: kt_postgres_uat
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-kt_uat}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (in /opt/ktransport-uat/)}
+    ports:
+      - "127.0.0.1:${DB_PORT_UAT:-5433}:5432"
+    volumes:
+      - kt_postgres_data_uat:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-kt_uat}"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+    networks:
+      - kt_network_uat
+
+networks:
+  kt_network_uat:
+    driver: bridge
+
+volumes:
+  kt_postgres_data_uat:

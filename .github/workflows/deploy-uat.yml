@@ -1,0 +1,73 @@
+# UAT counterpart to deploy.yml. Builds the API image, pushes to GHCR tagged
+# :uat (never :latest — that's prod's tag), then tells the VPS to pull +
+# restart just the UAT `api` service in the SEPARATE /opt/ktransport-uat
+# stack. Never touches prod's /opt/ktransport containers, network, or volumes
+# — see docker-compose.uat.yml's header comment for the full isolation model.
+#
+# Promoting UAT-tested code to prod = merge `develop` -> `main`, which
+# triggers deploy.yml (the prod workflow) on its own.
+#
+# Required repo secrets — SAME ones deploy.yml uses (same VPS, same deploy key):
+#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY
+
+name: Deploy backend (UAT)
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: deploy-backend-uat
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/nitesh-singh-1/kt_backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:uat
+            ${{ env.IMAGE }}:uat-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy (UAT stack only)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/ktransport-uat
+            docker compose -f docker-compose.uat.yml pull api
+            docker compose -f docker-compose.uat.yml up -d api
+            docker image prune -f
