@@ -51,6 +51,22 @@ namespace KTransport.API.Controllers
             return Ok(invoice);
         }
 
+        [HttpGet("unbilled")]
+        public async Task<ActionResult<List<UnbilledShipmentDto>>> GetUnbilled([FromQuery] string? search = null)
+        {
+            var result = await _invoiceService.GetUnbilledShipmentsAsync(search);
+            return Ok(result);
+        }
+
+        [HttpPost("bulk-bill")]
+        public async Task<ActionResult<BulkBillResultDto>> BulkBill([FromBody] BulkBillRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            int? userId = GetCurrentUserId();
+            var result = await _invoiceService.BulkBillAsync(request, userId);
+            return Ok(result);
+        }
+
         [HttpPost]
         public async Task<ActionResult<InvoiceDto>> CreateInvoice([FromBody] CreateInvoiceRequest request)
         {

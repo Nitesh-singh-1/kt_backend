@@ -223,6 +223,100 @@ namespace KTransport.API.Services
             return MapToDto(invoice);
         }
 
+        public async Task<List<UnbilledShipmentDto>> GetUnbilledShipmentsAsync(string? search = null)
+        {
+            var query = _context.Shipments.AsNoTracking()
+                .Where(s => s.IsActive && s.InvoiceId == null
+                    && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var t = search.Trim().ToLower();
+                query = query.Where(s =>
+                    (s.ShipmentNo != null && s.ShipmentNo.ToLower().Contains(t)) ||
+                    (s.ConsignorName != null && s.ConsignorName.ToLower().Contains(t)) ||
+                    (s.ConsigneeName != null && s.ConsigneeName.ToLower().Contains(t)));
+            }
+
+            var list = await query.OrderBy(s => s.ConsignorName).ThenByDescending(s => s.ShipmentDate).ToListAsync();
+            return list.Select(s => new UnbilledShipmentDto
+            {
+                Id = s.Id,
+                ShipmentNo = s.ShipmentNo,
+                ShipmentDate = s.ShipmentDate,
+                ConsignorPartyId = s.ConsignorPartyId,
+                ConsignorName = s.ConsignorName,
+                ConsigneeName = s.ConsigneeName,
+                FromLocation = s.FromLocation,
+                ToLocation = s.ToLocation,
+                TotalFreight = s.TotalFreight,
+                GrandTotal = s.GrandTotal
+            }).ToList();
+        }
+
+        public async Task<BulkBillResultDto> BulkBillAsync(BulkBillRequest request, int? userId = null)
+        {
+            var result = new BulkBillResultDto();
+            if (request.ShipmentIds == null || request.ShipmentIds.Count == 0)
+            {
+                result.Message = "No consignments selected.";
+                return result;
+            }
+
+            // Only bill eligible, still-unbilled consignments (guards against double-billing).
+            var shipments = await _context.Shipments
+                .Where(s => request.ShipmentIds.Contains(s.Id) && s.IsActive && s.InvoiceId == null
+                    && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft)
+                .ToListAsync();
+
+            if (shipments.Count == 0)
+            {
+                result.Message = "Selected consignments are already billed or not eligible.";
+                return result;
+            }
+
+            var invoiceDate = request.InvoiceDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // One invoice per consignor (grouped by party id, else by name).
+            var groups = shipments.GroupBy(s => s.ConsignorPartyId.HasValue
+                ? $"P:{s.ConsignorPartyId.Value}"
+                : $"N:{(s.ConsignorName ?? "Unknown").ToLowerInvariant()}");
+
+            foreach (var group in groups)
+            {
+                var first = group.First();
+                var items = group.Select(s => new CreateInvoiceItemRequest
+                {
+                    ShipmentId = s.Id,
+                    ShipmentNo = s.ShipmentNo,
+                    Description = $"Freight — GR {s.ShipmentNo} ({s.FromLocation} → {s.ToLocation})",
+                    Quantity = 1,
+                    Rate = s.TotalFreight > 0 ? s.TotalFreight : s.GrandTotal,
+                    TaxRate = request.TaxRate
+                }).ToList();
+
+                var createReq = new CreateInvoiceRequest
+                {
+                    InvoiceDate = invoiceDate,
+                    PartyId = first.ConsignorPartyId,
+                    PartyName = first.ConsignorName,
+                    TaxRate = request.TaxRate,
+                    Items = items,
+                    ShipmentIdsToLink = group.Select(s => s.Id).ToList()
+                };
+
+                var inv = await CreateInvoiceAsync(createReq, userId);
+                result.InvoicesCreated++;
+                result.ShipmentsBilled += group.Count();
+                result.TotalAmount += inv.GrandTotal;
+                result.InvoiceNos.Add(inv.InvoiceNo);
+            }
+
+            _logger.LogInformation("Bulk-billed {Count} shipments into {Invoices} invoices", result.ShipmentsBilled, result.InvoicesCreated);
+            result.Message = $"Generated {result.InvoicesCreated} invoice(s) for {result.ShipmentsBilled} consignment(s).";
+            return result;
+        }
+
         public async Task<InvoiceDto?> UpdateInvoiceAsync(long id, UpdateInvoiceRequest request, int? userId = null)
         {
             var invoice = await _context.Invoices

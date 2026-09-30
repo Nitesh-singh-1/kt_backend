@@ -14,5 +14,9 @@ namespace KTransport.API.Services
         Task<InvoiceDto?> UpdateInvoiceAsync(long id, UpdateInvoiceRequest request, int? userId = null);
         Task<InvoiceDto?> RecordPaymentAsync(long id, RecordPaymentRequest request, int? userId = null);
         Task<bool> VoidInvoiceAsync(long id, int? userId = null);
+
+        // Bulk billing of unbilled consignments
+        Task<List<UnbilledShipmentDto>> GetUnbilledShipmentsAsync(string? search = null);
+        Task<BulkBillResultDto> BulkBillAsync(BulkBillRequest request, int? userId = null);
     }
 }
