@@ -71,7 +71,35 @@ API_IMAGE=ghcr.io/nitesh-singh-1/kt_backend:<good-sha> docker compose up -d api
 
 (Set the equivalent `WEB_IMAGE=...:<sha>` for the frontend.)
 
+## Database backups
+
+Nightly `pg_dump` runs via cron on the VPS itself (`scripts/backup-db.sh` in
+this repo, deployed to `/opt/ktransport/scripts/backup-db.sh`):
+
+- Schedule: `30 20 * * *` UTC = **2:00 AM IST**, chosen to land outside Indian
+  business hours (the VPS runs in UTC — see `timedatectl`).
+- Dumps via `docker exec kt_postgres pg_dump` (no DB network exposure needed),
+  gzips, timestamps, verifies gzip integrity before trusting the file.
+- Retention: last **14 days**, older dumps auto-pruned each run.
+- Output: `/opt/ktransport/backups/kt_<timestamp>.sql.gz`, cron log at
+  `/opt/ktransport/backups/backup.log`.
+
+**This is Layer 1 only — local disk on the same VPS.** It protects against a
+bad migration, an accidental in-app deletion, or DB corruption. It does
+**not** protect against losing the VPS itself (disk failure, provider issue,
+compromise) — the backups die with it. Layer 2 (an offsite copy — object
+storage like Backblaze B2/DO Spaces, or rsync to a second host) is a
+deliberate near-term follow-up, not yet wired in.
+
+To restore from a dump:
+```bash
+gunzip -c /opt/ktransport/backups/kt_<timestamp>.sql.gz | \
+  docker exec -i kt_postgres psql -U postgres -d kt
+```
+
 ## Known follow-ups (not blockers for today's deploy)
+
+- **Offsite backup copy (Layer 2)** — see "Database backups" above.
 
 - **No HTTPS.** `Program.cs` calls `UseHttpsRedirection()` unconditionally, but
   it degrades to a harmless logged warning (no forced redirect) when no HTTPS
