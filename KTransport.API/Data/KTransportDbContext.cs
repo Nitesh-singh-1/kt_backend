@@ -1002,6 +1002,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.State).HasMaxLength(100).HasColumnName("state");
             entity.Property(e => e.Address).HasMaxLength(300).HasColumnName("address");
             entity.Property(e => e.Pincode).HasMaxLength(20).HasColumnName("pincode");
+            entity.Property(e => e.ContactNumber).HasMaxLength(20).HasColumnName("contact_number");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
@@ -1765,6 +1766,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.PackageCount).HasColumnName("package_count");
             entity.Property(e => e.WeightKg).HasPrecision(12, 3).HasColumnName("weight_kg");
             entity.Property(e => e.CommodityDescription).HasMaxLength(250).HasColumnName("commodity_description");
+            entity.Property(e => e.PrivateMarka).HasMaxLength(100).HasColumnName("private_marka");
             entity.Property(e => e.DocumentUrl).HasColumnName("document_url");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");

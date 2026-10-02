@@ -243,6 +243,7 @@ namespace KTransport.API.Services
                             PackageCount = inv.PackageCount,
                             WeightKg = inv.WeightKg,
                             CommodityDescription = inv.CommodityDescription,
+                            PrivateMarka = inv.PrivateMarka?.Trim(),
                             DocumentUrl = inv.DocumentUrl,
                             CreatedBy = userId,
                             IsActive = true,
@@ -514,6 +515,7 @@ namespace KTransport.API.Services
                             PackageCount = inv.PackageCount,
                             WeightKg = inv.WeightKg,
                             CommodityDescription = inv.CommodityDescription,
+                            PrivateMarka = inv.PrivateMarka?.Trim(),
                             CreatedBy = userId,
                             IsActive = true,
                             CreatedAt = DateTime.UtcNow
@@ -696,7 +698,7 @@ namespace KTransport.API.Services
                     (s.TruckNo != null && s.TruckNo.ToLower().Contains(term)) ||
                     (s.FromLocation != null && s.FromLocation.ToLower().Contains(term)) ||
                     (s.ToLocation != null && s.ToLocation.ToLower().Contains(term)) ||
-                    s.InvoiceReferences.Any(ir => ir.CustomerInvoiceNo.ToLower().Contains(term) || (ir.EwayBillNo != null && ir.EwayBillNo.ToLower().Contains(term))));
+                    s.InvoiceReferences.Any(ir => ir.CustomerInvoiceNo.ToLower().Contains(term) || (ir.EwayBillNo != null && ir.EwayBillNo.ToLower().Contains(term)) || (ir.PrivateMarka != null && ir.PrivateMarka.ToLower().Contains(term))));
             }
 
             var total = await query.CountAsync();
@@ -832,6 +834,7 @@ namespace KTransport.API.Services
                     PackageCount = ir.PackageCount,
                     WeightKg = ir.WeightKg,
                     CommodityDescription = ir.CommodityDescription,
+                    PrivateMarka = ir.PrivateMarka,
                     DocumentUrl = ir.DocumentUrl
                 }).ToList(),
                 Items = (s.Items ?? Enumerable.Empty<ShipmentItem>()).Select(i => new ShipmentItemDto

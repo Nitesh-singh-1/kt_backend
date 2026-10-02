@@ -179,18 +179,16 @@ namespace KTransport.API.Services
                 }
             }
 
-            // If no explicit user override and no role override, default sub-users to standard operational subscribed features
+            // Sub-user with NO explicit assignment (neither a user override
+            // nor a role override) gets ONLY the dashboard. Previously this
+            // handed them every subscribed feature of the organization,
+            // which silently granted broad access when an admin's assignment
+            // failed to persist. Matches the stricter fallback in
+            // NavigationService.GetDynamicMenuAsync so the sidebar and the
+            // feature-authorization check stay consistent.
             if (userAllowedRaw.Count == 0)
             {
-                foreach (var k in subscribedFeatures)
-                {
-                    var canon = FeatureConstants.Normalize(k);
-                    if (canon != FeatureConstants.SAAS_CONFIGURATION && canon != FeatureConstants.USER_MANAGEMENT && canon != "CLIENTS" && canon != "SYSTEM")
-                    {
-                        userAllowedRaw.Add(k);
-                        if (!string.IsNullOrWhiteSpace(canon)) userAllowedRaw.Add(canon);
-                    }
-                }
+                userAllowedRaw.Add("dashboard");
             }
 
             // Always allow dashboard for active sub-users

@@ -23,6 +23,13 @@ namespace KTransport.API.Models
 
         public string? Pincode { get; set; }
 
+        /// <summary>
+        /// Contact phone number for the branch / station — printed next to
+        /// the station name on the Bilty footer so a consignee can reach
+        /// the local office directly for pickup / delivery queries.
+        /// </summary>
+        public string? ContactNumber { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -103,6 +103,7 @@ namespace KTransport.API.DTOs
         public string? State { get; set; }
         public string? Address { get; set; }
         public string? Pincode { get; set; }
+        public string? ContactNumber { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -123,6 +124,9 @@ namespace KTransport.API.DTOs
 
         [RegularExpression(@"^\d{6}$", ErrorMessage = "Pincode must be exactly 6 digits.")]
         public string? Pincode { get; set; }
+
+        [RegularExpression(@"^[0-9+\-\s()]{0,20}$", ErrorMessage = "Contact number may contain digits, spaces and + - ( ) only (max 20 chars).")]
+        public string? ContactNumber { get; set; }
     }
 
     public class UpdateVehicleRequest
@@ -160,6 +164,10 @@ namespace KTransport.API.DTOs
         public string? State { get; set; }
         public string? Address { get; set; }
         public string? Pincode { get; set; }
+
+        [RegularExpression(@"^[0-9+\-\s()]{0,20}$", ErrorMessage = "Contact number may contain digits, spaces and + - ( ) only (max 20 chars).")]
+        public string? ContactNumber { get; set; }
+
         public bool? IsActive { get; set; }
     }
 
@@ -171,6 +179,7 @@ namespace KTransport.API.DTOs
         public string? City { get; set; }
         public string? State { get; set; }
         public string? Pincode { get; set; }
+        public string? ContactNumber { get; set; }
     }
 
     // --- Fleet Compliance (document expiry tracking) ---
