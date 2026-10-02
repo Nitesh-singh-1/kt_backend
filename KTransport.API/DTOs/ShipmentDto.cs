@@ -18,6 +18,7 @@ namespace KTransport.API.DTOs
         public int? PackageCount { get; set; }
         public decimal? WeightKg { get; set; }
         public string? CommodityDescription { get; set; }
+        public string? PrivateMarka { get; set; }
         public string? DocumentUrl { get; set; }
     }
 
@@ -33,6 +34,7 @@ namespace KTransport.API.DTOs
         public int? PackageCount { get; set; }
         public decimal? WeightKg { get; set; }
         public string? CommodityDescription { get; set; }
+        public string? PrivateMarka { get; set; }
         public string? DocumentUrl { get; set; }
     }
 

@@ -35,6 +35,13 @@ namespace KTransport.API.Models
 
         public string? CommodityDescription { get; set; }
 
+        /// <summary>
+        /// Private Marka — operator-captured identifier that the customer
+        /// marks on their package (initials, box code, batch mark, etc.) so
+        /// it can be reconciled at delivery. Short free-text string.
+        /// </summary>
+        public string? PrivateMarka { get; set; }
+
         public string? DocumentUrl { get; set; } // Scanned customer paper bill / photo
 
         public bool IsActive { get; set; } = true;

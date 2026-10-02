@@ -407,6 +407,7 @@ namespace KTransport.API.Services
                 State = l.State,
                 Address = l.Address,
                 Pincode = l.Pincode,
+                ContactNumber = l.ContactNumber,
                 IsActive = l.IsActive,
                 CreatedAt = l.CreatedAt,
                 UpdatedAt = l.UpdatedAt
@@ -436,7 +437,8 @@ namespace KTransport.API.Services
                     Code = l.Code,
                     Name = l.Name,
                     City = l.City,
-                    State = l.State
+                    State = l.State,
+                    ContactNumber = l.ContactNumber
                 })
                 .ToListAsync();
         }
@@ -456,6 +458,7 @@ namespace KTransport.API.Services
                 State = l.State,
                 Address = l.Address,
                 Pincode = l.Pincode,
+                ContactNumber = l.ContactNumber,
                 IsActive = l.IsActive,
                 CreatedAt = l.CreatedAt,
                 UpdatedAt = l.UpdatedAt
@@ -478,6 +481,7 @@ namespace KTransport.API.Services
                 State = request.State != null ? ToTitleCase(request.State) : null,
                 Address = request.Address?.Trim(),
                 Pincode = request.Pincode?.Trim(),
+                ContactNumber = request.ContactNumber?.Trim(),
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -496,6 +500,7 @@ namespace KTransport.API.Services
                 State = loc.State,
                 Address = loc.Address,
                 Pincode = loc.Pincode,
+                ContactNumber = loc.ContactNumber,
                 IsActive = loc.IsActive,
                 CreatedAt = loc.CreatedAt
             };
@@ -518,6 +523,8 @@ namespace KTransport.API.Services
                 loc.Address = request.Address.Trim();
             if (request.Pincode != null)
                 loc.Pincode = request.Pincode.Trim();
+            if (request.ContactNumber != null)
+                loc.ContactNumber = request.ContactNumber.Trim();
             if (request.IsActive.HasValue)
                 loc.IsActive = request.IsActive.Value;
 
@@ -535,6 +542,7 @@ namespace KTransport.API.Services
                 State = loc.State,
                 Address = loc.Address,
                 Pincode = loc.Pincode,
+                ContactNumber = loc.ContactNumber,
                 IsActive = loc.IsActive,
                 CreatedAt = loc.CreatedAt,
                 UpdatedAt = loc.UpdatedAt

@@ -99,10 +99,18 @@ namespace KTransport.API.Services
                     catch { }
                 }
 
-                // If no user overrides or role overrides exist, fallback to subscribed keys minus administrative ones
+                // Sub-user with NO explicit assignment (neither a user override
+                // nor a role override) gets ONLY the dashboard. Previously this
+                // path handed them every subscribed feature of the organization,
+                // so an admin who created a new user with 4 modules assigned
+                // but whose assignment silently failed to persist would see
+                // the user get every module instead of 4. Minimal fallback here
+                // means: no assignment = no access (except dashboard). An admin
+                // noticing the missing modules will know to re-assign them
+                // rather than silently handing out broad access.
                 if (userAssigned.Count == 0)
                 {
-                    userAssigned = new HashSet<string>(subscribedKeys, StringComparer.OrdinalIgnoreCase);
+                    userAssigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dashboard" };
                 }
 
                 // Effective Access = Organization Subscription ∩ User Permissions
