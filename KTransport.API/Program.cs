@@ -94,7 +94,7 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidAudience = jwtSettings?.Audience,
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        ClockSkew = TimeSpan.FromMinutes(5)
     };
 });
 
@@ -214,7 +214,7 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddFixedWindowLimiter("AuthPolicy", limiterOptions =>
     {
-        limiterOptions.PermitLimit = 10;
+        limiterOptions.PermitLimit = builder.Environment.IsDevelopment() ? 300 : 60;
         limiterOptions.Window = TimeSpan.FromMinutes(1);
         limiterOptions.QueueLimit = 0;
     });

@@ -10,7 +10,6 @@ namespace KTransport.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [EnableRateLimiting("AuthPolicy")]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
@@ -68,6 +67,7 @@ namespace KTransport.API.Controllers
         /// <summary>Public: accept an invitation — the invitee sets their own username/password, then is logged in.</summary>
         [HttpPost("accept-invite")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<AuthResponse>> AcceptInvite([FromBody] KTransport.API.DTOs.AcceptInviteRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -78,6 +78,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("login")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
         {
             if (!ModelState.IsValid)
@@ -97,6 +98,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("register")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
         {
             if (!ModelState.IsValid)
@@ -122,6 +124,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("username-available")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<IActionResult> CheckUsernameAvailable([FromQuery(Name = "u")] string? u)
         {
             var (valid, available, reason) = await _authService.IsUsernameAvailableAsync(u);
@@ -172,6 +175,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("forgot-password/request-code")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<RequestResetCodeResponse>> RequestPasswordResetCode([FromBody] RequestResetCodeRequest request)
         {
             if (!ModelState.IsValid)
@@ -191,6 +195,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("forgot-password/verify-and-reset")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<ResetPasswordResponse>> VerifyAndResetPassword([FromBody] VerifyAndResetPasswordRequest request)
         {
             if (!ModelState.IsValid)
@@ -210,6 +215,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("reset-password")]
         [AllowAnonymous]
+        [EnableRateLimiting("AuthPolicy")]
         public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ForgotPasswordRequest request)
         {
             if (!ModelState.IsValid)
