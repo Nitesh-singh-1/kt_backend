@@ -98,6 +98,18 @@ namespace KTransport.API.Controllers
             return Ok(new { success = true, message = "Shipment cancelled successfully." });
         }
 
+        [HttpPost("settle-delivery")]
+        public async Task<ActionResult<SettleDeliveryResponseDto>> SettleDelivery([FromBody] SettleDeliveryRequestDto request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetCurrentUserId();
+            var response = await _shipmentService.SettleDeliveryAsync(request, userId);
+
+            if (!response.Success) return BadRequest(response);
+            return Ok(response);
+        }
+
         private int GetCurrentUserId()
         {
             var idClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

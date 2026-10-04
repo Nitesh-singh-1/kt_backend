@@ -20,5 +20,7 @@ namespace KTransport.API.Services
         Task<TripDto?> CancelTripAsync(long tripId, string? reason = null, int? userId = null);
         Task<TripExpenseDto> AddTripExpenseAsync(long tripId, AddTripExpenseRequest request, int? userId = null);
         Task<bool> DeleteTripExpenseAsync(long tripId, long expenseId);
+        Task<TripSettlementSummaryDto?> GetTripSettlementSummaryAsync(long tripId);
+        Task<TripSettlementResponseDto> SettleTripAsync(SettleTripRequestDto request, int? userId = null);
     }
 }

@@ -225,7 +225,10 @@ namespace KTransport.API.Services
 
         public async Task<List<UnbilledShipmentDto>> GetUnbilledShipmentsAsync(string? search = null)
         {
-            var query = _context.Shipments.AsNoTracking()
+            var query = _context.Shipments
+                .Include(s => s.Items)
+                .Include(s => s.InvoiceReferences)
+                .AsNoTracking()
                 .Where(s => s.IsActive && s.InvoiceId == null
                     && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
 
@@ -235,23 +238,259 @@ namespace KTransport.API.Services
                 query = query.Where(s =>
                     (s.ShipmentNo != null && s.ShipmentNo.ToLower().Contains(t)) ||
                     (s.ConsignorName != null && s.ConsignorName.ToLower().Contains(t)) ||
-                    (s.ConsigneeName != null && s.ConsigneeName.ToLower().Contains(t)));
+                    (s.ConsigneeName != null && s.ConsigneeName.ToLower().Contains(t)) ||
+                    (s.FromLocation != null && s.FromLocation.ToLower().Contains(t)) ||
+                    (s.ToLocation != null && s.ToLocation.ToLower().Contains(t)));
             }
 
             var list = await query.OrderBy(s => s.ConsignorName).ThenByDescending(s => s.ShipmentDate).ToListAsync();
-            return list.Select(s => new UnbilledShipmentDto
+            return list.Select(MapToUnbilledDto).ToList();
+        }
+
+        public async Task<List<PartyUnbilledSummaryDto>> GetUnbilledPartiesSummaryAsync(string? search = null)
+        {
+            var query = _context.Shipments.AsNoTracking()
+                .Where(s => s.IsActive && s.InvoiceId == null
+                    && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var t = search.Trim().ToLower();
+                query = query.Where(s =>
+                    (s.ConsignorName != null && s.ConsignorName.ToLower().Contains(t)) ||
+                    (s.ConsigneeName != null && s.ConsigneeName.ToLower().Contains(t)));
+            }
+
+            var shipments = await query.ToListAsync();
+
+            var groups = shipments
+                .GroupBy(s => (s.ConsignorName ?? "Unknown").Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    return new PartyUnbilledSummaryDto
+                    {
+                        PartyId = first.ConsignorPartyId,
+                        PartyName = g.Key,
+                        PartyGstNo = first.ConsignorGstNo,
+                        PartyAddress = first.ConsignorAddress,
+                        UnbilledCount = g.Count(),
+                        TotalUnbilledAmount = g.Sum(x => x.GrandTotal > 0 ? x.GrandTotal : x.TotalFreight)
+                    };
+                })
+                .OrderByDescending(p => p.TotalUnbilledAmount)
+                .ToList();
+
+            return groups;
+        }
+
+        public async Task<List<UnbilledShipmentDto>> GetUnbilledShipmentsByPartyAsync(string? partyName = null, long? partyId = null)
+        {
+            var query = _context.Shipments
+                .Include(s => s.Items)
+                .Include(s => s.InvoiceReferences)
+                .AsNoTracking()
+                .Where(s => s.IsActive && s.InvoiceId == null
+                    && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
+
+            if (partyId.HasValue && partyId.Value > 0)
+            {
+                query = query.Where(s => s.ConsignorPartyId == partyId.Value || s.ConsigneePartyId == partyId.Value);
+            }
+            else if (!string.IsNullOrWhiteSpace(partyName))
+            {
+                var p = partyName.Trim().ToLower();
+                query = query.Where(s =>
+                    (s.ConsignorName != null && s.ConsignorName.ToLower() == p) ||
+                    (s.ConsigneeName != null && s.ConsigneeName.ToLower() == p));
+            }
+
+            var list = await query.OrderByDescending(s => s.ShipmentDate).ThenByDescending(s => s.Id).ToListAsync();
+            return list.Select(MapToUnbilledDto).ToList();
+        }
+
+        public async Task<BillBookInvoiceResponseDto> CreateBillBookInvoiceAsync(CreateBillBookRequestDto request, int? userId = null)
+        {
+            if (request.ShipmentIds == null || request.ShipmentIds.Count == 0)
+            {
+                return new BillBookInvoiceResponseDto
+                {
+                    Success = false,
+                    Message = "Please select at least one Bilty / Consignment to generate the Freight Bill."
+                };
+            }
+
+            // Retrieve eligible, still-unbilled consignments
+            var shipments = await _context.Shipments
+                .Include(s => s.Items)
+                .Include(s => s.InvoiceReferences)
+                .Where(s => request.ShipmentIds.Contains(s.Id) && s.IsActive && s.InvoiceId == null
+                    && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft)
+                .ToListAsync();
+
+            if (shipments.Count == 0)
+            {
+                return new BillBookInvoiceResponseDto
+                {
+                    Success = false,
+                    Message = "Selected consignments are already billed or no longer eligible."
+                };
+            }
+
+            var invoiceNo = string.IsNullOrWhiteSpace(request.InvoiceNo)
+                ? await _numberingService.GetNextNumberAsync("INVOICE", "INV")
+                : request.InvoiceNo.Trim();
+
+            // Build invoice items from selected bilties
+            var invoiceItems = new List<InvoiceItem>();
+            decimal subTotal = 0;
+
+            foreach (var s in shipments)
+            {
+                var pkgCount = s.Items?.Sum(i => i.Quantity) ?? 1;
+                var totalWeight = s.Items?.Sum(i => i.Weight) ?? 0;
+                var freightAmt = s.TotalFreight > 0 ? s.TotalFreight : s.GrandTotal;
+                var rate = totalWeight > 0 ? Math.Round(freightAmt / totalWeight, 2) : freightAmt;
+
+                var lineAmount = freightAmt;
+                var taxAmt = (lineAmount * request.TaxRate) / 100m;
+                var total = lineAmount + taxAmt;
+                subTotal += lineAmount;
+
+                var desc = $"GR No: {s.ShipmentNo} | Route: {s.FromLocation} to {s.ToLocation} | Pkg: {pkgCount} | Wt: {totalWeight} Kg" +
+                           (!string.IsNullOrWhiteSpace(s.Remarks) ? $" | {s.Remarks}" : "");
+
+                invoiceItems.Add(new InvoiceItem
+                {
+                    ShipmentId = s.Id,
+                    ShipmentNo = s.ShipmentNo,
+                    Description = desc,
+                    Quantity = pkgCount > 0 ? pkgCount : 1,
+                    Rate = rate,
+                    Amount = lineAmount,
+                    TaxRate = request.TaxRate,
+                    TaxAmount = taxAmt,
+                    TotalAmount = total,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            decimal taxAmount = subTotal * request.TaxRate / 100m;
+            decimal grandTotal = Math.Max(0, subTotal + taxAmount + request.OtherCharges - request.Discount);
+            decimal paidAmount = request.PaidAmount;
+            decimal dueAmount = Math.Max(0, grandTotal - paidAmount);
+
+            var paymentStatus = dueAmount == 0 && grandTotal > 0
+                ? InvoicePaymentStatus.Paid
+                : (paidAmount > 0 ? InvoicePaymentStatus.PartiallyPaid : InvoicePaymentStatus.Unpaid);
+
+            var firstParty = shipments.FirstOrDefault();
+            var partyGst = !string.IsNullOrWhiteSpace(request.PartyGstNo) ? request.PartyGstNo : firstParty?.ConsignorGstNo;
+            var partyAddr = !string.IsNullOrWhiteSpace(request.PartyAddress) ? request.PartyAddress : firstParty?.ConsignorAddress;
+
+            var invoice = new Invoice
+            {
+                InvoiceNo = invoiceNo,
+                InvoiceDate = request.InvoiceDate,
+                DueDate = request.DueDate ?? request.InvoiceDate.AddDays(10), // Standard 10 days payment term
+                PartyId = request.PartyId ?? firstParty?.ConsignorPartyId,
+                PartyName = request.PartyName.Trim(),
+                PartyGstNo = partyGst,
+                PartyAddress = partyAddr,
+                SubTotal = subTotal,
+                TaxRate = request.TaxRate,
+                TaxAmount = taxAmount,
+                Discount = request.Discount,
+                OtherCharges = request.OtherCharges,
+                GrandTotal = grandTotal,
+                PaidAmount = paidAmount,
+                DueAmount = dueAmount,
+                PaymentStatus = paymentStatus,
+                PaymentMode = request.PaymentMode,
+                Remarks = request.Remarks,
+                CreatedBy = userId,
+                CreatedAt = DateTime.UtcNow,
+                Items = invoiceItems
+            };
+
+            _context.Invoices.Add(invoice);
+            await _context.SaveChangesAsync();
+
+            // Link all shipments to this invoice and mark them as paid if invoice is settled
+            foreach (var s in shipments)
+            {
+                s.InvoiceId = invoice.Id;
+                s.InvoiceNo = invoice.InvoiceNo;
+                s.InvoiceDate = invoice.InvoiceDate;
+
+                // When settling the bill book or invoice, bilty is marked as paid
+                if (paymentStatus == InvoicePaymentStatus.Paid)
+                {
+                    s.PaidAmount = s.GrandTotal;
+                    s.DueAmount = 0;
+                    if (s.Status == ShipmentStatus.InTransit || s.Status == ShipmentStatus.OutForDelivery)
+                    {
+                        s.Status = ShipmentStatus.Delivered;
+                    }
+                }
+                s.UpdatedAt = DateTime.UtcNow;
+                s.UpdatedBy = userId;
+            }
+
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Generated Bill Book Freight Invoice {InvoiceNo} with {Count} bilties", invoice.InvoiceNo, shipments.Count);
+
+            var invoiceDto = MapToDto(invoice);
+            return new BillBookInvoiceResponseDto
+            {
+                Success = true,
+                Message = $"Freight Bill {invoice.InvoiceNo} created successfully with {shipments.Count} bilty consignment(s).",
+                Data = invoiceDto
+            };
+        }
+
+        private static UnbilledShipmentDto MapToUnbilledDto(Shipment s)
+        {
+            var totalPkg = s.Items?.Sum(i => i.Quantity) ?? 1;
+            var totalWt = s.Items?.Sum(i => i.Weight) ?? 0;
+            var custInv = s.InvoiceReferences?.FirstOrDefault()?.CustomerInvoiceNo ?? s.Remarks;
+            var eway = s.InvoiceReferences?.FirstOrDefault()?.EwayBillNo ?? s.EwayBillNo;
+            var rate = totalWt > 0 ? Math.Round(s.TotalFreight / totalWt, 2) : (totalPkg > 0 ? Math.Round(s.TotalFreight / totalPkg, 2) : s.TotalFreight);
+
+            return new UnbilledShipmentDto
             {
                 Id = s.Id,
                 ShipmentNo = s.ShipmentNo,
                 ShipmentDate = s.ShipmentDate,
                 ConsignorPartyId = s.ConsignorPartyId,
                 ConsignorName = s.ConsignorName,
+                ConsignorGstNo = s.ConsignorGstNo,
+                ConsignorMobile = s.ConsignorMobile,
+                ConsignorAddress = s.ConsignorAddress,
+                ConsigneePartyId = s.ConsigneePartyId,
                 ConsigneeName = s.ConsigneeName,
+                ConsigneeGstNo = s.ConsigneeGstNo,
+                ConsigneeMobile = s.ConsigneeMobile,
+                ConsigneeAddress = s.ConsigneeAddress,
                 FromLocation = s.FromLocation,
                 ToLocation = s.ToLocation,
+                TotalPackages = totalPkg,
+                TotalWeightKg = totalWt,
+                Rate = rate,
+                GoodsValue = s.GoodsValue,
                 TotalFreight = s.TotalFreight,
-                GrandTotal = s.GrandTotal
-            }).ToList();
+                TotalOtherCharges = s.TotalOtherCharges,
+                TotalTaxAmount = s.TotalTaxAmount,
+                GrandTotal = s.GrandTotal,
+                PaidAmount = s.PaidAmount,
+                DueAmount = s.DueAmount,
+                PaymentTerm = s.PaymentTerm,
+                Status = s.Status,
+                CustomerInvoiceNo = custInv,
+                EwayBillNo = eway,
+                Remarks = s.Remarks,
+                DeliveryDate = s.Status == ShipmentStatus.Delivered ? DateOnly.FromDateTime(s.UpdatedAt ?? s.CreatedAt) : null
+            };
         }
 
         public async Task<BulkBillResultDto> BulkBillAsync(BulkBillRequest request, int? userId = null)

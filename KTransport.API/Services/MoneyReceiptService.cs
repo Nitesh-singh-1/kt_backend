@@ -111,6 +111,10 @@ namespace KTransport.API.Services
 
             decimal weight = items.Sum(it => it.Weight);
 
+            decimal biltyGrandTotal = s.GrandTotal > 0 ? s.GrandTotal : (s.PaidAmount > 0 ? s.PaidAmount : s.TotalFreight);
+            decimal mrCharge = 10m; // 10 rupee fixed
+            decimal totalWithMrCharge = biltyGrandTotal + mrCharge;
+
             return new MoneyReceiptDto
             {
                 Id = s.Id,
@@ -125,14 +129,15 @@ namespace KTransport.API.Services
                 ToLocation = s.ToLocation,
                 TotalPackages = pkgs,
                 TotalWeightKg = weight,
-                BaseFreight = s.TotalFreight,
+                BaseFreight = biltyGrandTotal,
+                MoneyReceiptCharge = mrCharge,
                 HamaliCharges = hamali,
                 DoorDeliveryCharges = dd,
-                StationeryCharges = st,
+                StationeryCharges = 0,
                 Surcharges = surcharge,
                 OtherCharges = other,
                 GstAmount = s.TotalTaxAmount,
-                TotalAmount = s.GrandTotal > 0 ? s.GrandTotal : s.PaidAmount,
+                TotalAmount = totalWithMrCharge,
                 PaymentMode = "Cash",
                 CollectedBy = s.BookingClerk ?? "Counter Cashier",
                 Remarks = s.Remarks,

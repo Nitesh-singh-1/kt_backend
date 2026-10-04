@@ -259,4 +259,27 @@ namespace KTransport.API.DTOs
         public int TotalCount { get; set; }
         public List<ShipmentDto> Data { get; set; } = new List<ShipmentDto>();
     }
+
+    public class SettleDeliveryRequestDto
+    {
+        public List<long> ShipmentIds { get; set; } = new List<long>();
+        public decimal? ReceivedAmount { get; set; }
+        public decimal? DiscountAmount { get; set; }
+        public string? DiscountReason { get; set; } // RoundOff, ShortageClaim, RateDifference, DeliveryDeduction, Other
+        public string PaymentMode { get; set; } = "CASH";
+        public string? PaymentReference { get; set; }
+        public string? DeliveredTo { get; set; }
+        public DateOnly DeliveryDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+        public string? Remarks { get; set; }
+    }
+
+    public class SettleDeliveryResponseDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public int SettledCount { get; set; }
+        public decimal TotalAmountSettled { get; set; }
+        public decimal TotalDiscountGiven { get; set; }
+    }
 }
+

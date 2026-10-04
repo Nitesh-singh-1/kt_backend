@@ -58,6 +58,31 @@ namespace KTransport.API.Controllers
             return Ok(result);
         }
 
+        [HttpGet("unbilled-parties")]
+        public async Task<ActionResult<List<PartyUnbilledSummaryDto>>> GetUnbilledParties([FromQuery] string? search = null)
+        {
+            var result = await _invoiceService.GetUnbilledPartiesSummaryAsync(search);
+            return Ok(result);
+        }
+
+        [HttpGet("unbilled-by-party")]
+        public async Task<ActionResult<List<UnbilledShipmentDto>>> GetUnbilledByParty([FromQuery] string? partyName = null, [FromQuery] long? partyId = null)
+        {
+            var result = await _invoiceService.GetUnbilledShipmentsByPartyAsync(partyName, partyId);
+            return Ok(result);
+        }
+
+        [HttpPost("bill-book")]
+        public async Task<ActionResult<BillBookInvoiceResponseDto>> CreateBillBookInvoice([FromBody] CreateBillBookRequestDto request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            int? userId = GetCurrentUserId();
+            var result = await _invoiceService.CreateBillBookInvoiceAsync(request, userId);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
+
         [HttpPost("bulk-bill")]
         public async Task<ActionResult<BulkBillResultDto>> BulkBill([FromBody] BulkBillRequest request)
         {

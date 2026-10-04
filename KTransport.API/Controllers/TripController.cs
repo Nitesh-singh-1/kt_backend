@@ -143,6 +143,25 @@ namespace KTransport.API.Controllers
             return NoContent();
         }
 
+        [HttpGet("{id:long}/settlement-summary")]
+        public async Task<ActionResult<TripSettlementSummaryDto>> GetTripSettlementSummary(long id)
+        {
+            var summary = await _tripService.GetTripSettlementSummaryAsync(id);
+            if (summary == null) return NotFound(new { message = $"Trip with ID {id} not found." });
+            return Ok(summary);
+        }
+
+        [HttpPost("settle")]
+        public async Task<ActionResult<TripSettlementResponseDto>> SettleTrip([FromBody] SettleTripRequestDto request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            int? userId = GetCurrentUserId();
+            var response = await _tripService.SettleTripAsync(request, userId);
+            if (!response.Success) return BadRequest(response);
+            return Ok(response);
+        }
+
         private int? GetCurrentUserId()
         {
             var val = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

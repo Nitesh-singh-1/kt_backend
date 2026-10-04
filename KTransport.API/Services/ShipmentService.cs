@@ -867,5 +867,103 @@ namespace KTransport.API.Services
                 }).ToList()
             };
         }
+
+        public async Task<SettleDeliveryResponseDto> SettleDeliveryAsync(SettleDeliveryRequestDto request, int userId)
+        {
+            if (request.ShipmentIds == null || request.ShipmentIds.Count == 0)
+            {
+                return new SettleDeliveryResponseDto
+                {
+                    Success = false,
+                    Message = "No consignments specified for delivery settlement."
+                };
+            }
+
+            try
+            {
+                var shipments = await _context.Shipments
+                    .Where(s => request.ShipmentIds.Contains(s.Id) && s.IsActive)
+                    .ToListAsync();
+
+                if (shipments.Count == 0)
+                {
+                    return new SettleDeliveryResponseDto
+                    {
+                        Success = false,
+                        Message = "None of the specified consignments were found."
+                    };
+                }
+
+                decimal totalSettled = 0;
+                decimal totalDiscount = 0;
+
+                bool isSingle = shipments.Count == 1;
+
+                foreach (var s in shipments)
+                {
+                    var oldStatus = s.Status;
+                    decimal receivedAmt;
+                    decimal discAmt = 0;
+
+                    if (isSingle)
+                    {
+                        discAmt = request.DiscountAmount ?? 0;
+                        receivedAmt = request.ReceivedAmount ?? (s.DueAmount > 0 ? s.DueAmount : s.GrandTotal);
+                        s.PaidAmount = Math.Min(s.GrandTotal, s.PaidAmount + receivedAmt + discAmt);
+                        s.DueAmount = Math.Max(0, s.GrandTotal - s.PaidAmount);
+                    }
+                    else
+                    {
+                        // Bulk settlement: mark each as fully paid & delivered
+                        receivedAmt = s.DueAmount > 0 ? s.DueAmount : s.GrandTotal;
+                        s.PaidAmount = s.GrandTotal;
+                        s.DueAmount = 0;
+                    }
+
+                    s.Status = ShipmentStatus.Delivered;
+                    s.UpdatedAt = DateTime.UtcNow;
+                    s.UpdatedBy = userId;
+
+                    totalSettled += receivedAmt;
+                    totalDiscount += discAmt;
+
+                    var historyEntry = new ShipmentStatusHistory
+                    {
+                        ShipmentId = s.Id,
+                        FromStatus = oldStatus,
+                        ToStatus = ShipmentStatus.Delivered,
+                        Location = request.DeliveredTo ?? s.ToLocation ?? "Destination",
+                        Remarks = $"Delivery Settled: Recv ₹{receivedAmt}, Mode: {request.PaymentMode}" +
+                                  (discAmt > 0 ? $", Disc ₹{discAmt} ({request.DiscountReason ?? "Allowance"})" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.PaymentReference) ? $", Ref: {request.PaymentReference}" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.DeliveredTo) ? $", DeliveredTo: {request.DeliveredTo}" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.Remarks) ? $". {request.Remarks}" : ""),
+                        ChangedByUserId = userId,
+                        ChangedAt = DateTime.UtcNow
+                    };
+                    _context.ShipmentStatusHistories.Add(historyEntry);
+                }
+
+                await _context.SaveChangesAsync();
+
+                return new SettleDeliveryResponseDto
+                {
+                    Success = true,
+                    SettledCount = shipments.Count,
+                    TotalAmountSettled = totalSettled,
+                    TotalDiscountGiven = totalDiscount,
+                    Message = $"{shipments.Count} consignment(s) settled and marked as Delivered successfully."
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error settling delivery consignments");
+                return new SettleDeliveryResponseDto
+                {
+                    Success = false,
+                    Message = $"Settlement failed: {ex.Message}"
+                };
+            }
+        }
     }
 }
