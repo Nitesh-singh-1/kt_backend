@@ -349,10 +349,10 @@ namespace KTransport.API.Services
             {
                 var pkgCount = s.Items?.Sum(i => i.Quantity) ?? 1;
                 var totalWeight = s.Items?.Sum(i => i.Weight) ?? 0;
-                var freightAmt = s.TotalFreight > 0 ? s.TotalFreight : s.GrandTotal;
-                var rate = totalWeight > 0 ? Math.Round(freightAmt / totalWeight, 2) : freightAmt;
+                var biltyAmt = s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight;
+                var rate = totalWeight > 0 ? Math.Round(biltyAmt / totalWeight, 2) : biltyAmt;
 
-                var lineAmount = freightAmt;
+                var lineAmount = biltyAmt;
                 var taxAmt = (lineAmount * request.TaxRate) / 100m;
                 var total = lineAmount + taxAmt;
                 subTotal += lineAmount;
@@ -455,7 +455,8 @@ namespace KTransport.API.Services
             var totalWt = s.Items?.Sum(i => i.Weight) ?? 0;
             var custInv = s.InvoiceReferences?.FirstOrDefault()?.CustomerInvoiceNo ?? s.Remarks;
             var eway = s.InvoiceReferences?.FirstOrDefault()?.EwayBillNo ?? s.EwayBillNo;
-            var rate = totalWt > 0 ? Math.Round(s.TotalFreight / totalWt, 2) : (totalPkg > 0 ? Math.Round(s.TotalFreight / totalPkg, 2) : s.TotalFreight);
+            var biltyAmt = s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight;
+            var rate = totalWt > 0 ? Math.Round(biltyAmt / totalWt, 2) : (totalPkg > 0 ? Math.Round(biltyAmt / totalPkg, 2) : biltyAmt);
 
             return new UnbilledShipmentDto
             {
@@ -530,7 +531,7 @@ namespace KTransport.API.Services
                     ShipmentNo = s.ShipmentNo,
                     Description = $"Freight — GR {s.ShipmentNo} ({s.FromLocation} → {s.ToLocation})",
                     Quantity = 1,
-                    Rate = s.TotalFreight > 0 ? s.TotalFreight : s.GrandTotal,
+                    Rate = s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight,
                     TaxRate = request.TaxRate
                 }).ToList();
 

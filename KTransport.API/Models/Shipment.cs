@@ -77,6 +77,27 @@ namespace KTransport.API.Models
 
         public decimal DueAmount { get; set; } = 0;
 
+        // Settlement & Delivery Reconciliation
+        public bool IsSettled { get; set; } = false;
+
+        public bool IsPartialPayment { get; set; } = false;
+
+        public decimal? SettledReceivedAmount { get; set; }
+
+        public decimal? SettledDiscountAmount { get; set; }
+
+        public string? DiscountReason { get; set; } // RoundOff, ShortageClaim, DamageDeduction, RateDifference, DeliveryDeduction, Other
+
+        public string? DiscountRemarks { get; set; }
+
+        public string? SettledPaymentMode { get; set; }
+
+        public string? SettlementReferenceNo { get; set; }
+
+        public string? DeliveredTo { get; set; }
+
+        public DateOnly? DeliveryDate { get; set; }
+
         // Lifecycle Status
         public ShipmentStatus Status { get; set; } = ShipmentStatus.Booked;
 

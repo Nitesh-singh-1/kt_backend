@@ -56,11 +56,12 @@ namespace KTransport.API.Controllers
         public async Task<ActionResult<ShipmentListResponse>> GetAllShipments(
             [FromQuery] ShipmentStatus? status,
             [FromQuery] TaxTreatment? taxTreatment,
+            [FromQuery] PaymentTerm? paymentTerm,
             [FromQuery] string? search,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
-            var response = await _shipmentService.GetAllShipmentsAsync(status, taxTreatment, search, page, pageSize);
+            var response = await _shipmentService.GetAllShipmentsAsync(status, taxTreatment, paymentTerm, search, page, pageSize);
             return Ok(response);
         }
 
@@ -106,6 +107,14 @@ namespace KTransport.API.Controllers
             var userId = GetCurrentUserId();
             var response = await _shipmentService.SettleDeliveryAsync(request, userId);
 
+            if (!response.Success) return BadRequest(response);
+            return Ok(response);
+        }
+
+        [HttpGet("delivery-settlement-summary")]
+        public async Task<ActionResult<DeliverySettlementSummaryResponse>> GetDeliverySettlementSummary()
+        {
+            var response = await _shipmentService.GetDeliverySettlementSummaryAsync();
             if (!response.Success) return BadRequest(response);
             return Ok(response);
         }

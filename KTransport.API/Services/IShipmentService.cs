@@ -12,8 +12,9 @@ namespace KTransport.API.Services
         Task<ShipmentResponse> UpdateShipmentStatusAsync(long id, UpdateShipmentStatusRequest request, int userId);
         Task<ShipmentResponse> GetShipmentByIdAsync(long id);
         Task<ShipmentResponse> GetShipmentByNoAsync(string shipmentNo);
-        Task<ShipmentListResponse> GetAllShipmentsAsync(ShipmentStatus? status = null, TaxTreatment? taxTreatment = null, string? search = null, int page = 1, int pageSize = 50);
+        Task<ShipmentListResponse> GetAllShipmentsAsync(ShipmentStatus? status = null, TaxTreatment? taxTreatment = null, PaymentTerm? paymentTerm = null, string? search = null, int page = 1, int pageSize = 50);
         Task<bool> DeleteShipmentAsync(long id, int userId);
         Task<SettleDeliveryResponseDto> SettleDeliveryAsync(SettleDeliveryRequestDto request, int userId);
+        Task<DeliverySettlementSummaryResponse> GetDeliverySettlementSummaryAsync();
     }
 }
