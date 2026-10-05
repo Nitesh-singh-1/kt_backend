@@ -668,6 +668,7 @@ namespace KTransport.API.Services
         public async Task<ShipmentListResponse> GetAllShipmentsAsync(
             ShipmentStatus? status = null, 
             TaxTreatment? taxTreatment = null, 
+            PaymentTerm? paymentTerm = null,
             string? search = null, 
             int page = 1, 
             int pageSize = 50)
@@ -684,6 +685,11 @@ namespace KTransport.API.Services
             if (taxTreatment.HasValue)
             {
                 query = query.Where(s => s.TaxTreatment == taxTreatment.Value);
+            }
+
+            if (paymentTerm.HasValue)
+            {
+                query = query.Where(s => s.PaymentTerm == paymentTerm.Value);
             }
 
             if (!string.IsNullOrWhiteSpace(search))
@@ -719,6 +725,8 @@ namespace KTransport.API.Services
             {
                 Success = true,
                 TotalCount = total,
+                Page = page,
+                PageSize = pageSize,
                 Data = list.Select(MapToDto).Where(x => x != null).Select(x => x!).ToList()
             };
         }
@@ -806,6 +814,16 @@ namespace KTransport.API.Services
                 GrandTotal = s.GrandTotal,
                 PaidAmount = s.PaidAmount,
                 DueAmount = s.DueAmount,
+                IsSettled = s.IsSettled,
+                IsPartialPayment = s.IsPartialPayment,
+                SettledReceivedAmount = s.SettledReceivedAmount,
+                SettledDiscountAmount = s.SettledDiscountAmount,
+                DiscountReason = s.DiscountReason,
+                DiscountRemarks = s.DiscountRemarks,
+                SettledPaymentMode = s.SettledPaymentMode,
+                SettlementReferenceNo = s.SettlementReferenceNo,
+                DeliveredTo = s.DeliveredTo,
+                DeliveryDate = s.DeliveryDate,
                 OriginHubId = s.OriginHubId,
                 OriginHubName = s.OriginHub?.Name,
                 DestinationHubId = s.DestinationHubId,
@@ -866,6 +884,191 @@ namespace KTransport.API.Services
                     ChangedAt = h.ChangedAt
                 }).ToList()
             };
+        }
+
+        public async Task<SettleDeliveryResponseDto> SettleDeliveryAsync(SettleDeliveryRequestDto request, int userId)
+        {
+            if (request.ShipmentIds == null || request.ShipmentIds.Count == 0)
+            {
+                return new SettleDeliveryResponseDto
+                {
+                    Success = false,
+                    Message = "No consignments specified for delivery settlement."
+                };
+            }
+
+            try
+            {
+                var shipments = await _context.Shipments
+                    .Where(s => request.ShipmentIds.Contains(s.Id) && s.IsActive)
+                    .ToListAsync();
+
+                if (shipments.Count == 0)
+                {
+                    return new SettleDeliveryResponseDto
+                    {
+                        Success = false,
+                        Message = "None of the specified consignments were found."
+                    };
+                }
+
+                decimal totalSettled = 0;
+                decimal totalDiscount = 0;
+
+                bool isSingle = shipments.Count == 1;
+
+                foreach (var s in shipments)
+                {
+                    var oldStatus = s.Status;
+                    decimal receivedAmt;
+                    decimal discAmt = 0;
+
+                    if (isSingle)
+                    {
+                        discAmt = request.DiscountAmount ?? 0;
+                        receivedAmt = request.ReceivedAmount ?? (s.DueAmount > 0 ? s.DueAmount : s.GrandTotal);
+
+                        s.SettledReceivedAmount = receivedAmt;
+                        s.SettledDiscountAmount = discAmt;
+                        s.DiscountReason = discAmt > 0 ? request.DiscountReason : null;
+                        s.DiscountRemarks = request.DiscountRemarks ?? (request.DiscountReason == "Other" ? request.Remarks : null);
+                        s.SettledPaymentMode = request.PaymentMode;
+                        s.SettlementReferenceNo = request.PaymentReference;
+                        s.DeliveredTo = request.DeliveredTo;
+                        s.DeliveryDate = request.DeliveryDate;
+
+                        bool isPartial = request.IsPartialPayment || (request.PaymentMode == "PARTIAL") || (receivedAmt + discAmt < s.GrandTotal);
+                        s.IsPartialPayment = isPartial;
+                        s.IsSettled = !isPartial;
+
+                        s.PaidAmount = Math.Min(s.GrandTotal, s.PaidAmount + receivedAmt + discAmt);
+                        s.DueAmount = isPartial ? Math.Max(0, s.GrandTotal - (receivedAmt + discAmt)) : 0;
+                        s.Status = isPartial ? ShipmentStatus.OutForDelivery : ShipmentStatus.Delivered;
+                    }
+                    else
+                    {
+                        // Bulk settlement: mark each as fully paid & delivered
+                        receivedAmt = s.DueAmount > 0 ? s.DueAmount : s.GrandTotal;
+                        s.SettledReceivedAmount = receivedAmt;
+                        s.SettledDiscountAmount = 0;
+                        s.DiscountReason = null;
+                        s.DiscountRemarks = request.Remarks;
+                        s.SettledPaymentMode = request.PaymentMode;
+                        s.SettlementReferenceNo = request.PaymentReference;
+                        s.DeliveredTo = request.DeliveredTo;
+                        s.DeliveryDate = request.DeliveryDate;
+                        s.IsSettled = true;
+                        s.IsPartialPayment = false;
+                        s.PaidAmount = s.GrandTotal;
+                        s.DueAmount = 0;
+                        s.Status = ShipmentStatus.Delivered;
+                    }
+
+                    s.UpdatedAt = DateTime.UtcNow;
+                    s.UpdatedBy = userId;
+
+                    totalSettled += receivedAmt;
+                    totalDiscount += discAmt;
+
+                    var historyEntry = new ShipmentStatusHistory
+                    {
+                        ShipmentId = s.Id,
+                        FromStatus = oldStatus,
+                        ToStatus = s.Status,
+                        Location = request.DeliveredTo ?? s.ToLocation ?? "Destination",
+                        Remarks = $"Delivery Settled ({(s.IsPartialPayment ? "Partial" : "Full")}): Recv ₹{receivedAmt}, Mode: {request.PaymentMode}" +
+                                  (discAmt > 0 ? $", Disc ₹{discAmt} ({request.DiscountReason ?? "Allowance"})" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.PaymentReference) ? $", Ref: {request.PaymentReference}" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.DeliveredTo) ? $", DeliveredTo: {request.DeliveredTo}" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.DiscountRemarks) ? $", Deduction Notes: {request.DiscountRemarks}" : "") +
+                                  (!string.IsNullOrWhiteSpace(request.Remarks) ? $". {request.Remarks}" : ""),
+                        ChangedByUserId = userId,
+                        ChangedAt = DateTime.UtcNow
+                    };
+                    _context.ShipmentStatusHistories.Add(historyEntry);
+                }
+
+                await _context.SaveChangesAsync();
+
+                return new SettleDeliveryResponseDto
+                {
+                    Success = true,
+                    SettledCount = shipments.Count,
+                    TotalAmountSettled = totalSettled,
+                    TotalDiscountGiven = totalDiscount,
+                    Message = $"{shipments.Count} consignment(s) settled and marked as Delivered successfully."
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error settling delivery consignments");
+                return new SettleDeliveryResponseDto
+                {
+                    Success = false,
+                    Message = $"Settlement failed: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<DeliverySettlementSummaryResponse> GetDeliverySettlementSummaryAsync()
+        {
+            try
+            {
+                var activeShipments = await _context.Set<Shipment>()
+                    .Where(s => s.IsActive && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft)
+                    .Select(s => new
+                    {
+                        s.Id,
+                        s.Status,
+                        s.PaymentTerm,
+                        s.GrandTotal,
+                        s.DueAmount,
+                        s.IsSettled,
+                        s.IsPartialPayment,
+                        s.SettledReceivedAmount
+                    })
+                    .ToListAsync();
+
+                var totalConsignments = activeShipments.Count;
+                var totalConsignmentsAmount = activeShipments.Sum(s => s.GrandTotal);
+
+                var pendingList = activeShipments.Where(s => s.Status != ShipmentStatus.Delivered || s.DueAmount > 0 || s.IsPartialPayment).ToList();
+                var pendingCount = pendingList.Count;
+                var pendingAmount = pendingList.Sum(s => s.DueAmount > 0 ? s.DueAmount : s.GrandTotal);
+
+                var toPayList = pendingList.Where(s => s.PaymentTerm == PaymentTerm.ToPay).ToList();
+                var toPayCount = toPayList.Count;
+                var toPayAmount = toPayList.Sum(s => s.DueAmount > 0 ? s.DueAmount : s.GrandTotal);
+
+                var deliveredList = activeShipments.Where(s => (s.Status == ShipmentStatus.Delivered || s.IsSettled) && !s.IsPartialPayment && s.DueAmount == 0).ToList();
+                var deliveredCount = deliveredList.Count;
+                var deliveredAmount = deliveredList.Sum(s => s.SettledReceivedAmount ?? s.GrandTotal);
+
+                return new DeliverySettlementSummaryResponse
+                {
+                    Success = true,
+                    Data = new DeliverySettlementSummaryDto
+                    {
+                        TotalConsignments = totalConsignments,
+                        TotalConsignmentsAmount = totalConsignmentsAmount,
+                        PendingDeliveriesCount = pendingCount,
+                        PendingDeliveriesAmount = pendingAmount,
+                        ToPayCollectiblesCount = toPayCount,
+                        ToPayCollectiblesAmount = toPayAmount,
+                        DeliveredAndSettledCount = deliveredCount,
+                        DeliveredAndSettledAmount = deliveredAmount
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error computing delivery settlement summary");
+                return new DeliverySettlementSummaryResponse
+                {
+                    Success = false,
+                    Message = "Failed to compute summary."
+                };
+            }
         }
     }
 }

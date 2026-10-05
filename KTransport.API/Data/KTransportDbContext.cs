@@ -79,6 +79,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<VerificationCode> VerificationCodes { get; set; }
     public virtual DbSet<Invitation> Invitations { get; set; }
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
+    public virtual DbSet<PaymentModeMaster> PaymentModes { get; set; }
 
     public override int SaveChanges()
     {
@@ -661,6 +662,16 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.ConsignorPartyId).HasColumnName("consignor_party_id");
             entity.Property(e => e.ConsigneePartyId).HasColumnName("consignee_party_id");
             entity.Property(e => e.DueAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("due_amount");
+            entity.Property(e => e.IsSettled).HasDefaultValue(false).HasColumnName("is_settled");
+            entity.Property(e => e.IsPartialPayment).HasDefaultValue(false).HasColumnName("is_partial_payment");
+            entity.Property(e => e.SettledReceivedAmount).HasPrecision(14, 2).HasColumnName("settled_received_amount");
+            entity.Property(e => e.SettledDiscountAmount).HasPrecision(14, 2).HasColumnName("settled_discount_amount");
+            entity.Property(e => e.DiscountReason).HasMaxLength(100).HasColumnName("discount_reason");
+            entity.Property(e => e.DiscountRemarks).HasMaxLength(500).HasColumnName("discount_remarks");
+            entity.Property(e => e.SettledPaymentMode).HasMaxLength(50).HasColumnName("settled_payment_mode");
+            entity.Property(e => e.SettlementReferenceNo).HasMaxLength(100).HasColumnName("settlement_reference_no");
+            entity.Property(e => e.DeliveredTo).HasMaxLength(150).HasColumnName("delivered_to");
+            entity.Property(e => e.DeliveryDate).HasColumnName("delivery_date");
 
             entity.Property(e => e.Status).HasConversion<int>().HasColumnName("status");
             entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
@@ -721,6 +732,24 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.UpdatedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_shipments_updated_by");
+        });
+
+        modelBuilder.Entity<PaymentModeMaster>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("payment_modes_pkey");
+            entity.ToTable("payment_modes");
+
+            entity.HasIndex(e => new { e.TenantId, e.Code }, "payment_modes_tenant_code_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.Code).HasMaxLength(50).HasColumnName("code");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+            entity.Property(e => e.Description).HasMaxLength(250).HasColumnName("description");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
         });
 
         modelBuilder.Entity<ShipmentItem>(entity =>

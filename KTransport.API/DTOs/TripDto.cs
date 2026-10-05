@@ -47,6 +47,12 @@ namespace KTransport.API.DTOs
         public long TripId { get; set; }
         public long ShipmentId { get; set; }
         public string? ShipmentNo { get; set; }
+        public string? ConsignorName { get; set; }
+        public string? ConsigneeName { get; set; }
+        public PaymentTerm? PaymentTerm { get; set; }
+        public string? PaymentTermName => PaymentTerm?.ToString();
+        public string? FromLocation { get; set; }
+        public string? ToLocation { get; set; }
         public decimal LoadedWeight { get; set; }
         public int LoadedPackages { get; set; }
         public decimal FreightAmount { get; set; }
@@ -141,5 +147,77 @@ namespace KTransport.API.DTOs
         public string? OriginLocationName { get; set; }
         public string? DestinationLocationName { get; set; }
         public TripStatus Status { get; set; }
+    }
+
+    public class TripSettlementSummaryDto
+    {
+        public long TripId { get; set; }
+        public string TripNo { get; set; } = null!;
+        public DateOnly TripDate { get; set; }
+        public long? VehicleId { get; set; }
+        public string? VehicleNo { get; set; }
+        public long? DriverId { get; set; }
+        public string? DriverName { get; set; }
+        public string? DriverMobile { get; set; }
+        public string? OriginLocationName { get; set; }
+        public string? DestinationLocationName { get; set; }
+        public TripStatus Status { get; set; }
+        public string StatusName => Status.ToString();
+        public decimal StartOdometer { get; set; }
+        public decimal EndOdometer { get; set; }
+        public decimal TotalKilometers => EndOdometer > StartOdometer ? (EndOdometer - StartOdometer) : 0;
+        
+        // Consignments metrics
+        public int TotalShipments { get; set; }
+        public int TotalPackages { get; set; }
+        public decimal TotalWeightTons { get; set; }
+        public decimal TotalFreightRevenue { get; set; }
+        public decimal TotalToPayFreight { get; set; }
+        public decimal TotalPaidFreight { get; set; }
+        public decimal TotalTbbFreight { get; set; }
+        
+        // Advances & Cash Handover
+        public decimal DriverAdvanceCash { get; set; }
+        public decimal DriverAdvanceFuel { get; set; }
+        public decimal TotalDriverAdvance => DriverAdvanceCash + DriverAdvanceFuel;
+        public decimal CollectedToPayFreight { get; set; } // Cash collected by driver
+        public decimal TotalDriverAccountability => TotalDriverAdvance + CollectedToPayFreight;
+        
+        // Expenses breakdown
+        public decimal TotalExpenses { get; set; }
+        public decimal FuelExpenses { get; set; }
+        public decimal TollExpenses { get; set; }
+        public decimal DriverExpenses { get; set; }
+        public decimal MaintenanceExpenses { get; set; }
+        public decimal OtherExpenses { get; set; }
+        
+        // Net Driver Balance: positive means driver owes company / returns cash; negative means company owes driver reimbursement
+        public decimal NetDriverBalance => TotalDriverAccountability - TotalExpenses;
+        
+        public bool IsSettled => Status == TripStatus.Completed;
+        public DateTime? SettledAt { get; set; }
+        public string? SettlementRemarks { get; set; }
+        
+        public List<TripShipmentDto> Shipments { get; set; } = new();
+        public List<TripExpenseDto> Expenses { get; set; } = new();
+    }
+
+    public class SettleTripRequestDto
+    {
+        public long TripId { get; set; }
+        public decimal? EndOdometer { get; set; }
+        public decimal CollectedToPayFreight { get; set; } = 0;
+        public decimal SettledAmount { get; set; } = 0; // Amount collected from / reimbursed to driver
+        public string PaymentMode { get; set; } = "CASH"; // CASH, UPI, BANK_TRANSFER
+        public string? SettlementRemarks { get; set; }
+        public DateOnly SettlementDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+        public List<AddTripExpenseRequest>? AdditionalExpenses { get; set; }
+    }
+
+    public class TripSettlementResponseDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public TripSettlementSummaryDto? Data { get; set; }
     }
 }

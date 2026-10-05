@@ -30,6 +30,11 @@ namespace KTransport.API.Services
         {
             var query = _context.Trips
                 .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsigneeParty)
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsignorParty)
                 .Include(t => t.Expenses)
                 .AsNoTracking()
                 .Where(t => t.IsActive);
@@ -89,6 +94,11 @@ namespace KTransport.API.Services
         {
             var trip = await _context.Trips
                 .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsigneeParty)
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsignorParty)
                 .Include(t => t.Expenses)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Id == id);
@@ -466,7 +476,12 @@ namespace KTransport.API.Services
                     Id = s.Id,
                     TripId = s.TripId,
                     ShipmentId = s.ShipmentId,
-                    ShipmentNo = s.ShipmentNo,
+                    ShipmentNo = s.ShipmentNo ?? s.Shipment?.ShipmentNo,
+                    ConsignorName = s.Shipment?.ConsignorName ?? s.Shipment?.ConsignorParty?.Name,
+                    ConsigneeName = s.Shipment?.ConsigneeName ?? s.Shipment?.ConsigneeParty?.Name,
+                    PaymentTerm = s.Shipment?.PaymentTerm,
+                    FromLocation = s.Shipment?.FromLocation,
+                    ToLocation = s.Shipment?.ToLocation,
                     LoadedWeight = s.LoadedWeight,
                     LoadedPackages = s.LoadedPackages,
                     FreightAmount = s.FreightAmount,
@@ -488,6 +503,173 @@ namespace KTransport.API.Services
                     CreatedAt = e.CreatedAt
                 }).ToList()
             };
+        }
+
+        public async Task<TripSettlementSummaryDto?> GetTripSettlementSummaryAsync(long tripId)
+        {
+            var trip = await _context.Trips
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                .Include(t => t.Expenses)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == tripId && t.IsActive);
+
+            if (trip == null) return null;
+
+            var toPayFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.ToPay).Sum(s => s.FreightAmount);
+            var paidFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.Paid).Sum(s => s.FreightAmount);
+            var tbbFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.TBB).Sum(s => s.FreightAmount);
+
+            var fuelExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.Fuel).Sum(e => e.Amount);
+            var tollExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.Toll).Sum(e => e.Amount);
+            var driverExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.DriverAllowance).Sum(e => e.Amount);
+            var maintExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.VehicleRepair).Sum(e => e.Amount);
+            var otherExp = trip.Expenses.Where(e => e.ExpenseType != TripExpenseType.Fuel && e.ExpenseType != TripExpenseType.Toll && e.ExpenseType != TripExpenseType.DriverAllowance && e.ExpenseType != TripExpenseType.VehicleRepair).Sum(e => e.Amount);
+            var totalExp = trip.Expenses.Sum(e => e.Amount);
+
+            return new TripSettlementSummaryDto
+            {
+                TripId = trip.Id,
+                TripNo = trip.TripNo,
+                TripDate = trip.TripDate,
+                VehicleId = trip.VehicleId,
+                VehicleNo = trip.VehicleNo,
+                DriverId = trip.DriverId,
+                DriverName = trip.DriverName,
+                DriverMobile = trip.DriverMobile,
+                OriginLocationName = trip.OriginLocationName,
+                DestinationLocationName = trip.DestinationLocationName,
+                Status = trip.Status,
+                StartOdometer = trip.StartOdometer,
+                EndOdometer = trip.EndOdometer,
+                TotalShipments = trip.Shipments.Count,
+                TotalPackages = trip.TotalPackages,
+                TotalWeightTons = trip.TotalWeightTons,
+                TotalFreightRevenue = trip.TotalFreightRevenue,
+                TotalToPayFreight = toPayFreight,
+                TotalPaidFreight = paidFreight,
+                TotalTbbFreight = tbbFreight,
+                DriverAdvanceCash = trip.DriverAdvanceCash,
+                DriverAdvanceFuel = trip.DriverAdvanceFuel,
+                CollectedToPayFreight = toPayFreight, // Default accountable ToPay
+                TotalExpenses = totalExp,
+                FuelExpenses = fuelExp,
+                TollExpenses = tollExp,
+                DriverExpenses = driverExp,
+                MaintenanceExpenses = maintExp,
+                OtherExpenses = otherExp,
+                SettledAt = trip.Status == TripStatus.Completed ? trip.UpdatedAt : null,
+                SettlementRemarks = trip.Remarks,
+                Shipments = trip.Shipments.Select(s => new TripShipmentDto
+                {
+                    Id = s.Id,
+                    TripId = s.TripId,
+                    ShipmentId = s.ShipmentId,
+                    ShipmentNo = s.ShipmentNo ?? s.Shipment?.ShipmentNo,
+                    ConsignorName = s.Shipment?.ConsignorName,
+                    ConsigneeName = s.Shipment?.ConsigneeName,
+                    PaymentTerm = s.Shipment?.PaymentTerm,
+                    FromLocation = s.Shipment?.FromLocation,
+                    ToLocation = s.Shipment?.ToLocation,
+                    LoadedWeight = s.LoadedWeight,
+                    LoadedPackages = s.LoadedPackages,
+                    FreightAmount = s.FreightAmount,
+                    Remarks = s.Remarks
+                }).ToList(),
+                Expenses = trip.Expenses.Select(e => new TripExpenseDto
+                {
+                    Id = e.Id,
+                    TripId = e.TripId,
+                    ExpenseType = e.ExpenseType,
+                    Amount = e.Amount,
+                    ReceiptNo = e.ReceiptNo,
+                    PaymentMode = e.PaymentMode,
+                    PaidTo = e.PaidTo,
+                    Remarks = e.Remarks,
+                    ExpenseDate = e.ExpenseDate,
+                    CreatedAt = e.CreatedAt
+                }).ToList()
+            };
+        }
+
+        public async Task<TripSettlementResponseDto> SettleTripAsync(SettleTripRequestDto request, int? userId = null)
+        {
+            try
+            {
+                var trip = await _context.Trips
+                    .Include(t => t.Shipments)
+                        .ThenInclude(s => s.Shipment)
+                    .Include(t => t.Expenses)
+                    .FirstOrDefaultAsync(t => t.Id == request.TripId && t.IsActive);
+
+                if (trip == null)
+                {
+                    return new TripSettlementResponseDto
+                    {
+                        Success = false,
+                        Message = $"Trip #{request.TripId} not found."
+                    };
+                }
+
+                // Add any additional expenses supplied during settlement
+                if (request.AdditionalExpenses != null && request.AdditionalExpenses.Count > 0)
+                {
+                    foreach (var exp in request.AdditionalExpenses)
+                    {
+                        if (exp.Amount > 0)
+                        {
+                            var tripExp = new TripExpense
+                            {
+                                TripId = trip.Id,
+                                ExpenseType = exp.ExpenseType,
+                                Amount = exp.Amount,
+                                ReceiptNo = exp.ReceiptNo?.Trim(),
+                                PaymentMode = exp.PaymentMode?.Trim() ?? request.PaymentMode,
+                                PaidTo = exp.PaidTo?.Trim(),
+                                Remarks = exp.Remarks?.Trim(),
+                                ExpenseDate = exp.ExpenseDate ?? request.SettlementDate,
+                                CreatedAt = DateTime.UtcNow
+                            };
+                            _context.TripExpenses.Add(tripExp);
+                            trip.Expenses.Add(tripExp);
+                        }
+                    }
+                }
+
+                if (request.EndOdometer.HasValue && request.EndOdometer.Value > 0)
+                {
+                    trip.EndOdometer = request.EndOdometer.Value;
+                }
+
+                trip.TotalExpenses = trip.Expenses.Sum(e => e.Amount);
+                trip.Status = TripStatus.Completed;
+                trip.ArrivalTime ??= DateTime.UtcNow;
+                trip.UpdatedAt = DateTime.UtcNow;
+                trip.UpdatedBy = userId;
+
+                var summary = $"[Settled on {request.SettlementDate:yyyy-MM-dd}: Settled ₹{request.SettledAmount} via {request.PaymentMode}. Notes: {request.SettlementRemarks}]";
+                trip.Remarks = string.IsNullOrWhiteSpace(trip.Remarks) ? summary : $"{trip.Remarks} | {summary}";
+
+                await _context.SaveChangesAsync();
+
+                var settlementDto = await GetTripSettlementSummaryAsync(trip.Id);
+
+                return new TripSettlementResponseDto
+                {
+                    Success = true,
+                    Message = $"Trip #{trip.TripNo} settled and marked as Completed successfully.",
+                    Data = settlementDto
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error settling trip #{TripId}", request.TripId);
+                return new TripSettlementResponseDto
+                {
+                    Success = false,
+                    Message = $"Settlement failed: {ex.Message}"
+                };
+            }
         }
     }
 }

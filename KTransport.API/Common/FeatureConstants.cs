@@ -7,6 +7,9 @@ namespace KTransport.API.Common
         public const string SHIPMENT = "SHIPMENT";
         public const string MANIFEST = "MANIFEST"; // Trip / Challan / Manifest
         public const string POD = "POD";
+        public const string DELIVERY_SETTLEMENT = "DELIVERY_SETTLEMENT";
+        public const string TRIP_SETTLEMENT = "TRIP_SETTLEMENT";
+        public const string BILL_BOOK = "BILL_BOOK";
         public const string BILLING = "BILLING";
         public const string INVOICE = "INVOICE";
         public const string MONEY_RECEIPT = "MONEY_RECEIPT";
@@ -31,6 +34,9 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
+            TRIP_SETTLEMENT,
+            BILL_BOOK,
             BILLING,
             INVOICE,
             MONEY_RECEIPT,
@@ -51,6 +57,7 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
             TRACKING,
             PARTY
         };
@@ -61,6 +68,9 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
+            TRIP_SETTLEMENT,
+            BILL_BOOK,
             BILLING,
             INVOICE,
             MONEY_RECEIPT,
@@ -89,6 +99,9 @@ namespace KTransport.API.Common
                 "SHIPMENT" or "SHIPMENTS" => SHIPMENT,
                 "CHALLAN" or "CHALLAN.LIST" or "CHALLAN.ENTRY" or "TRIPS" or "MANIFEST" or "MANIFESTS" => MANIFEST,
                 "POD" or "DELIVERIES" => POD,
+                "DELIVERY_SETTLEMENT" or "DELIVERYSETTLEMENT" or "CONSIGNMENTS.DELIVERY_SETTLEMENT" => DELIVERY_SETTLEMENT,
+                "TRIP_SETTLEMENT" or "TRIPSETTLEMENT" or "TRIPS.SETTLEMENT" => TRIP_SETTLEMENT,
+                "BILL_BOOK" or "BILLBOOK" or "BILLING.BILL_BOOK" => BILL_BOOK,
                 "BILLING" or "BILLING.INVOICES" or "BILLING.RECEIPTS" or "INVOICE" or "INVOICES" => BILLING,
                 "RECEIPTS" or "MONEY_RECEIPT" or "MONEY_RECEIPTS" => MONEY_RECEIPT,
                 "TRACKING" or "GPS" => TRACKING,

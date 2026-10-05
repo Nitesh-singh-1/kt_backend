@@ -175,7 +175,7 @@ namespace KTransport.API.Services
             }
 
             // 2. Consignments (Bilty / GR Booking)
-            if (IsEnabled("consignments") || IsEnabled("consignments.create") || IsEnabled("consignments.all") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
+            if (IsEnabled("consignments") || IsEnabled("consignments.create") || IsEnabled("consignments.all") || IsEnabled("delivery_settlement") || IsEnabled("DELIVERY_SETTLEMENT") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
             {
                 var grChildren = new List<DynamicMenuItemDto>();
 
@@ -200,6 +200,18 @@ namespace KTransport.API.Services
                         Path = "/shipments",
                         Icon = "fileText",
                         PermissionKey = "consignments.view"
+                    });
+                }
+
+                if (IsEnabled("consignments.delivery_settlement") || IsEnabled("delivery_settlement") || IsEnabled("DELIVERY_SETTLEMENT") || IsEnabled("consignments") || IsEnabled("GOOD_RECEIPT"))
+                {
+                    grChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "consignments.delivery_settlement",
+                        Title = "Delivery Settlement",
+                        Path = "/delivery-settlement",
+                        Icon = "checkCircle",
+                        PermissionKey = "consignments.settle"
                     });
                 }
 
@@ -229,30 +241,58 @@ namespace KTransport.API.Services
                 });
             }
 
-            // 3. Manifest & Dispatch (LR / Truck Challan)
-            if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST"))
+            // 3. Manifest & Dispatch (LR / Truck Challan & Trip Settlement)
+            if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST") || IsEnabled("trip_settlement") || IsEnabled("TRIP_SETTLEMENT") || IsEnabled("trips.settlement"))
             {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "trips",
-                    Title = "Manifest & Dispatch (Challans)",
-                    Path = "/trips",
-                    Icon = "truck",
-                    PermissionKey = "trips.view"
-                });
-            }
+                var tripChildren = new List<DynamicMenuItemDto>();
 
-            // 3b. Empty / Deadhead trip log
-            if (IsEnabled("empty_trips") || IsEnabled("trips") || IsEnabled("MANIFEST"))
-            {
-                menu.Add(new DynamicMenuItemDto
+                if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST"))
                 {
-                    Id = "empty_trips",
-                    Title = "Empty Trip Log",
-                    Path = "/empty-trips",
-                    Icon = "truck",
-                    PermissionKey = "trips.view"
-                });
+                    tripChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "trips.all",
+                        Title = "Manifest & Dispatch (Challans)",
+                        Path = "/trips",
+                        Icon = "truck",
+                        PermissionKey = "trips.view"
+                    });
+                }
+
+                if (IsEnabled("empty_trips") || IsEnabled("trips") || IsEnabled("MANIFEST"))
+                {
+                    tripChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "empty_trips",
+                        Title = "Empty Trip Log",
+                        Path = "/empty-trips",
+                        Icon = "truck",
+                        PermissionKey = "trips.view"
+                    });
+                }
+
+                if (IsEnabled("trip_settlement") || IsEnabled("trips.settlement") || IsEnabled("TRIP_SETTLEMENT") || IsEnabled("trips") || IsEnabled("MANIFEST"))
+                {
+                    tripChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "trips.settlement",
+                        Title = "Trip Settlement",
+                        Path = "/trip-settlement",
+                        Icon = "dollarSign",
+                        PermissionKey = "trips.settle"
+                    });
+                }
+
+                if (tripChildren.Count > 0)
+                {
+                    menu.Add(new DynamicMenuItemDto
+                    {
+                        Id = "trips",
+                        Title = "Manifest & Dispatch",
+                        Icon = "truck",
+                        PermissionKey = "trips.view",
+                        Children = tripChildren
+                    });
+                }
             }
 
             // 4. POD & Deliveries
@@ -269,9 +309,22 @@ namespace KTransport.API.Services
             }
 
             // 5. Freight Invoicing & Billing
-            if (IsEnabled("billing") || IsEnabled("billing.invoices") || IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
+            if (IsEnabled("billing") || IsEnabled("billing.invoices") || IsEnabled("billing.receipts") || IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK") || IsEnabled("receipts") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
             {
                 var billingChildren = new List<DynamicMenuItemDto>();
+
+                if (IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK") || IsEnabled("billing") || IsEnabled("BILLING"))
+                {
+                    billingChildren.Add(new DynamicMenuItemDto
+                    {
+                        Id = "billing.bill_book",
+                        Title = "Bill Book (Consolidated)",
+                        Path = "/bill-book",
+                        Icon = "fileText",
+                        PermissionKey = "billing.view",
+                        Badge = "Freight Bill"
+                    });
+                }
 
                 if (IsEnabled("billing.invoices") || IsEnabled("billing") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
                 {
@@ -708,11 +761,17 @@ namespace KTransport.API.Services
                 "consignments",
                 "consignments.create",
                 "consignments.all",
+                "consignments.delivery_settlement",
+                "delivery_settlement",
                 "quotations",
                 "trips",
+                "trips.settlement",
+                "trip_settlement",
                 "empty_trips",
                 "pod",
                 "billing",
+                "billing.bill_book",
+                "bill_book",
                 "billing.invoices",
                 "billing.receipts",
                 "master_data",
