@@ -162,6 +162,17 @@ namespace KTransport.API.Controllers
             return Ok(response);
         }
 
+        /// <summary>
+        /// TASK-037: history endpoint — all settlement rows for a trip, oldest first.
+        /// Added defensively; frontend MAY ignore it for now.
+        /// </summary>
+        [HttpGet("{id:long}/settlements")]
+        public async Task<ActionResult<List<TripSettlementDto>>> GetTripSettlements(long id)
+        {
+            var rows = await _tripService.GetTripSettlementsAsync(id);
+            return Ok(rows);
+        }
+
         private int? GetCurrentUserId()
         {
             var val = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
