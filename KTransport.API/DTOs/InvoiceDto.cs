@@ -47,6 +47,26 @@ namespace KTransport.API.DTOs
         public decimal TaxRate { get; set; }
         public decimal TaxAmount { get; set; }
         public decimal TotalAmount { get; set; }
+
+        // TASK-038 additive projections: joined from the originating Shipment on GetInvoiceById.
+        // These are nullable because other invoice flows (CreateInvoice, UpdateInvoice, RecordPayment)
+        // do not load the Shipment navigation — callers must treat null as "not projected here".
+        public DateOnly? ShipmentDate { get; set; }
+        public string? ToLocation { get; set; }
+        public DateOnly? DeliveryDate { get; set; }
+        public decimal? TotalWeightKg { get; set; }
+        public List<ShipmentChargeBreakdownDto>? ChargeItems { get; set; }
+    }
+
+    /// <summary>
+    /// TASK-038: one applied charge row on a bilty (projection of ShipmentChargeItem).
+    /// Carried per invoice item / per unbilled shipment so the Bill Book print can render
+    /// `qty * rate + ST + Hamali = GrandTotal` without re-fetching ShipmentChargeItems.
+    /// </summary>
+    public class ShipmentChargeBreakdownDto
+    {
+        public string ChargeName { get; set; } = null!;
+        public decimal Amount { get; set; }
     }
 
     public class CreateInvoiceRequest

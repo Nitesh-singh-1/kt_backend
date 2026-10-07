@@ -309,11 +309,15 @@ namespace KTransport.API.Services
             }
 
             // 5. Freight Invoicing & Billing
-            if (IsEnabled("billing") || IsEnabled("billing.invoices") || IsEnabled("billing.receipts") || IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK") || IsEnabled("receipts") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
+            // TASK-039: Module-level key gates the module's visibility ONLY. Each child
+            // below is gated by its own granular key (billing.bill_book / billing.invoices
+            // / billing.receipts). An ORed fallback to the module key here would make the
+            // per-page toggle dead — enabling the module auto-grants every child.
+            if (IsEnabled("billing") || IsEnabled("BILLING"))
             {
                 var billingChildren = new List<DynamicMenuItemDto>();
 
-                if (IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK") || IsEnabled("billing") || IsEnabled("BILLING"))
+                if (IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK"))
                 {
                     billingChildren.Add(new DynamicMenuItemDto
                     {
@@ -326,7 +330,7 @@ namespace KTransport.API.Services
                     });
                 }
 
-                if (IsEnabled("billing.invoices") || IsEnabled("billing") || IsEnabled("BILLING") || IsEnabled("INVOICE"))
+                if (IsEnabled("billing.invoices"))
                 {
                     billingChildren.Add(new DynamicMenuItemDto
                     {
@@ -338,7 +342,7 @@ namespace KTransport.API.Services
                     });
                 }
 
-                if (IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("billing") || IsEnabled("BILLING") || IsEnabled("MONEY_RECEIPT"))
+                if (IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("MONEY_RECEIPT"))
                 {
                     billingChildren.Add(new DynamicMenuItemDto
                     {
@@ -529,19 +533,32 @@ namespace KTransport.API.Services
             }
 
             // 9. Reports & Analytics
+            // TASK-039: Same sweep rule as the billing block above — the Reports MODULE
+            // key gates visibility of the parent menu entry only. Each report tab is a
+            // granular child key (`reports.<report_key>`) and must appear in the effective
+            // key set to be emitted. Previously the children iterated the tenant's
+            // `entitlements.Reports` and emitted every tenant-enabled report regardless
+            // of the user's per-report permission, which leaked hidden-report keys into
+            // the permissions endpoint and let sub-users see tabs they lack access to.
             if (IsEnabled("reports") || IsEnabled("REPORTING"))
             {
                 var reportChildren = new List<DynamicMenuItemDto>();
 
                 foreach (var rep in entitlements.Reports.Where(r => r.IsEnabled || enabledReportKeys.Contains(r.ReportKey)))
                 {
+                    var reportKey = $"reports.{rep.ReportKey}";
+                    if (!IsEnabled(reportKey))
+                    {
+                        continue;
+                    }
+
                     reportChildren.Add(new DynamicMenuItemDto
                     {
-                        Id = $"reports.{rep.ReportKey}",
+                        Id = reportKey,
                         Title = rep.Title,
                         Path = $"/reports?tab={rep.ReportKey}",
                         Icon = "fileText",
-                        PermissionKey = $"reports.{rep.ReportKey}"
+                        PermissionKey = reportKey
                     });
                 }
 
@@ -642,9 +659,21 @@ namespace KTransport.API.Services
 
             void CollectPermissions(DynamicMenuItemDto item)
             {
+                // TASK-039: emit BOTH the role/action-level PermissionKey (e.g.
+                // `billing.view` — used for coarse "can see this screen group" UI gates)
+                // AND the item's Id (e.g. `billing.bill_book`, `reports.booking_register`
+                // — the granular, per-page key the backend attributes and the frontend's
+                // PagePermissionGuard check against). Without the Id in the list, a
+                // tenant with the Billing module but no `billing.bill_book` entitlement
+                // would still be impossible to tell apart from one that has it, because
+                // both children carry the same `billing.view` PermissionKey.
                 if (!string.IsNullOrWhiteSpace(item.PermissionKey))
                 {
                     permissions.Add(item.PermissionKey);
+                }
+                if (!string.IsNullOrWhiteSpace(item.Id))
+                {
+                    permissions.Add(item.Id);
                 }
                 if (item.Children != null)
                 {

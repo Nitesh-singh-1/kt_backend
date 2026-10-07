@@ -41,6 +41,8 @@ namespace KTransport.API.DTOs
         public string? Remarks { get; set; }
         public DateOnly? DeliveryDate { get; set; }
         public string? DeliveryDateFormatted => DeliveryDate?.ToString("dd/MM/yyyy") ?? "-";
+        // TASK-038: per-bilty applied charges projection for Bill Book print.
+        public List<ShipmentChargeBreakdownDto>? ChargeItems { get; set; }
     }
 
     public class BulkBillRequest

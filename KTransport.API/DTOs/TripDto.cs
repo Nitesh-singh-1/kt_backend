@@ -220,4 +220,34 @@ namespace KTransport.API.DTOs
         public string Message { get; set; } = string.Empty;
         public TripSettlementSummaryDto? Data { get; set; }
     }
+
+    /// <summary>
+    /// Projection of a single <see cref="Models.TripSettlement"/> row. Snapshot
+    /// columns are read verbatim — never recomputed. Returned by
+    /// <c>GET /api/trip/{id}/settlements</c>.
+    /// </summary>
+    public class TripSettlementDto
+    {
+        public long Id { get; set; }
+        public long TripId { get; set; }
+        public string SettlementNo { get; set; } = null!;
+        public DateOnly SettlementDate { get; set; }
+        public decimal EndOdometer { get; set; }
+        public decimal TotalKilometers { get; set; }
+        public decimal DriverAdvanceCashSnapshot { get; set; }
+        public decimal DriverAdvanceFuelSnapshot { get; set; }
+        public decimal CollectedToPayFreight { get; set; }
+        public decimal TotalDriverAccountability { get; set; }
+        public decimal TotalExpensesSnapshot { get; set; }
+        public decimal NetDriverBalance { get; set; }
+        public decimal SettledAmount { get; set; }
+        public string PaymentMode { get; set; } = "CASH";
+        public string? PaymentReference { get; set; }
+        public string? SettlementRemarks { get; set; }
+        public bool IsReversed { get; set; }
+        public DateTime? ReversedAt { get; set; }
+        public string? ReversalReason { get; set; }
+        public int? SettledBy { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
 }
