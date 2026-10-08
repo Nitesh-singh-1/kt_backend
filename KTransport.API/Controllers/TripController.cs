@@ -25,6 +25,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<List<TripDto>>> GetTrips(
             [FromQuery] string? search = null,
             [FromQuery] TripStatus? status = null)
@@ -34,6 +35,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("lookup")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<List<TripLookupDto>>> GetTripLookup([FromQuery] string? q = null)
         {
             var results = await _tripService.GetTripLookupAsync(q);
@@ -41,6 +43,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<TripDto>> GetTripById(long id)
         {
             var trip = await _tripService.GetTripByIdAsync(id);
@@ -49,6 +52,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("trips.create")]
         public async Task<ActionResult<TripDto>> CreateTrip([FromBody] CreateTripRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -59,6 +63,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> UpdateTrip(long id, [FromBody] UpdateTripRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -70,6 +75,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/shipments")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> LoadShipments(long id, [FromBody] LoadShipmentsRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -81,6 +87,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}/shipments/{shipmentId:long}")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> RemoveShipment(long id, long shipmentId)
         {
             int? userId = GetCurrentUserId();
@@ -90,6 +97,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/dispatch")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> DispatchTrip(long id)
         {
             int? userId = GetCurrentUserId();
@@ -99,6 +107,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/arrive")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> ArriveTrip(long id)
         {
             int? userId = GetCurrentUserId();
@@ -108,6 +117,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/complete")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<TripDto>> CompleteTrip(long id, [FromQuery] decimal endOdometer = 0)
         {
             int? userId = GetCurrentUserId();
@@ -117,6 +127,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/cancel")]
+        [RequirePermission("trips.delete", "trips.edit")]
         public async Task<ActionResult<TripDto>> CancelTrip(long id, [FromQuery] string? reason = null)
         {
             int? userId = GetCurrentUserId();
@@ -126,6 +137,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/expenses")]
+        [RequirePermission("trips.edit", "trip_settlement.create", "trip_settlement.edit")]
         public async Task<ActionResult<TripExpenseDto>> AddTripExpense(long id, [FromBody] AddTripExpenseRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -136,6 +148,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}/expenses/{expenseId:long}")]
+        [RequirePermission("trips.edit", "trip_settlement.edit")]
         public async Task<ActionResult> DeleteTripExpense(long id, long expenseId)
         {
             var success = await _tripService.DeleteTripExpenseAsync(id, expenseId);
@@ -144,6 +157,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}/settlement-summary")]
+        [RequirePermission("trip_settlement.view", "trips.view")]
         public async Task<ActionResult<TripSettlementSummaryDto>> GetTripSettlementSummary(long id)
         {
             var summary = await _tripService.GetTripSettlementSummaryAsync(id);
@@ -152,6 +166,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("settle")]
+        [RequirePermission("trip_settlement.create", "trip_settlement.edit")]
         public async Task<ActionResult<TripSettlementResponseDto>> SettleTrip([FromBody] SettleTripRequestDto request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -167,6 +182,7 @@ namespace KTransport.API.Controllers
         /// Added defensively; frontend MAY ignore it for now.
         /// </summary>
         [HttpGet("{id:long}/settlements")]
+        [RequirePermission("trip_settlement.view", "trips.view")]
         public async Task<ActionResult<List<TripSettlementDto>>> GetTripSettlements(long id)
         {
             var rows = await _tripService.GetTripSettlementsAsync(id);

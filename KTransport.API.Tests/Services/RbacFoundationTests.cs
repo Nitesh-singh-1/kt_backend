@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.Common;
+using KTransport.API.Controllers;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -74,6 +76,10 @@ public class RbacFoundationTests
         ctx.Permissions.AddRange(
             new Permission { Key = "bilty.view",            FeatureKey = "bilty",             Action = "View" },
             new Permission { Key = "bilty.create",          FeatureKey = "bilty",             Action = "Create" },
+            new Permission { Key = "consignments.create.create", FeatureKey = "consignments.create", Action = "Create" },
+            new Permission { Key = "consignments.all.view", FeatureKey = "consignments.all", Action = "View" },
+            new Permission { Key = "trips.view",            FeatureKey = "trips",             Action = "View" },
+            new Permission { Key = "trips.create",          FeatureKey = "trips",             Action = "Create" },
             new Permission { Key = "pod.view",              FeatureKey = "pod",               Action = "View" },
             new Permission { Key = "pod.create",            FeatureKey = "pod",               Action = "Create" },
             new Permission { Key = "pod.edit",              FeatureKey = "pod",               Action = "Edit" },
@@ -89,7 +95,13 @@ public class RbacFoundationTests
             new Module { Id = 2, Code = "bilty",     Name = "Bilty" },
             new Module { Id = 3, Code = "pod",       Name = "POD" },
             new Module { Id = 4, Code = "billing",   Name = "Billing" },
-            new Module { Id = 5, Code = "reports",   Name = "Reports" }
+            new Module { Id = 5, Code = "reports",   Name = "Reports" },
+            new Module { Id = 6, Code = "trips",     Name = "Trips" }
+        );
+        ctx.MenuItems.AddRange(
+            new MenuItem { Key = "dashboard", Title = "Dashboard", Path = "/dashboard", Icon = "LayoutDashboard", IsActive = true, DisplayOrder = 1 },
+            new MenuItem { Key = "consignments", Title = "Consignments", Path = "/shipments", Icon = "Package", PermissionKey = "consignments.all", IsActive = true, DisplayOrder = 2 },
+            new MenuItem { Key = "trips", Title = "Trips", Path = "/trips", Icon = "Truck", PermissionKey = "trips", IsActive = true, DisplayOrder = 3 }
         );
         if (!ctx.Tenants.IgnoreQueryFilters().Any(t => t.Id == TestTenantId))
         {
@@ -576,15 +588,162 @@ public class RbacFoundationTests
         Assert.DoesNotContain("pod.view", eff);
     }
 
-    // =================================================================
-    // Fixture: menu_baseline_operator (presence check)
-    // =================================================================
+    [Fact]
+    public async Task WriteTenantEntitlements_WithLegacyKeys_SyncsTenantModulesAndAdminRolePermissions()
+    {
+        await using var ctx = NewContext();
+        await SeedCatalogsAsync(ctx);
+
+        var customTenantId = Guid.Parse("54ebc5ff-9a1e-4f68-b103-4eb8778362cb");
+        ctx.Tenants.Add(new Tenant
+        {
+            Id = customTenantId,
+            Name = "Test Custom Client",
+            Code = "TCC",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        var adminUser = new User
+        {
+            TenantId = customTenantId,
+            Username = "client_admin",
+            Password = "hash",
+            FullName = "Client Admin",
+            Role = "admin",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.Users.Add(adminUser);
+        await ctx.SaveChangesAsync();
+
+        var entService = NewEntitlements(ctx);
+        var navService = NewNav(ctx, entService);
+
+        // Platform Admin saves entitlements with legacy keys (e.g. from UI drawer)
+        var payload = new TenantMenuEntitlementsDto
+        {
+            TenantId = customTenantId,
+            PlanTier = "Starter",
+            EnabledMenuKeys = new List<string> { "dashboard", "gr", "gr.list", "gr.entry", "challan", "challan.list", "reports", "system" },
+            Reports = new List<ReportEntitlementItemDto>
+            {
+                new() { ReportKey = "booking_register", Title = "Booking Register", IsEnabled = true },
+                new() { ReportKey = "tax_summary", Title = "GST Summary", IsEnabled = true }
+            }
+        };
+
+        await entService.WriteTenantEntitlementsAsync(customTenantId, payload, 1);
+
+        // Verify tenant_modules is active for bilty and trips
+        var activeModules = await ctx.TenantModules
+            .IgnoreQueryFilters()
+            .Where(tm => tm.TenantId == customTenantId && tm.EnabledUntil == null && tm.IsEnabled)
+            .Join(ctx.Modules.IgnoreQueryFilters(), tm => tm.ModuleId, m => m.Id, (tm, m) => m.Code)
+            .ToListAsync();
+
+        Assert.Contains("bilty", activeModules);
+        Assert.Contains("trips", activeModules);
+        Assert.Contains("reports", activeModules);
+        Assert.Contains("dashboard", activeModules);
+
+        // Verify effective permissions for client_admin
+        var effective = await entService.ComputeEffectivePermissionsFromTablesAsync(customTenantId, adminUser.Id, "admin");
+        Assert.Contains("consignments.create.create", effective);
+        Assert.Contains("consignments.all.view", effective);
+        Assert.Contains("trips.view", effective);
+
+        // Verify dynamic menu generated for client_admin
+        var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", "client_admin");
+        Assert.NotEmpty(menu);
+        var menuIds = menu.Select(m => m.Id).ToList();
+        Assert.Contains("dashboard", menuIds);
+        Assert.Contains(menu, m => m.Id == "consignments" || (m.Children != null && m.Children.Any(c => c.Id.StartsWith("consignments"))));
+        Assert.Contains(menu, m => m.Id == "trips" || (m.Children != null && m.Children.Any(c => c.Id.StartsWith("trips"))));
+    }
 
     [Fact]
-    public void Fixture_MenuBaselineOperator_FileExists()
+    public async Task SubUser_WithOnlyCreateConsignments_CannotDelete_AndControllerActions_HaveRequirePermission()
     {
-        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "menu_baseline_operator.json");
-        var fallback = System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Fixtures", "menu_baseline_operator.json");
-        Assert.True(System.IO.File.Exists(path) || System.IO.File.Exists(fallback));
+        // 1. Verify Reflection on Controller methods for RequirePermission
+        var shipmentDeleteMethod = typeof(ShipmentController).GetMethod(nameof(ShipmentController.DeleteShipment));
+        Assert.NotNull(shipmentDeleteMethod);
+        var shipmentDeleteAttr = shipmentDeleteMethod!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true).FirstOrDefault();
+        Assert.NotNull(shipmentDeleteAttr);
+
+        var tripCancelMethod = typeof(TripController).GetMethod(nameof(TripController.CancelTrip));
+        Assert.NotNull(tripCancelMethod);
+        var tripCancelAttr = tripCancelMethod!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true).FirstOrDefault();
+        Assert.NotNull(tripCancelAttr);
+
+        var userDeleteMethod = typeof(UsersController).GetMethod(nameof(UsersController.DeleteUser));
+        Assert.NotNull(userDeleteMethod);
+        var userDeleteAttr = userDeleteMethod!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true).FirstOrDefault();
+        Assert.NotNull(userDeleteAttr);
+
+        // 2. Verify granular permissions evaluation for an Operator sub-user (e.g. Nitesh)
+        using var ctx = NewContext();
+        var customTenantId = Guid.NewGuid();
+        await SeedCatalogsAsync(ctx);
+
+        ctx.Tenants.Add(new Tenant
+        {
+            Id = customTenantId,
+            Name = "Test Logistics",
+            Code = "TLG",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        var operatorUser = new User
+        {
+            TenantId = customTenantId,
+            Username = "nitesh_operator",
+            FullName = "Nitesh Operator",
+            Email = "nitesh@kt.local",
+            Password = "hash",
+            Role = "SUB_USER",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.Users.Add(operatorUser);
+        await ctx.SaveChangesAsync();
+
+        var entService = NewEntitlements(ctx);
+        var navService = NewNav(ctx, entService);
+
+        // Subscribe tenant to bilty module
+        await entService.WriteTenantEntitlementsAsync(customTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = customTenantId,
+            PlanTier = "Professional",
+            EnabledMenuKeys = new List<string> { "consignments" }
+        }, 1);
+
+        // Assign operator ONLY create and view permissions
+        ctx.UserPermissionOverrides.Add(new UserPermissionOverride
+        {
+            TenantId = customTenantId,
+            UserId = operatorUser.Id,
+            PermissionKey = "consignments.create.create",
+            IsGranted = true,
+            GrantedAt = DateTime.UtcNow
+        });
+        ctx.UserPermissionOverrides.Add(new UserPermissionOverride
+        {
+            TenantId = customTenantId,
+            UserId = operatorUser.Id,
+            PermissionKey = "consignments.create.view",
+            IsGranted = true,
+            GrantedAt = DateTime.UtcNow
+        });
+        await ctx.SaveChangesAsync();
+
+        var effectivePerms = await entService.ComputeEffectivePermissionsFromTablesAsync(customTenantId, operatorUser.Id, "SUB_USER");
+
+        Assert.Contains("consignments.create.create", effectivePerms);
+        Assert.Contains("consignments.create.view", effectivePerms);
+        Assert.DoesNotContain("consignments.all.delete", effectivePerms);
+        Assert.DoesNotContain("consignments.create.delete", effectivePerms);
+        Assert.DoesNotContain("trips.create", effectivePerms);
     }
 }

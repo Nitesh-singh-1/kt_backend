@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -11,6 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.QUOTATION)]
     public class QuotationController : ControllerBase
     {
         private readonly IQuotationService _quotationService;
@@ -21,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("quotations.view")]
         public async Task<ActionResult<List<QuotationDto>>> GetQuotations(
             [FromQuery] string? search = null,
             [FromQuery] QuotationStatus? status = null)
@@ -30,6 +34,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("quotations.view")]
         public async Task<ActionResult<QuotationDto>> GetQuotationById(long id)
         {
             var result = await _quotationService.GetQuotationByIdAsync(id);
@@ -38,6 +43,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("quotations.create")]
         public async Task<ActionResult<QuotationDto>> CreateQuotation([FromBody] CreateQuotationRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -46,6 +52,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("quotations.edit")]
         public async Task<ActionResult<QuotationDto>> UpdateQuotation(long id, [FromBody] UpdateQuotationRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -55,6 +62,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}/status")]
+        [RequirePermission("quotations.edit", "quotations.approve")]
         public async Task<ActionResult<QuotationDto>> UpdateStatus(long id, [FromBody] UpdateQuotationStatusRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -64,6 +72,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("quotations.delete")]
         public async Task<ActionResult> DeleteQuotation(long id)
         {
             var success = await _quotationService.DeleteQuotationAsync(id);

@@ -68,27 +68,92 @@ namespace KTransport.API.Common
         };
 
         /// <summary>
-        /// Expand a feature key (as stored in the legacy JSON) into the catalog
-        /// permission keys ("feature.action") that back it. Returns an empty
-        /// list for keys not in the catalog (orphan feature keys from JSON).
+        /// Maps legacy JSON-era or shorthand feature keys ("gr", "challan", "bilty")
+        /// to canonical catalog feature keys ("consignments", "trips", etc.).
+        /// </summary>
+        public static string NormalizeFeatureKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return string.Empty;
+            var k = key.Trim().ToLowerInvariant();
+            return k switch
+            {
+                "gr" => "consignments",
+                "gr.list" => "consignments.all",
+                "gr.entry" => "consignments.create",
+                "bilty" => "consignments",
+                "challan" => "trips",
+                "challan.list" => "trips",
+                "challan.entry" => "trips",
+                "trip" => "trips",
+                "trip_settlement" => "trip_settlement",
+                "delivery_settlement" => "delivery_settlement",
+                "pod" => "pod",
+                "bill_book" => "billing.bill_book",
+                "billing.invoices" => "billing.invoices",
+                "billing.receipts" => "billing.receipts",
+                "master_data.parties" => "master_data.parties",
+                "master_data.fleet" => "master_data.fleet",
+                "master_data.compliance" => "master_data.compliance",
+                "master_data.tyres" => "master_data.tyres",
+                "master_data.spares" => "master_data.spares",
+                "master_data.loans" => "master_data.loans",
+                "master_data.driver_ledger" => "master_data.driver_ledger",
+                "master_data.vehicle_claims" => "master_data.vehicle_claims",
+                "master_data.rates" => "master_data.rates",
+                "master_data.vendor_rates" => "master_data.vendor_rates",
+                "vendors" => "vendors",
+                "claims" => "claims",
+                "quotations" => "quotations",
+                "reports.booking_register" => "reports.booking_register",
+                "reports.tax_summary" => "reports.tax_summary",
+                "reports.party_outstanding" => "reports.party_outstanding",
+                "reports.trip_profitability" => "reports.trip_profitability",
+                "reports.vendor_payables" => "reports.vendor_payables",
+                "system.settings" => "system.settings",
+                "system.users" => "system.users",
+                "system.onboard" => "system.onboard",
+                _ => k
+            };
+        }
+
+        /// <summary>
+        /// Expand a feature key (as stored in the legacy JSON or passed from UI) into the catalog
+        /// permission keys ("feature.action") that back it. Handles aliases and parent groups.
         /// </summary>
         public static IReadOnlyList<string> ExpandFeatureKey(string featureKey)
         {
             if (string.IsNullOrWhiteSpace(featureKey)) return System.Array.Empty<string>();
-            var normalized = featureKey.Trim().ToLowerInvariant();
+            var normalized = NormalizeFeatureKey(featureKey);
+            var result = new List<string>();
+
             foreach (var spec in Features)
             {
-                if (string.Equals(spec.FeatureKey, normalized, System.StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(spec.FeatureKey, normalized, System.StringComparison.OrdinalIgnoreCase) ||
+                    (!normalized.Contains('.') && spec.FeatureKey.StartsWith(normalized + ".")))
                 {
-                    var keys = new List<string>(spec.Actions.Length);
                     foreach (var action in spec.Actions)
                     {
-                        keys.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
+                        result.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
                     }
-                    return keys;
                 }
             }
-            return System.Array.Empty<string>();
+
+            // Also check for direct match if raw key differed
+            if (result.Count == 0)
+            {
+                foreach (var spec in Features)
+                {
+                    if (string.Equals(spec.FeatureKey, featureKey.Trim(), System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var action in spec.Actions)
+                        {
+                            result.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
+                        }
+                    }
+                }
+            }
+
+            return result;
         }
     }
 }
