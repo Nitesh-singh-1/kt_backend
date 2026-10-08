@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using KTransport.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KTransport.API.Migrations
 {
     [DbContext(typeof(KTransportDbContext))]
-    partial class KTransportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261008045737_ReconcileMenuItemNaming")]
+    partial class ReconcileMenuItemNaming
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3670,6 +3673,11 @@ namespace KTransport.API.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("integrations_json");
+
+                    b.Property<string>("MenuEntitlementsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("menu_entitlements_json");
 
                     b.Property<string>("OperationalWorkflowsJson")
                         .IsRequired()

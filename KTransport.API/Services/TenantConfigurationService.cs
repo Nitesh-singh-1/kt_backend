@@ -201,7 +201,6 @@ namespace KTransport.API.Services
                     OperationalWorkflowsJson = JsonSerializer.Serialize(defaultWorkflows, JsonOptions),
                     FeatureFlagsJson = JsonSerializer.Serialize(defaultFlags, JsonOptions),
                     IntegrationsJson = JsonSerializer.Serialize(defaultIntegrations, JsonOptions),
-                    MenuEntitlementsJson = "{}",
                     CreatedAt = DateTime.UtcNow
                 };
                 _context.TenantSettings.Add(setting);
@@ -262,7 +261,6 @@ namespace KTransport.API.Services
                 OperationalWorkflowsJson = JsonSerializer.Serialize(defaultWorkflows, JsonOptions),
                 FeatureFlagsJson = JsonSerializer.Serialize(defaultFlags, JsonOptions),
                 IntegrationsJson = JsonSerializer.Serialize(defaultIntegrations, JsonOptions),
-                MenuEntitlementsJson = "{}",
                 CreatedAt = DateTime.UtcNow
             };
 

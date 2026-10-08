@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using KTransport.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace KTransport.API.Migrations
 {
     [DbContext(typeof(KTransportDbContext))]
-    partial class KTransportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261007160910_SeedPermissionsCatalog")]
+    partial class SeedPermissionsCatalog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2037,130 +2040,6 @@ namespace KTransport.API.Migrations
                     b.ToTable("manifest_items", (string)null);
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.MenuItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Badge")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("badge");
-
-                    b.Property<int>("DisplayOrder")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("display_order");
-
-                    b.Property<string>("Icon")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("icon");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("key");
-
-                    b.Property<string>("ParentKey")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("parent_key");
-
-                    b.Property<string>("Path")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("path");
-
-                    b.Property<string>("PermissionKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("permission_key");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("title");
-
-                    b.Property<string>("VisibilityRule")
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)")
-                        .HasColumnName("visibility_rule");
-
-                    b.HasKey("Id")
-                        .HasName("menu_items_pkey");
-
-                    b.HasIndex(new[] { "IsActive" }, "menu_items_active_idx");
-
-                    b.HasIndex(new[] { "Key" }, "menu_items_key_key")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "ParentKey", "DisplayOrder" }, "menu_items_parent_key_idx");
-
-                    b.ToTable("menu_items", (string)null);
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.MenuParityLog", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<List<string>>("CodeOnlyKeys")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("code_only_keys");
-
-                    b.Property<DateTime>("LoggedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("logged_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<List<string>>("TablesOnlyKeys")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("tables_only_keys");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("UserRole")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("user_role");
-
-                    b.HasKey("Id")
-                        .HasName("menu_parity_log_pkey");
-
-                    b.HasIndex(new[] { "LoggedAt" }, "menu_parity_log_logged_at_idx");
-
-                    b.HasIndex(new[] { "TenantId", "LoggedAt" }, "menu_parity_log_tenant_idx");
-
-                    b.ToTable("menu_parity_log", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.NumberingSequence", b =>
                 {
                     b.Property<int>("Id")
@@ -3670,6 +3549,11 @@ namespace KTransport.API.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("integrations_json");
+
+                    b.Property<string>("MenuEntitlementsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("menu_entitlements_json");
 
                     b.Property<string>("OperationalWorkflowsJson")
                         .IsRequired()
@@ -5785,16 +5669,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Tenant");
 
                     b.Navigation("UnloadedAtHub");
-                });
-
-            modelBuilder.Entity("KTransport.API.Models.MenuItem", b =>
-                {
-                    b.HasOne("KTransport.API.Models.MenuItem", null)
-                        .WithMany()
-                        .HasForeignKey("ParentKey")
-                        .HasPrincipalKey("Key")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_menu_items_parent");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.NumberingSequence", b =>

@@ -30,7 +30,23 @@ namespace KTransport.API.DTOs
         public string? PlanTier { get; set; } = "Enterprise"; // Starter, Professional, Enterprise, Custom
         public List<string> EnabledMenuKeys { get; set; } = new();
         public List<ReportEntitlementItemDto> Reports { get; set; } = new();
+
+        /// <summary>
+        /// TASK-044 Phase 3: structured role overrides. Dictionary of role → list of feature keys.
+        /// Replaces the legacy RoleOverridesJson string field for write path.
+        /// </summary>
+        public Dictionary<string, List<string>>? RoleOverrides { get; set; }
+
+        /// <summary>
+        /// TASK-044 Phase 3: structured user overrides. Dictionary of user id/username → list of feature keys.
+        /// Replaces the legacy UserOverridesJson string field for write path.
+        /// </summary>
+        public Dictionary<string, List<string>>? UserOverrides { get; set; }
+
+        [Obsolete("Removed in Phase 3 of entitlements normalization. Use RoleOverrides / UserOverrides structured properties instead. Will be removed in next release.")]
         public string? RoleOverridesJson { get; set; }
+
+        [Obsolete("Removed in Phase 3 of entitlements normalization. Use RoleOverrides / UserOverrides structured properties instead. Will be removed in next release.")]
         public string? UserOverridesJson { get; set; }
     }
 }

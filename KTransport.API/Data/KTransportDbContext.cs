@@ -1768,7 +1768,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.OperationalWorkflowsJson).HasColumnType("text").HasColumnName("operational_workflows_json");
             entity.Property(e => e.FeatureFlagsJson).HasColumnType("text").HasColumnName("feature_flags_json");
             entity.Property(e => e.IntegrationsJson).HasColumnType("text").HasColumnName("integrations_json");
-            entity.Property(e => e.MenuEntitlementsJson).HasColumnType("text").HasColumnName("menu_entitlements_json");
+            // TASK-044 Phase 3: menu_entitlements_json column was dropped; mapping removed.
             entity.Property(e => e.CustomSettingsJson).HasColumnType("text").HasColumnName("custom_settings_json");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
@@ -2081,6 +2081,7 @@ public partial class KTransportDbContext : DbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+        ConfigureMenuModel(modelBuilder);
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

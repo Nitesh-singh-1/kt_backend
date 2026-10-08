@@ -132,6 +132,10 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
 builder.Services.AddScoped<ITenantConfigurationService, TenantConfigurationService>();
 builder.Services.AddScoped<INavigationService, NavigationService>();
+// TASK-044 Phase 3: entitlements normalized tables are sole source of truth.
+builder.Services.AddScoped<IEntitlementsService, EntitlementsService>();
+// TASK-045 Phase 3: menu_items table is sole authoritative source for the navigation menu.
+builder.Services.AddScoped<IMenuCatalogService, MenuCatalogService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
@@ -229,6 +233,12 @@ builder.Services
     .AddDbContextCheck<KTransportDbContext>(name: "database", tags: new[] { "ready" });
 
 var app = builder.Build();
+
+// TASK-044 Phase 3 removed the `--backfill-entitlements` CLI. The JSON
+// source column (`tenant_settings.menu_entitlements_json`) was dropped and
+// `EntitlementsService.BackfillFromJsonAsync` is now an [Obsolete] no-op.
+// Grants are created via `PUT /api/configuration/menu-entitlements` or the
+// upcoming SaaS admin UI; nothing to invoke from the command line.
 
 // TASK-010: correlation-id middleware must run BEFORE ExceptionHandlingMiddleware and
 // before request logging so the same X-Request-Id appears in the response header, in
