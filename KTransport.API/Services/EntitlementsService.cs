@@ -74,13 +74,16 @@ namespace KTransport.API.Services
             var moduleCodeSet = new HashSet<string>(tenantModuleCodes, StringComparer.OrdinalIgnoreCase);
 
             List<string> userGrantedPermKeys = new();
+            List<string> userRevokedPermKeys = new();
             if (userId.HasValue)
             {
-                userGrantedPermKeys = await _db.UserPermissionOverrides
+                var overrides = await _db.UserPermissionOverrides
                     .IgnoreQueryFilters()
-                    .Where(o => o.TenantId == tenantId && o.UserId == userId.Value && o.IsGranted && o.SupersededBy == null)
-                    .Select(o => o.PermissionKey)
+                    .Where(o => o.TenantId == tenantId && o.UserId == userId.Value && o.SupersededBy == null)
+                    .Select(o => new { o.PermissionKey, o.IsGranted })
                     .ToListAsync();
+                userGrantedPermKeys = overrides.Where(o => o.IsGranted).Select(o => o.PermissionKey).ToList();
+                userRevokedPermKeys = overrides.Where(o => !o.IsGranted).Select(o => o.PermissionKey).ToList();
             }
 
             // TASK-046 Phase 1: resolve role grants via user_roles M2M when a
@@ -115,7 +118,13 @@ namespace KTransport.API.Services
                     .ToListAsync();
             }
 
-            var sourceKeys = userGrantedPermKeys.Count > 0 ? userGrantedPermKeys : rolePermKeys;
+            // ADR authorization-rbac-architecture.md §F:
+            //   effective = (role grants ∪ user grants ∖ user revokes) ∩ tenant_modules
+            // Pre-fix bug (TASK-046 Phase 1): a single user override masked ALL
+            // role grants because the computation was either-or, not union.
+            var sourceKeys = new HashSet<string>(rolePermKeys, StringComparer.OrdinalIgnoreCase);
+            foreach (var k in userGrantedPermKeys) sourceKeys.Add(k);
+            foreach (var r in userRevokedPermKeys) sourceKeys.Remove(r);
 
             foreach (var permKey in sourceKeys)
             {

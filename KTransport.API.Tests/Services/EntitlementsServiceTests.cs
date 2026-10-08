@@ -195,8 +195,13 @@ public class EntitlementsServiceTests
 
     // ---- Phase 3 contract test 6: user override wins over role ----
     [Fact]
-    public async Task Phase3_UserOverride_OverridesRole()
+    public async Task Phase3_UserOverride_UnionsWithRole()
     {
+        // ADR authorization-rbac-architecture.md §F + .agent/RULES/AUTHORIZATION.md:
+        //   effective = (role grants ∪ user grants ∖ user revokes) ∩ tenant_modules
+        // Pre-TASK-046 bug (reproduced by the Nitesh menu-missing report 2026-10-08):
+        // the resolver treated user overrides as a REPLACEMENT for role grants, so a
+        // single user_permission_overrides row masked every role_permissions entry.
         await using var ctx = NewContext();
         SeedUser(ctx, 9, "nitesh");
         SeedSubscription(ctx, "billing", "billing.bill_book", "billing.invoices");
@@ -221,7 +226,45 @@ public class EntitlementsServiceTests
         var effective = await svc.ComputeEffectivePermissionsFromTablesAsync(TestTenantId, 9, "sub_user");
 
         Assert.Contains("billing.invoices.view", effective, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("billing.bill_book.create", effective, StringComparer.OrdinalIgnoreCase);
+    }
+
+    // ---- ADR §F revoke semantics: is_granted=false subtracts from the union ----
+    [Fact]
+    public async Task Phase3_UserRevoke_SubtractsFromRoleGrants()
+    {
+        await using var ctx = NewContext();
+        SeedUser(ctx, 10, "nitesh2");
+        SeedSubscription(ctx, "billing", "billing.bill_book", "billing.invoices");
+        ctx.RolePermissions.Add(new RolePermission
+        {
+            TenantId = TestTenantId,
+            RoleName = "sub_user",
+            PermissionKey = "billing.bill_book.create",
+            GrantedAt = DateTime.UtcNow
+        });
+        ctx.RolePermissions.Add(new RolePermission
+        {
+            TenantId = TestTenantId,
+            RoleName = "sub_user",
+            PermissionKey = "billing.invoices.view",
+            GrantedAt = DateTime.UtcNow
+        });
+        ctx.UserPermissionOverrides.Add(new UserPermissionOverride
+        {
+            TenantId = TestTenantId,
+            UserId = 10,
+            PermissionKey = "billing.bill_book.create",
+            IsGranted = false,
+            GrantedAt = DateTime.UtcNow
+        });
+        await ctx.SaveChangesAsync();
+
+        var svc = NewService(ctx);
+        var effective = await svc.ComputeEffectivePermissionsFromTablesAsync(TestTenantId, 10, "sub_user");
+
         Assert.DoesNotContain("billing.bill_book.create", effective, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("billing.invoices.view", effective, StringComparer.OrdinalIgnoreCase);
     }
 
     // ---- Phase 3 contract test 7: WriteTenantEntitlements records GrantedBy ----
