@@ -142,12 +142,19 @@ namespace KTransport.API.Services
                 var rootFeature = baseFeature.Contains('.') ? baseFeature.Substring(0, baseFeature.IndexOf('.')) : baseFeature;
                 var normalizedRoot = EntitlementsCatalog.NormalizeFeatureKey(rootFeature);
 
+                bool isParentFeatureSubscribed =
+                    (baseFeature.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) &&
+                     (tenantFeatureKeys.Contains("consignments") || tenantFeatureKeys.Contains("bilty") || tenantFeatureKeys.Contains("gr"))) ||
+                    ((baseFeature.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) || baseFeature.Equals("empty_trips", StringComparison.OrdinalIgnoreCase)) &&
+                     (tenantFeatureKeys.Contains("trips") || tenantFeatureKeys.Contains("challan") || tenantFeatureKeys.Contains("trip")));
+
                 // Legacy intersection — stays as rollback safety.
                 if (tenantFeatureKeys.Count > 0 &&
                     !tenantFeatureKeys.Contains(baseFeature) &&
                     !tenantFeatureKeys.Contains(normalizedBase) &&
                     !tenantFeatureKeys.Contains(rootFeature) &&
-                    !tenantFeatureKeys.Contains(normalizedRoot))
+                    !tenantFeatureKeys.Contains(normalizedRoot) &&
+                    !isParentFeatureSubscribed)
                 {
                     continue;
                 }
@@ -157,7 +164,13 @@ namespace KTransport.API.Services
                     var moduleCode = ResolveModuleCode(baseFeature);
                     if (moduleCode != null && !moduleCodeSet.Contains(moduleCode))
                     {
-                        continue;
+                        bool isParentModuleEnabled =
+                            (moduleCode.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) && moduleCodeSet.Contains("bilty")) ||
+                            (moduleCode.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) && moduleCodeSet.Contains("trips"));
+                        if (!isParentModuleEnabled)
+                        {
+                            continue;
+                        }
                     }
                 }
 
@@ -278,6 +291,15 @@ namespace KTransport.API.Services
                 .Select(c => c!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            if (moduleCodes.Contains("bilty") && !moduleCodes.Contains("delivery_settlement"))
+            {
+                moduleCodes.Add("delivery_settlement");
+            }
+            if (moduleCodes.Contains("trips") && !moduleCodes.Contains("trip_settlement"))
+            {
+                moduleCodes.Add("trip_settlement");
+            }
 
             var allModules = await _db.Modules.IgnoreQueryFilters().ToListAsync();
             var moduleByCode = allModules.ToDictionary(m => m.Code.ToLowerInvariant(), m => m.Id);
@@ -414,6 +436,11 @@ namespace KTransport.API.Services
             var existingAdminPermSet = new HashSet<string>(existingAdminPerms, StringComparer.OrdinalIgnoreCase);
 
             var enabledModCodeSet = new HashSet<string>(moduleCodes, StringComparer.OrdinalIgnoreCase);
+            if (enabledModCodeSet.Contains("bilty")) enabledModCodeSet.Add("delivery_settlement");
+            if (enabledModCodeSet.Contains("trips")) enabledModCodeSet.Add("trip_settlement");
+            if (enabledModCodeSet.Contains("delivery_settlement")) enabledModCodeSet.Add("bilty");
+            if (enabledModCodeSet.Contains("trip_settlement")) enabledModCodeSet.Add("trips");
+
             foreach (var perm in catalogPerms)
             {
                 var mCode = ResolveModuleCode(perm.FeatureKey);

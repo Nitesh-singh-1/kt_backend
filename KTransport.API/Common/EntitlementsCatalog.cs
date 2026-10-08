@@ -129,7 +129,9 @@ namespace KTransport.API.Common
             foreach (var spec in Features)
             {
                 if (string.Equals(spec.FeatureKey, normalized, System.StringComparison.OrdinalIgnoreCase) ||
-                    (!normalized.Contains('.') && spec.FeatureKey.StartsWith(normalized + ".")))
+                    (!normalized.Contains('.') && spec.FeatureKey.StartsWith(normalized + ".")) ||
+                    (normalized.Equals("consignments", System.StringComparison.OrdinalIgnoreCase) && spec.FeatureKey.Equals("delivery_settlement", System.StringComparison.OrdinalIgnoreCase)) ||
+                    (normalized.Equals("trips", System.StringComparison.OrdinalIgnoreCase) && (spec.FeatureKey.Equals("trip_settlement", System.StringComparison.OrdinalIgnoreCase) || spec.FeatureKey.Equals("empty_trips", System.StringComparison.OrdinalIgnoreCase))))
                 {
                     foreach (var action in spec.Actions)
                     {

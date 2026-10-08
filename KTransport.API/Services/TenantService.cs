@@ -825,6 +825,10 @@ namespace KTransport.API.Services
                     .ToList();
             }
             var enabledModules = new HashSet<string>(enabledModuleCodes, StringComparer.OrdinalIgnoreCase);
+            if (enabledModules.Contains("bilty")) enabledModules.Add("delivery_settlement");
+            if (enabledModules.Contains("trips")) enabledModules.Add("trip_settlement");
+            if (enabledModules.Contains("delivery_settlement")) enabledModules.Add("bilty");
+            if (enabledModules.Contains("trip_settlement")) enabledModules.Add("trips");
 
             foreach (var perm in catalog)
             {

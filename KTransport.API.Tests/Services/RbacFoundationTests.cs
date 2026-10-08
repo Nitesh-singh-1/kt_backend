@@ -746,4 +746,89 @@ public class RbacFoundationTests
         Assert.DoesNotContain("consignments.create.delete", effectivePerms);
         Assert.DoesNotContain("trips.create", effectivePerms);
     }
+
+    [Fact]
+    public async Task DeliverySettlementAndTripSettlement_AreIncludedInMenu_WhenParentOrModuleGranted()
+    {
+        await using var ctx = NewContext();
+        await SeedCatalogsAsync(ctx);
+
+        // Seed full menu rows
+        foreach (var r in MenuCatalogSeedData.Rows)
+        {
+            if (!ctx.MenuItems.Any(m => m.Key == r.Key))
+            {
+                ctx.MenuItems.Add(new MenuItem
+                {
+                    Key = r.Key,
+                    ParentKey = r.ParentKey,
+                    Title = r.Title,
+                    Path = r.Path,
+                    Icon = r.Icon,
+                    PermissionKey = r.PermissionKey,
+                    Badge = r.Badge,
+                    DisplayOrder = r.DisplayOrder,
+                    VisibilityRule = r.VisibilityRule,
+                    IsActive = true
+                });
+            }
+        }
+
+        // Seed full permissions
+        foreach (var f in EntitlementsCatalog.Features)
+        {
+            foreach (var a in f.Actions)
+            {
+                var key = $"{f.FeatureKey}.{a.ToLowerInvariant()}";
+                if (!ctx.Permissions.Any(p => p.Key == key))
+                {
+                    ctx.Permissions.Add(new Permission { Key = key, FeatureKey = f.FeatureKey, Action = a });
+                }
+            }
+        }
+
+        var customTenantId = Guid.NewGuid();
+        ctx.Tenants.Add(new Tenant
+        {
+            Id = customTenantId,
+            Name = "Settlement Test Tenant",
+            Code = "SETTLE-TEST",
+            IsActive = true
+        });
+
+        var adminUser = new User
+        {
+            TenantId = customTenantId,
+            Username = "settle_admin",
+            FullName = "Settlement Admin",
+            Email = "settle@kt.local",
+            Password = "hash",
+            Role = "admin",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.Users.Add(adminUser);
+        await ctx.SaveChangesAsync();
+
+        var entService = NewEntitlements(ctx);
+        var navService = NewNav(ctx, entService);
+
+        // Provision tenant with consignments (bilty) and trips
+        await entService.WriteTenantEntitlementsAsync(customTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = customTenantId,
+            PlanTier = "Enterprise",
+            EnabledMenuKeys = new List<string> { "consignments", "trips" }
+        }, 1);
+
+        var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", adminUser.Username);
+
+        var consignmentsMenu = menu.FirstOrDefault(m => m.Id == "consignments");
+        Assert.NotNull(consignmentsMenu);
+        Assert.Contains(consignmentsMenu.Children, c => c.Id == "delivery_settlement");
+
+        var tripsMenu = menu.FirstOrDefault(m => m.Id == "trips");
+        Assert.NotNull(tripsMenu);
+        Assert.Contains(tripsMenu.Children, c => c.Id == "trip_settlement");
+    }
 }
