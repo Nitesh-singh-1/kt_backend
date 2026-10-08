@@ -198,7 +198,8 @@ namespace KTransport.API.Services
 
             foreach (var top in rows.Where(r => r.ParentKey == null).OrderBy(r => r.DisplayOrder))
             {
-                if (!IsVisible(top)) continue;
+                bool isParentGroup = string.IsNullOrWhiteSpace(top.Path);
+                if (!isParentGroup && !IsVisible(top)) continue;
 
                 var dto = new DynamicMenuItemDto
                 {
@@ -237,8 +238,10 @@ namespace KTransport.API.Services
                     foreach (var rep in reportsByKey)
                     {
                         var reportKey = "reports." + rep.ReportKey;
-                        bool allowed = effective.Contains(reportKey)
-                                       || effective.Contains(reportKey + ".view");
+                        bool allowed = wildcard
+                                       || effective.Contains(reportKey)
+                                       || effective.Contains(reportKey + ".view")
+                                       || effective.Contains("reports.view");
                         if (!allowed) continue;
                         dto.Children.Add(new DynamicMenuItemDto
                         {
@@ -257,9 +260,8 @@ namespace KTransport.API.Services
                 }
 
                 // Parent groups (no path) are only emitted when they have at
-                // least one visible child.
-                bool isParentGroup = string.IsNullOrWhiteSpace(top.Path);
-                if (isParentGroup && dto.Children.Count == 0) continue;
+                // least one visible child or top is explicitly visible.
+                if (isParentGroup && dto.Children.Count == 0 && !IsVisible(top)) continue;
 
                 result.Add(dto);
             }

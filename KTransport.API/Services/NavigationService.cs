@@ -109,19 +109,36 @@ namespace KTransport.API.Services
                 {
                     if (string.IsNullOrWhiteSpace(k)) continue;
                     effectiveKeys.Add(k);
-                    var dot = k.LastIndexOf('.');
-                    if (dot > 0)
+
+                    var parts = k.Split('.');
+                    var prefix = "";
+                    for (int i = 0; i < parts.Length; i++)
                     {
-                        var tail = k.Substring(dot + 1).ToLowerInvariant();
-                        if (tail is "view" or "create" or "edit" or "delete" or "print" or "approve" or "export")
+                        prefix = i == 0 ? parts[0] : prefix + "." + parts[i];
+                        effectiveKeys.Add(prefix);
+                        effectiveKeys.Add(prefix + ".module");
+                        effectiveKeys.Add(prefix + ".view");
+                    }
+
+                    var norm = EntitlementsCatalog.NormalizeFeatureKey(k);
+                    if (!string.IsNullOrWhiteSpace(norm))
+                    {
+                        effectiveKeys.Add(norm);
+                        var normParts = norm.Split('.');
+                        var normPrefix = "";
+                        for (int i = 0; i < normParts.Length; i++)
                         {
-                            effectiveKeys.Add(k.Substring(0, dot));
+                            normPrefix = i == 0 ? normParts[0] : normPrefix + "." + normParts[i];
+                            effectiveKeys.Add(normPrefix);
+                            effectiveKeys.Add(normPrefix + ".module");
+                            effectiveKeys.Add(normPrefix + ".view");
                         }
                     }
                 }
 
                 // Active sub-users always get Dashboard
                 effectiveKeys.Add("dashboard");
+                effectiveKeys.Add("dashboard.view");
 
                 // Sub-users NEVER receive SaaS configuration or superadmin screens
                 effectiveKeys.Remove("system.settings");
@@ -136,6 +153,7 @@ namespace KTransport.API.Services
                 // fall back to the organization-subscribed set as the effective view.
                 effectiveKeys = new HashSet<string>(subscribedKeys, StringComparer.OrdinalIgnoreCase);
                 effectiveKeys.Add("dashboard");
+                effectiveKeys.Add("dashboard.view");
             }
 
             // TASK-045 Phase 3: menu_items table is the sole authoritative source.
@@ -169,7 +187,20 @@ namespace KTransport.API.Services
                 var resolvedUserId = await ResolveUserIdAsync(tenantId, userIdOrName);
                 var tablesActionKeys = await _entitlements.ComputeEffectivePermissionsFromTablesAsync(tenantId, resolvedUserId, userRole);
                 var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var k in tablesActionKeys) result.Add(k);
+                foreach (var k in tablesActionKeys)
+                {
+                    if (string.IsNullOrWhiteSpace(k)) continue;
+                    result.Add(k);
+
+                    var parts = k.Split('.');
+                    var prefix = "";
+                    for (int i = 0; i < parts.Length; i++)
+                    {
+                        prefix = i == 0 ? parts[0] : prefix + "." + parts[i];
+                        result.Add(prefix);
+                        result.Add(prefix + ".view");
+                    }
+                }
                 result.Add("dashboard");
                 result.Add("dashboard.view");
                 return result.ToList();
