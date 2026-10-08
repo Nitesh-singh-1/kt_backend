@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("master_data.parties.view")]
         public async Task<ActionResult<List<PartyDto>>> GetParties(
             [FromQuery] string? search = null,
             [FromQuery] PartyType? partyType = null,
@@ -37,6 +38,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("lookup")]
+        [RequirePermission("master_data.parties.view")]
         public async Task<ActionResult<List<PartyLookupDto>>> GetPartyLookup(
             [FromQuery] string? q = null,
             [FromQuery] PartyType? partyType = null)
@@ -46,6 +48,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("master_data.parties.view")]
         public async Task<ActionResult<PartyDto>> GetPartyById(long id)
         {
             var party = await _partyService.GetPartyByIdAsync(id);
@@ -54,6 +57,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("master_data.parties.create")]
         public async Task<ActionResult<PartyDto>> CreateParty([FromBody] CreatePartyRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -63,6 +67,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("master_data.parties.edit")]
         public async Task<ActionResult<PartyDto>> UpdateParty(long id, [FromBody] UpdatePartyRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -73,6 +78,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("master_data.parties.delete")]
         public async Task<ActionResult> DeleteParty(long id)
         {
             var success = await _partyService.DeletePartyAsync(id);

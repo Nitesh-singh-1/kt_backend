@@ -25,6 +25,7 @@ namespace KTransport.API.Controllers
 
         // Vendor Master
         [HttpGet]
+        [RequirePermission("vendors.view")]
         public async Task<ActionResult<List<VendorDto>>> GetVendors(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -36,6 +37,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("lookup")]
+        [RequirePermission("vendors.view")]
         public async Task<ActionResult<List<VendorLookupDto>>> GetVendorLookup([FromQuery] string? q = null)
         {
             var results = await _vendorService.GetVendorLookupAsync(q);
@@ -43,6 +45,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("vendors.view")]
         public async Task<ActionResult<VendorDto>> GetVendorById(long id)
         {
             var vendor = await _vendorService.GetVendorByIdAsync(id);
@@ -51,6 +54,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("vendors.create")]
         public async Task<ActionResult<VendorDto>> CreateVendor([FromBody] CreateVendorRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -60,6 +64,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("vendors.edit")]
         public async Task<ActionResult<VendorDto>> UpdateVendor(long id, [FromBody] CreateVendorRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -70,6 +75,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("vendors.delete")]
         public async Task<ActionResult> DeleteVendor(long id)
         {
             var success = await _vendorService.DeleteVendorAsync(id);
@@ -79,6 +85,7 @@ namespace KTransport.API.Controllers
 
         // Lorry Hire Contracts
         [HttpGet("lorry-hire")]
+        [RequirePermission("vendors.view")]
         public async Task<ActionResult<List<LorryHireContractDto>>> GetLorryHireContracts(
             [FromQuery] string? search = null,
             [FromQuery] long? vendorId = null)
@@ -88,6 +95,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("lorry-hire/{id:long}")]
+        [RequirePermission("vendors.view")]
         public async Task<ActionResult<LorryHireContractDto>> GetLorryHireById(long id)
         {
             var contract = await _vendorService.GetLorryHireContractByIdAsync(id);
@@ -96,6 +104,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("lorry-hire")]
+        [RequirePermission("vendors.create")]
         public async Task<ActionResult<LorryHireContractDto>> CreateLorryHire([FromBody] CreateLorryHireRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -106,6 +115,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("lorry-hire/{id:long}/payments")]
+        [RequirePermission("vendors.edit")]
         public async Task<ActionResult<LorryHireContractDto>> RecordLorryHirePayment(
             long id,
             [FromBody] RecordLorryHirePaymentRequest request)
@@ -119,6 +129,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("lorry-hire/{id:long}")]
+        [RequirePermission("vendors.delete")]
         public async Task<ActionResult> DeleteLorryHire(long id)
         {
             var success = await _vendorService.DeleteLorryHireContractAsync(id);

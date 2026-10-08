@@ -116,7 +116,10 @@ namespace KTransport.API.Services
                 foreach (var feat in request.AssignedFeatures)
                 {
                     var canon = FeatureConstants.Normalize(feat);
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon))
+                    var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
+                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
+                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
                     {
                         validAssigned.Add(feat);
                     }
@@ -206,7 +209,10 @@ namespace KTransport.API.Services
                 foreach (var feat in request.AssignedFeatures)
                 {
                     var canon = FeatureConstants.Normalize(feat);
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon))
+                    var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
+                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
+                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
                     {
                         validAssigned.Add(feat);
                     }
@@ -267,33 +273,60 @@ namespace KTransport.API.Services
 
         /// <summary>
         /// TASK-044 Phase 3: writes directly into user_permission_overrides. The
-        /// legacy menu_entitlements_json column was dropped. Grants are additive —
-        /// each catalog feature key expands to its action-split permission keys.
+        /// legacy menu_entitlements_json column was dropped.
+        /// Handles expansion of feature keys and direct action keys, and supersedes
+        /// any previously active overrides that are no longer assigned.
         /// </summary>
         private async Task SaveUserFeatureAssignmentsAsync(Guid tenantId, int userId, List<string> features, int? actingUserId)
         {
+            var desiredPerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var featureKey in features)
+            {
+                if (string.IsNullOrWhiteSpace(featureKey)) continue;
+
+                var expanded = EntitlementsCatalog.ExpandFeatureKey(featureKey);
+                if (expanded.Count > 0)
+                {
+                    foreach (var k in expanded) desiredPerms.Add(k);
+                }
+                else
+                {
+                    desiredPerms.Add(featureKey.Trim());
+                }
+            }
+
             var existingActive = await _context.UserPermissionOverrides
                 .IgnoreQueryFilters()
                 .Where(o => o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null)
                 .ToListAsync();
-            var existingSet = existingActive.Select(o => o.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var featureKey in features)
+            var existingMap = existingActive.ToDictionary(o => o.PermissionKey, o => o, StringComparer.OrdinalIgnoreCase);
+
+            // Mark removed overrides as superseded
+            foreach (var kvp in existingMap)
             {
-                foreach (var permKey in EntitlementsCatalog.ExpandFeatureKey(featureKey))
+                if (!desiredPerms.Contains(kvp.Key))
                 {
-                    if (existingSet.Contains(permKey)) continue;
-                    _context.UserPermissionOverrides.Add(new UserPermissionOverride
-                    {
-                        TenantId = tenantId,
-                        UserId = userId,
-                        PermissionKey = permKey,
-                        IsGranted = true,
-                        GrantedAt = DateTime.UtcNow,
-                        GrantedBy = actingUserId
-                    });
-                    existingSet.Add(permKey);
+                    kvp.Value.SupersededBy = 0; // mark superseded
+                    kvp.Value.RevokeReason = "Permission removed during user configuration update.";
                 }
+            }
+
+            // Add newly granted overrides
+            foreach (var permKey in desiredPerms)
+            {
+                if (existingMap.ContainsKey(permKey)) continue;
+
+                _context.UserPermissionOverrides.Add(new UserPermissionOverride
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    PermissionKey = permKey,
+                    IsGranted = true,
+                    GrantedAt = DateTime.UtcNow,
+                    GrantedBy = actingUserId,
+                    SupersededBy = null
+                });
             }
 
             try

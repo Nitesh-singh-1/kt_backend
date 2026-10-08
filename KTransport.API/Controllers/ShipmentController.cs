@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> CreateShipment([FromBody] CreateShipmentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -37,6 +38,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("consignments.all.view", "consignments.create.view")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentById(long id)
         {
             var response = await _shipmentService.GetShipmentByIdAsync(id);
@@ -45,6 +47,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("by-no/{shipmentNo}")]
+        [RequirePermission("consignments.all.view", "consignments.create.view")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentByNo(string shipmentNo)
         {
             var response = await _shipmentService.GetShipmentByNoAsync(shipmentNo);
@@ -53,6 +56,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("consignments.all.view", "consignments.create.view")]
         public async Task<ActionResult<ShipmentListResponse>> GetAllShipments(
             [FromQuery] ShipmentStatus? status,
             [FromQuery] TaxTreatment? taxTreatment,
@@ -66,6 +70,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("consignments.create.edit", "consignments.all.edit")]
         public async Task<ActionResult<ShipmentResponse>> UpdateShipment(long id, [FromBody] UpdateShipmentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -78,6 +83,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPatch("{id:long}/status")]
+        [RequirePermission("consignments.create.edit", "consignments.all.edit")]
         public async Task<ActionResult<ShipmentResponse>> UpdateShipmentStatus(long id, [FromBody] UpdateShipmentStatusRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -90,6 +96,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("consignments.all.delete", "consignments.create.delete")]
         public async Task<IActionResult> DeleteShipment(long id)
         {
             var userId = GetCurrentUserId();
@@ -100,6 +107,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("settle-delivery")]
+        [RequirePermission("delivery_settlement.create", "delivery_settlement.edit")]
         public async Task<ActionResult<SettleDeliveryResponseDto>> SettleDelivery([FromBody] SettleDeliveryRequestDto request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -112,6 +120,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("delivery-settlement-summary")]
+        [RequirePermission("delivery_settlement.view")]
         public async Task<ActionResult<DeliverySettlementSummaryResponse>> GetDeliverySettlementSummary()
         {
             var response = await _shipmentService.GetDeliverySettlementSummaryAsync();

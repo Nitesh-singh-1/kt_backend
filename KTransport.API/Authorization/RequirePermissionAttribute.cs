@@ -30,10 +30,20 @@ namespace KTransport.API.Authorization
     public class RequirePermissionAttribute : Attribute, IAsyncAuthorizationFilter
     {
         private readonly string _permissionKey;
+        private readonly string[] _permissionKeys;
 
         public RequirePermissionAttribute(string permissionKey)
         {
             _permissionKey = permissionKey ?? string.Empty;
+            _permissionKeys = string.IsNullOrWhiteSpace(permissionKey)
+                ? Array.Empty<string>()
+                : new[] { permissionKey };
+        }
+
+        public RequirePermissionAttribute(params string[] permissionKeys)
+        {
+            _permissionKeys = permissionKeys ?? Array.Empty<string>();
+            _permissionKey = _permissionKeys.FirstOrDefault() ?? string.Empty;
         }
 
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -49,7 +59,7 @@ namespace KTransport.API.Authorization
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_permissionKey))
+            if (_permissionKeys.Length == 0 || _permissionKeys.All(string.IsNullOrWhiteSpace))
             {
                 // A misconfigured attribute must not silently allow access.
                 context.Result = new ObjectResult(new
@@ -86,23 +96,30 @@ namespace KTransport.API.Authorization
                 return;
             }
 
-            // Match on the raw key or its normalized form so an entitlement list that
-            // uses the canonical FeatureConstant (e.g. "BILL_BOOK") still satisfies a
-            // dotted page key (e.g. "billing.bill_book"). Normalize is defensive — if
-            // the key doesn't map to a canonical, Normalize returns the uppercase form.
-            var canonical = FeatureConstants.Normalize(_permissionKey);
-            bool hasKey = permissions.Any(p =>
-                string.Equals(p, _permissionKey, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrWhiteSpace(canonical) &&
-                 string.Equals(FeatureConstants.Normalize(p), canonical, StringComparison.OrdinalIgnoreCase)));
+            bool hasKey = false;
+            foreach (var reqKey in _permissionKeys)
+            {
+                if (string.IsNullOrWhiteSpace(reqKey)) continue;
+
+                var canonical = FeatureConstants.Normalize(reqKey);
+                if (permissions.Any(p =>
+                    string.Equals(p, reqKey, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(canonical) &&
+                     string.Equals(FeatureConstants.Normalize(p), canonical, StringComparison.OrdinalIgnoreCase))))
+                {
+                    hasKey = true;
+                    break;
+                }
+            }
 
             if (!hasKey)
             {
+                var keysJoined = string.Join(" or ", _permissionKeys);
                 context.Result = new ObjectResult(new
                 {
                     success = false,
-                    message = $"Access denied: this action requires the '{_permissionKey}' permission.",
-                    requiredPermission = _permissionKey
+                    message = $"Access denied: this action requires '{keysJoined}' permission.",
+                    requiredPermissions = _permissionKeys
                 })
                 {
                     StatusCode = 403

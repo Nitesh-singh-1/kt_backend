@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
 
         // Vehicles
         [HttpGet("vehicles")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<List<VehicleDto>>> GetVehicles(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -35,6 +36,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("vehicles/lookup")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<List<VehicleLookupDto>>> GetVehicleLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetVehicleLookupAsync(q);
@@ -42,6 +44,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("vehicles/{id:long}")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<VehicleDto>> GetVehicleById(long id)
         {
             var result = await _fleetService.GetVehicleByIdAsync(id);
@@ -50,6 +53,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("vehicles")]
+        [RequirePermission("master_data.fleet.create")]
         public async Task<ActionResult<VehicleDto>> CreateVehicle([FromBody] CreateVehicleRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -58,6 +62,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("vehicles/{id:long}")]
+        [RequirePermission("master_data.fleet.edit")]
         public async Task<ActionResult<VehicleDto>> UpdateVehicle(long id, [FromBody] UpdateVehicleRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -67,6 +72,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("vehicles/{id:long}")]
+        [RequirePermission("master_data.fleet.delete")]
         public async Task<ActionResult> DeleteVehicle(long id)
         {
             var success = await _fleetService.DeleteVehicleAsync(id);
@@ -76,6 +82,7 @@ namespace KTransport.API.Controllers
 
         // Drivers
         [HttpGet("drivers")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<List<DriverDto>>> GetDrivers(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -87,6 +94,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("drivers/lookup")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<List<DriverLookupDto>>> GetDriverLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetDriverLookupAsync(q);
@@ -94,6 +102,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("drivers/{id:long}")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<DriverDto>> GetDriverById(long id)
         {
             var result = await _fleetService.GetDriverByIdAsync(id);
@@ -102,6 +111,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("drivers")]
+        [RequirePermission("master_data.fleet.create")]
         public async Task<ActionResult<DriverDto>> CreateDriver([FromBody] CreateDriverRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -110,6 +120,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("drivers/{id:long}")]
+        [RequirePermission("master_data.fleet.edit")]
         public async Task<ActionResult<DriverDto>> UpdateDriver(long id, [FromBody] UpdateDriverRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -119,6 +130,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("drivers/{id:long}")]
+        [RequirePermission("master_data.fleet.delete")]
         public async Task<ActionResult> DeleteDriver(long id)
         {
             var success = await _fleetService.DeleteDriverAsync(id);
@@ -128,6 +140,7 @@ namespace KTransport.API.Controllers
 
         // Compliance — expiring / expired statutory documents across the fleet
         [HttpGet("compliance")]
+        [RequirePermission("master_data.compliance.view", "master_data.fleet.view")]
         public async Task<ActionResult<ComplianceOverviewDto>> GetComplianceAlerts([FromQuery] int withinDays = 30)
         {
             var result = await _fleetService.GetComplianceAlertsAsync(withinDays);
@@ -136,6 +149,7 @@ namespace KTransport.API.Controllers
 
         // Locations
         [HttpGet("locations")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
         public async Task<ActionResult<List<LocationDto>>> GetLocations(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -147,6 +161,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("locations/lookup")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
         public async Task<ActionResult<List<LocationLookupDto>>> GetLocationLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetLocationLookupAsync(q);
@@ -154,6 +169,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("locations/{id:long}")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
         public async Task<ActionResult<LocationDto>> GetLocationById(long id)
         {
             var result = await _fleetService.GetLocationByIdAsync(id);
@@ -162,6 +178,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("locations")]
+        [RequirePermission("master_data.fleet.create", "master_data.parties.create")]
         public async Task<ActionResult<LocationDto>> CreateLocation([FromBody] CreateLocationRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -170,6 +187,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("locations/{id:long}")]
+        [RequirePermission("master_data.fleet.edit", "master_data.parties.edit")]
         public async Task<ActionResult<LocationDto>> UpdateLocation(long id, [FromBody] UpdateLocationRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -179,6 +197,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("locations/{id:long}")]
+        [RequirePermission("master_data.fleet.delete", "master_data.parties.delete")]
         public async Task<ActionResult> DeleteLocation(long id)
         {
             var success = await _fleetService.DeleteLocationAsync(id);

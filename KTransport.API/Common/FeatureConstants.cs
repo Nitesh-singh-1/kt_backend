@@ -22,6 +22,7 @@ namespace KTransport.API.Common
         public const string PARTY = "PARTY"; // Customers / Parties
         public const string VENDOR = "VENDOR"; // Transporters / Market Hire
         public const string CLAIMS = "CLAIMS"; // Damage & Claims
+        public const string QUOTATION = "QUOTATION"; // Quotations / Price Quotes
         
         // Administration & SaaS Governance
         public const string USER_MANAGEMENT = "USER_MANAGEMENT";
@@ -47,6 +48,7 @@ namespace KTransport.API.Common
             PARTY,
             VENDOR,
             CLAIMS,
+            QUOTATION,
             USER_MANAGEMENT,
             SAAS_CONFIGURATION
         };
@@ -79,7 +81,8 @@ namespace KTransport.API.Common
             PARTY,
             VEHICLE,
             DRIVER,
-            VENDOR
+            VENDOR,
+            QUOTATION
         };
 
         public static readonly string[] EnterpriseFeatures = AllFeatures;
@@ -111,6 +114,7 @@ namespace KTransport.API.Common
                 "CUSTOMERS" or "PARTIES" or "PARTY" or "MASTER_DATA.PARTIES" or "MASTER_DATA" => PARTY,
                 "VENDORS" or "VENDOR" => VENDOR,
                 "CLAIMS" => CLAIMS,
+                "QUOTATION" or "QUOTATIONS" => QUOTATION,
                 "USERS" or "USER_MANAGEMENT" or "SUB_USERS" => USER_MANAGEMENT,
                 "SETTINGS" or "SAAS" or "SAAS_CONFIGURATION" or "SYSTEM.SETTINGS" or "CLIENTS" => SAAS_CONFIGURATION,
                 _ => key

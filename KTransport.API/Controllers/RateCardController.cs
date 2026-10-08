@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
+using KTransport.API.Common;
 using KTransport.API.DTOs;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +12,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
+    [RequireFeature(FeatureConstants.PARTY)]
     public class RateCardController : ControllerBase
     {
         private readonly IRateCardService _rateCardService;
@@ -20,6 +23,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("master_data.rates.view")]
         public async Task<ActionResult<List<FreightRateCardDto>>> GetRateCards(
             [FromQuery] string? search = null,
             [FromQuery] long? partyId = null)
@@ -29,6 +33,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("master_data.rates.view")]
         public async Task<ActionResult<FreightRateCardDto>> GetRateCardById(long id)
         {
             var card = await _rateCardService.GetRateCardByIdAsync(id);
@@ -37,6 +42,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("master_data.rates.create")]
         public async Task<ActionResult<FreightRateCardDto>> CreateRateCard([FromBody] CreateRateCardRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -46,6 +52,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("master_data.rates.edit")]
         public async Task<ActionResult<FreightRateCardDto>> UpdateRateCard(long id, [FromBody] CreateRateCardRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -56,6 +63,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("master_data.rates.delete")]
         public async Task<ActionResult> DeleteRateCard(long id)
         {
             var success = await _rateCardService.DeleteRateCardAsync(id);
@@ -64,6 +72,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("calculate")]
+        [RequirePermission("master_data.rates.view", "consignments.create.view", "consignments.create.create")]
         public async Task<ActionResult<CalculatedFreightResponse>> CalculateFreight([FromBody] CalculateFreightRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);

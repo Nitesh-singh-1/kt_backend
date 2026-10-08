@@ -12,7 +12,6 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    [RequireSuperUser]
     public class UsersController : ControllerBase
     {
         private readonly IUserService _userService;
@@ -31,6 +30,7 @@ namespace KTransport.API.Controllers
 
         /// <summary>Invite a teammate by email. They set their own username/password via the emailed link.</summary>
         [HttpPost("invite")]
+        [RequirePermission("system.users.create", "users.manage")]
         public async Task<IActionResult> InviteUser([FromBody] CreateInviteRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -41,6 +41,7 @@ namespace KTransport.API.Controllers
 
         /// <summary>List this organization's invitations (pending/accepted/revoked/expired).</summary>
         [HttpGet("invites")]
+        [RequirePermission("system.users.view", "users.manage")]
         public async Task<IActionResult> GetInvites()
         {
             var invites = await _invitationService.GetInvitesAsync(_tenantContext.CurrentTenantId);
@@ -49,6 +50,7 @@ namespace KTransport.API.Controllers
 
         /// <summary>Revoke a pending invitation.</summary>
         [HttpPost("invites/{id:long}/revoke")]
+        [RequirePermission("system.users.edit", "users.manage")]
         public async Task<IActionResult> RevokeInvite(long id)
         {
             var result = await _invitationService.RevokeInviteAsync(_tenantContext.CurrentTenantId, id);
@@ -60,6 +62,7 @@ namespace KTransport.API.Controllers
         /// Get all sub-users belonging to the caller's organization.
         /// </summary>
         [HttpGet]
+        [RequirePermission("system.users.view", "users.manage")]
         public async Task<IActionResult> GetUsers()
         {
             var tenantId = _tenantContext.CurrentTenantId;
@@ -71,6 +74,7 @@ namespace KTransport.API.Controllers
         /// Get details and effective permissions for a specific sub-user.
         /// </summary>
         [HttpGet("{id:int}")]
+        [RequirePermission("system.users.view", "users.manage")]
         public async Task<IActionResult> GetUserById(int id)
         {
             var tenantId = _tenantContext.CurrentTenantId;
@@ -86,6 +90,7 @@ namespace KTransport.API.Controllers
         /// Create a new Sub User for the organization and assign allowed features.
         /// </summary>
         [HttpPost]
+        [RequirePermission("system.users.create", "users.manage")]
         public async Task<IActionResult> CreateSubUser([FromBody] CreateSubUserRequest request)
         {
             if (!ModelState.IsValid)
@@ -108,6 +113,7 @@ namespace KTransport.API.Controllers
         /// Update sub-user details (name, phone, role, active status).
         /// </summary>
         [HttpPut("{id:int}")]
+        [RequirePermission("system.users.edit", "users.manage")]
         public async Task<IActionResult> UpdateSubUser(int id, [FromBody] UpdateSubUserRequest request)
         {
             if (!ModelState.IsValid)
@@ -130,6 +136,7 @@ namespace KTransport.API.Controllers
         /// Assign or modify dedicated page / module permissions for a sub-user.
         /// </summary>
         [HttpPut("{id:int}/permissions")]
+        [RequirePermission("system.users.edit", "users.manage")]
         public async Task<IActionResult> UpdateUserPermissions(int id, [FromBody] UpdateUserPermissionsRequest request)
         {
             if (!ModelState.IsValid)
@@ -152,6 +159,7 @@ namespace KTransport.API.Controllers
         /// Activate or deactivate a sub-user.
         /// </summary>
         [HttpPut("{id:int}/status")]
+        [RequirePermission("system.users.edit", "users.manage")]
         public async Task<IActionResult> UpdateUserStatus(int id, [FromBody] UpdateUserStatusRequest request)
         {
             var tenantId = _tenantContext.CurrentTenantId;
@@ -169,6 +177,7 @@ namespace KTransport.API.Controllers
         /// Superadmin direct password reset for a sub-user.
         /// </summary>
         [HttpPost("{id:int}/reset-password")]
+        [RequirePermission("system.users.edit", "users.manage")]
         public async Task<IActionResult> AdminResetPassword(int id, [FromBody] AdminResetPasswordRequest request)
         {
             if (string.IsNullOrWhiteSpace(request?.NewPassword))
@@ -191,6 +200,7 @@ namespace KTransport.API.Controllers
         /// Delete / Deactivate a sub-user.
         /// </summary>
         [HttpDelete("{id:int}")]
+        [RequirePermission("system.users.delete", "users.manage")]
         public async Task<IActionResult> DeleteUser(int id)
         {
             var tenantId = _tenantContext.CurrentTenantId;
