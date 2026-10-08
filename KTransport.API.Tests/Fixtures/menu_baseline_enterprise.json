@@ -291,15 +291,6 @@
     "badge": null,
     "children": [
       {
-        "id": "system.users",
-        "title": "Manage Users \u0026 Access",
-        "path": "/users",
-        "icon": "users",
-        "permissionKey": "users.manage",
-        "badge": null,
-        "children": []
-      },
-      {
         "id": "system.settings",
         "title": "SaaS Configuration",
         "path": "/settings",

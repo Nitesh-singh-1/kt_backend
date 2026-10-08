@@ -2082,6 +2082,7 @@ public partial class KTransportDbContext : DbContext
 
         OnModelCreatingPartial(modelBuilder);
         ConfigureMenuModel(modelBuilder);
+        ConfigureRbacModel(modelBuilder);
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

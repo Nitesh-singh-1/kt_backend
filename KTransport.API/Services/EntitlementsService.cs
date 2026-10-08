@@ -56,9 +56,22 @@ namespace KTransport.API.Services
                 .OrderByDescending(s => s.EffectiveFrom)
                 .FirstOrDefaultAsync();
 
+            // TASK-044: legacy feature-key set — stays as rollback safety per §Y.
             var tenantFeatureKeys = new HashSet<string>(
                 subscription?.EnabledFeatureKeys ?? new List<string>(),
                 StringComparer.OrdinalIgnoreCase);
+
+            // TASK-046 Phase 1: authoritative module set from tenant_modules.
+            // When tenant_modules is populated (post-backfill), use it for the
+            // intersection; otherwise fall back to the legacy text[] set.
+            var tenantModuleCodes = await _db.TenantModules
+                .IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId
+                             && tm.IsEnabled
+                             && tm.EnabledUntil == null)
+                .Join(_db.Modules.IgnoreQueryFilters(), tm => tm.ModuleId, m => m.Id, (tm, m) => m.Code)
+                .ToListAsync();
+            var moduleCodeSet = new HashSet<string>(tenantModuleCodes, StringComparer.OrdinalIgnoreCase);
 
             List<string> userGrantedPermKeys = new();
             if (userId.HasValue)
@@ -70,9 +83,31 @@ namespace KTransport.API.Services
                     .ToListAsync();
             }
 
+            // TASK-046 Phase 1: resolve role grants via user_roles M2M when a
+            // userId is supplied. Fall back to the legacy role string when the
+            // user has no active user_roles row (should not happen post-backfill).
             List<string> rolePermKeys = new();
-            if (!string.IsNullOrWhiteSpace(role))
+            if (userId.HasValue)
             {
+                var activeRoleIds = await _db.UserRoles
+                    .IgnoreQueryFilters()
+                    .Where(ur => ur.TenantId == tenantId && ur.UserId == userId.Value && ur.RevokedAt == null)
+                    .Select(ur => ur.RoleId)
+                    .ToListAsync();
+
+                if (activeRoleIds.Count > 0)
+                {
+                    rolePermKeys = await _db.RolePermissions
+                        .IgnoreQueryFilters()
+                        .Where(r => r.TenantId == tenantId && r.RevokedAt == null && r.RoleId != null && activeRoleIds.Contains(r.RoleId.Value))
+                        .Select(r => r.PermissionKey)
+                        .ToListAsync();
+                }
+            }
+
+            if (rolePermKeys.Count == 0 && !string.IsNullOrWhiteSpace(role))
+            {
+                // Fallback: legacy role_name string match.
                 rolePermKeys = await _db.RolePermissions
                     .IgnoreQueryFilters()
                     .Where(r => r.TenantId == tenantId && r.RoleName == role && r.RevokedAt == null)
@@ -86,13 +121,54 @@ namespace KTransport.API.Services
             {
                 if (string.IsNullOrWhiteSpace(permKey)) continue;
                 var baseFeature = ExtractBaseFeatureKey(permKey);
-                if (tenantFeatureKeys.Contains(baseFeature))
+
+                // Legacy intersection — stays as rollback safety.
+                if (!tenantFeatureKeys.Contains(baseFeature)) continue;
+
+                // TASK-046 Phase 1 shim: additional intersection with
+                // tenant_modules. Phase 2 will add a permissions.module_id FK;
+                // until then, resolve the module via feature-key prefix.
+                if (moduleCodeSet.Count > 0)
                 {
-                    effective.Add(permKey);
+                    var moduleCode = ResolveModuleCode(baseFeature);
+                    if (moduleCode != null && !moduleCodeSet.Contains(moduleCode))
+                    {
+                        continue;
+                    }
                 }
+
+                effective.Add(permKey);
             }
 
             return effective;
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 shim: map a feature-key (e.g. "billing.bill_book")
+        /// to its module code (e.g. "billing"). Returns null for feature keys
+        /// outside the known module space (which then skip the module gate).
+        /// Phase 2 replaces this with a direct permissions.module_id FK.
+        /// </summary>
+        private static string? ResolveModuleCode(string featureKey)
+        {
+            if (string.IsNullOrWhiteSpace(featureKey)) return null;
+            var fk = featureKey.ToLowerInvariant();
+            if (fk.StartsWith("consignments")) return "bilty";
+            if (fk == "delivery_settlement") return "delivery_settlement";
+            if (fk == "trip_settlement") return "trip_settlement";
+            if (fk.StartsWith("empty_trips") || fk.StartsWith("trips")) return "trips";
+            if (fk.StartsWith("billing")) return "billing";
+            if (fk.StartsWith("pod")) return "pod";
+            if (fk.StartsWith("reports")) return "reports";
+            if (fk.StartsWith("master_data")) return "master_data";
+            if (fk.StartsWith("quotations")) return "quotations";
+            if (fk.StartsWith("vendors")) return "vendors";
+            if (fk.StartsWith("claims")) return "claims";
+            if (fk.StartsWith("tracking")) return "tracking";
+            if (fk.StartsWith("analytics")) return "analytics";
+            if (fk.StartsWith("dashboard")) return "dashboard";
+            if (fk.StartsWith("system")) return "system";
+            return null;
         }
 
         private static string ExtractBaseFeatureKey(string permissionKey)

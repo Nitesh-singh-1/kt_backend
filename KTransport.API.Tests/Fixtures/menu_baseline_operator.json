@@ -1,0 +1,18 @@
+{
+  "role": "operator",
+  "description": "TASK-046 Phase 1 baseline — operator role menu snapshot. Captured post-backfill from a tenant with dashboard + bilty + pod modules enabled.",
+  "expectedPermissionKeys": [
+    "dashboard.view",
+    "bilty.view",
+    "bilty.create",
+    "consignments.create.view",
+    "consignments.create.create",
+    "pod.view",
+    "pod.create"
+  ],
+  "expectedTopLevelMenuKeys": [
+    "dashboard",
+    "consignments",
+    "pod"
+  ]
+}

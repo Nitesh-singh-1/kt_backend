@@ -202,6 +202,15 @@ namespace KTransport.API.Services
 
                 await _context.SaveChangesAsync();
 
+                // TASK-046 Phase 1: seed the 7 system roles for the new tenant
+                // and insert a user_roles M2M row for the admin user. Also seed
+                // tenant_modules rows from the enabledMenuKeys so the module
+                // intersection in EntitlementsService works out of the box.
+                await SeedSystemRolesForTenantAsync(tenant.Id, enabledMenuKeys, adminUser.Id);
+                await SeedTenantModulesFromFeatureKeysAsync(tenant.Id, enabledMenuKeys, adminUser.Id);
+                await AssignUserRoleAsync(tenant.Id, adminUser.Id, assignedRole, assignedBy: adminUser.Id);
+                await _context.SaveChangesAsync();
+
                 // 5. Send welcome email to the new admin (best effort — never blocks onboarding).
                 if (!string.IsNullOrWhiteSpace(adminUser.Email))
                 {
@@ -576,6 +585,435 @@ namespace KTransport.API.Services
                 Warnings = warnings,
             };
         }
+
+        // ------------------------------------------------------------
+        // TASK-046 Phase 1 — platform-admin onboarding + RBAC seed helpers.
+        // ------------------------------------------------------------
+
+        private static readonly (string Code, string Name, string Description)[] SystemRoleTemplates =
+        {
+            ("admin",              "Administrator",       "Full tenant management + all enabled modules"),
+            ("operations_manager", "Operations Manager",  "Operational modules + reports"),
+            ("supervisor",         "Supervisor",          "Approve / edit operational docs"),
+            ("operator",           "Operator",            "Create own documents only"),
+            ("billing_executive",  "Billing Executive",   "Billing + invoices CRUD"),
+            ("accountant",         "Accountant",          "Financial reports + view-only operations"),
+            ("viewer",             "Viewer",              "View-only everything the tenant has"),
+        };
+
+        public IReadOnlyList<SystemRoleTemplateDto> GetSystemRoleTemplates()
+            => SystemRoleTemplates
+                .Select(t => new SystemRoleTemplateDto { Code = t.Code, Name = t.Name, Description = t.Description })
+                .ToList();
+
+        public async Task<TenantOnboardingResponse> OnboardTenantByAdminAsync(TenantAdminOnboardRequest request, int? platformAdminUserId)
+        {
+            try
+            {
+                _logger.LogInformation("Admin-onboarding tenant: {Org} ({Code}) by platform user {Pid}",
+                    request.OrganizationName, request.OrganizationCode, platformAdminUserId);
+
+                var normalizedCode = request.OrganizationCode.Trim().ToUpperInvariant();
+
+                var existingTenant = await _context.Tenants
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(t => t.Code.ToUpper() == normalizedCode);
+                if (existingTenant != null)
+                {
+                    return new TenantOnboardingResponse { Success = false, Message = $"Organization code '{request.OrganizationCode}' is already registered." };
+                }
+
+                var existingUser = await _context.Users
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(u => u.Username.ToLower() == request.AdminUsername.Trim().ToLower());
+                if (existingUser != null)
+                {
+                    return new TenantOnboardingResponse { Success = false, Message = $"Username '{request.AdminUsername}' is already taken." };
+                }
+
+                var tenant = new Tenant
+                {
+                    Id = Guid.NewGuid(),
+                    Name = request.OrganizationName.Trim(),
+                    Code = normalizedCode,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Tenants.Add(tenant);
+                await _context.SaveChangesAsync();
+
+                // Admin user — note we DO honor request.AdminRoleCode here
+                // (platform-admin-trusted); the string column is dual-written
+                // alongside the new user_roles M2M row below (§Y).
+                var roleCode = string.IsNullOrWhiteSpace(request.AdminRoleCode) ? "admin" : request.AdminRoleCode.Trim();
+                var adminUser = new User
+                {
+                    TenantId = tenant.Id,
+                    Username = request.AdminUsername.Trim(),
+                    Password = BCrypt.Net.BCrypt.HashPassword(request.AdminPassword),
+                    FullName = request.AdminFullName.Trim(),
+                    Mobile = request.AdminMobile,
+                    Email = string.IsNullOrWhiteSpace(request.AdminEmail) ? null : request.AdminEmail.Trim(),
+                    Role = roleCode,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Users.Add(adminUser);
+                await _context.SaveChangesAsync();
+
+                // Plan link
+                var planTier = string.IsNullOrWhiteSpace(request.PlanTier) ? "Starter" : request.PlanTier.Trim();
+                var plan = await _context.SubscriptionPlans
+                    .FirstOrDefaultAsync(p => p.Tier.ToLower() == planTier.ToLower() || p.Name.ToLower() == planTier.ToLower());
+                if (plan == null)
+                {
+                    plan = await _context.SubscriptionPlans.FirstOrDefaultAsync(p => p.Tier == "Starter");
+                }
+                if (plan != null)
+                {
+                    _context.TenantSubscriptions.Add(new TenantSubscription
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenant.Id,
+                        SubscriptionPlanId = plan.Id,
+                        Status = "Active",
+                        StartedAt = DateTime.UtcNow,
+                        ExpiresAt = DateTime.UtcNow.AddYears(1),
+                        IsAutoRenew = true,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
+                // enabled_feature_keys stays populated per §Y for rollback —
+                // dual-write from the EnabledModuleCodes list.
+                var enabledKeys = (request.EnabledModuleCodes ?? new List<string>())
+                    .Where(k => !string.IsNullOrWhiteSpace(k))
+                    .Select(k => k.Trim().ToLowerInvariant())
+                    .Distinct()
+                    .ToList();
+                if (!enabledKeys.Contains("dashboard")) enabledKeys.Insert(0, "dashboard");
+
+                _context.TenantEntitlementSubscriptions.Add(new TenantEntitlementSubscription
+                {
+                    TenantId = tenant.Id,
+                    PlanTier = planTier,
+                    EnabledFeatureKeys = enabledKeys,
+                    EffectiveFrom = DateTime.UtcNow,
+                    EffectiveUntil = null,
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = platformAdminUserId
+                });
+
+                // tenant_settings for other config
+                _context.TenantSettings.Add(new TenantSetting
+                {
+                    TenantId = tenant.Id,
+                    GeneralJson = JsonSerializer.Serialize(new { companyName = tenant.Name, companyCode = tenant.Code }, JsonOptions),
+                    BillingAndTaxJson = JsonSerializer.Serialize(new { enableGstBilling = true, defaultGstRate = 5.0m }, JsonOptions),
+                    DocumentSequencesJson = "{}",
+                    OperationalWorkflowsJson = "{}",
+                    FeatureFlagsJson = "{}",
+                    IntegrationsJson = "{}",
+                    CustomSettingsJson = "{}",
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                await _context.SaveChangesAsync();
+
+                // Seed system roles + tenant_modules + the admin user_role row.
+                await SeedTenantModulesAsync(tenant.Id, enabledKeys, adminUser.Id);
+                await SeedSystemRolesForTenantAsync(tenant.Id, enabledKeys, platformAdminUserId ?? adminUser.Id);
+                await AssignUserRoleAsync(tenant.Id, adminUser.Id, roleCode, assignedBy: platformAdminUserId);
+                await _context.SaveChangesAsync();
+
+                await _auditLogService.LogAsync("TenantCreatedByPlatformAdmin", tenantId: tenant.Id,
+                    entityType: "Tenant", entityId: tenant.Id.ToString(),
+                    details: $"Platform admin {platformAdminUserId} onboarded tenant {tenant.Code} with admin role '{roleCode}' and modules [{string.Join(",", enabledKeys)}]");
+
+                var token = GenerateJwtToken(adminUser);
+
+                return new TenantOnboardingResponse
+                {
+                    Success = true,
+                    Message = "Tenant onboarded by platform admin.",
+                    TenantId = tenant.Id,
+                    OrganizationName = tenant.Name,
+                    OrganizationCode = tenant.Code,
+                    PlanTier = plan?.Tier ?? planTier,
+                    EnabledModules = enabledKeys,
+                    Token = token,
+                    AdminUser = new UserDto
+                    {
+                        Id = adminUser.Id,
+                        Username = adminUser.Username,
+                        FullName = adminUser.FullName ?? string.Empty,
+                        Role = adminUser.Role ?? roleCode,
+                        Mobile = adminUser.Mobile,
+                        Email = adminUser.Email
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnboardTenantByAdmin failed for {Org}", request.OrganizationName);
+                return new TenantOnboardingResponse { Success = false, Message = $"Error during admin onboarding: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 — insert 7 system roles for a tenant with
+        /// seed_grants scoped to the modules the tenant has enabled.
+        /// Idempotent via the unique indexes on roles / role_permissions.
+        /// Caller must SaveChangesAsync after this returns.
+        /// </summary>
+        private async Task SeedSystemRolesForTenantAsync(Guid tenantId, List<string> enabledFeatureKeys, int? actingUserId)
+        {
+            // 1. ensure the 7 role rows exist.
+            var existingCodes = await _context.Roles
+                .IgnoreQueryFilters()
+                .Where(r => r.TenantId == tenantId)
+                .Select(r => r.Code.ToLower())
+                .ToListAsync();
+            var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+
+            var roleIdByCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (code, name, desc) in SystemRoleTemplates)
+            {
+                if (existingSet.Contains(code)) continue;
+                var role = new Role
+                {
+                    TenantId = tenantId,
+                    Code = code,
+                    Name = name,
+                    Description = desc,
+                    IsSystem = true,
+                    IsActive = true,
+                    CreatedBy = actingUserId,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Roles.Add(role);
+            }
+            await _context.SaveChangesAsync();
+
+            foreach (var r in await _context.Roles.IgnoreQueryFilters().Where(r => r.TenantId == tenantId).ToListAsync())
+            {
+                roleIdByCode[r.Code.ToLowerInvariant()] = r.Id;
+            }
+
+            // 2. seed role_permissions grants — only insert where no active row exists.
+            var catalog = await _context.Permissions.AsNoTracking().ToListAsync();
+            var alreadyGranted = await _context.RolePermissions
+                .IgnoreQueryFilters()
+                .Where(r => r.TenantId == tenantId && r.RevokedAt == null)
+                .Select(r => new { r.RoleName, r.PermissionKey })
+                .ToListAsync();
+            var granted = new HashSet<string>(alreadyGranted.Select(a => $"{a.RoleName.ToLowerInvariant()}|{a.PermissionKey}"));
+
+            // enabled modules (code set) — if tenant has no tenant_modules yet, derive from the feature-key list.
+            var enabledModuleCodes = (await _context.TenantModules
+                .IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId && tm.EnabledUntil == null && tm.IsEnabled)
+                .Join(_context.Modules.IgnoreQueryFilters(), tm => tm.ModuleId, m => m.Id, (tm, m) => m.Code)
+                .ToListAsync());
+            if (enabledModuleCodes.Count == 0)
+            {
+                enabledModuleCodes = enabledFeatureKeys
+                    .Select(k => ResolveModuleCodeFromFeatureKey(k))
+                    .Where(c => c != null)
+                    .Select(c => c!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            var enabledModules = new HashSet<string>(enabledModuleCodes, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var perm in catalog)
+            {
+                var moduleCode = ResolveModuleCodeFromFeatureKey(perm.FeatureKey);
+                if (moduleCode == null || !enabledModules.Contains(moduleCode)) continue;
+
+                foreach (var (code, _, _) in SystemRoleTemplates)
+                {
+                    if (!PermissionFitsRoleSeedGrant(code, moduleCode, perm.Action)) continue;
+                    if (!roleIdByCode.TryGetValue(code, out var roleId)) continue;
+                    var sig = $"{code}|{perm.Key}";
+                    if (granted.Contains(sig)) continue;
+                    _context.RolePermissions.Add(new RolePermission
+                    {
+                        TenantId = tenantId,
+                        RoleName = code,       // §Y dual-write — stays forever.
+                        RoleId = roleId,
+                        PermissionKey = perm.Key,
+                        GrantedAt = DateTime.UtcNow,
+                        GrantedBy = actingUserId
+                    });
+                    granted.Add(sig);
+                }
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 — map a feature key to its root module code. Mirrors
+        /// the shim in <see cref="EntitlementsService"/>.
+        /// </summary>
+        private static string? ResolveModuleCodeFromFeatureKey(string featureKey)
+        {
+            if (string.IsNullOrWhiteSpace(featureKey)) return null;
+            var fk = featureKey.ToLowerInvariant();
+            if (fk.StartsWith("consignments")) return "bilty";
+            if (fk == "delivery_settlement") return "delivery_settlement";
+            if (fk == "trip_settlement") return "trip_settlement";
+            if (fk.StartsWith("empty_trips") || fk.StartsWith("trips")) return "trips";
+            if (fk.StartsWith("billing")) return "billing";
+            if (fk.StartsWith("pod")) return "pod";
+            if (fk.StartsWith("reports")) return "reports";
+            if (fk.StartsWith("master_data")) return "master_data";
+            if (fk.StartsWith("quotations")) return "quotations";
+            if (fk.StartsWith("vendors")) return "vendors";
+            if (fk.StartsWith("claims")) return "claims";
+            if (fk.StartsWith("tracking")) return "tracking";
+            if (fk.StartsWith("analytics")) return "analytics";
+            if (fk.StartsWith("dashboard") || fk == "bilty") return fk.StartsWith("dashboard") ? "dashboard" : "bilty";
+            if (fk.StartsWith("system")) return "system";
+            if (fk == "clients") return "system";
+            return null;
+        }
+
+        private static bool PermissionFitsRoleSeedGrant(string roleCode, string moduleCode, string action)
+        {
+            // Matches the SQL rules in BackfillRolesAndUserRoles.
+            switch (roleCode.ToLowerInvariant())
+            {
+                case "admin":
+                    return true;
+                case "operations_manager":
+                    if (moduleCode is "bilty" or "trips" or "pod" or "trip_settlement" or "delivery_settlement" or "dashboard") return true;
+                    if (moduleCode == "reports" && (action == "View" || action == "Export")) return true;
+                    return false;
+                case "supervisor":
+                    if (moduleCode == "bilty" && action is "View" or "Edit" or "Approve") return true;
+                    if (moduleCode == "pod" && action is "View" or "Edit" or "Approve") return true;
+                    if (moduleCode == "dashboard" && action == "View") return true;
+                    return false;
+                case "operator":
+                    if (moduleCode == "bilty" && action is "View" or "Create") return true;
+                    if (moduleCode == "pod" && action is "View" or "Create") return true;
+                    if (moduleCode == "dashboard" && action == "View") return true;
+                    return false;
+                case "billing_executive":
+                    if (moduleCode == "billing") return true;
+                    if (moduleCode == "bilty" && action == "View") return true;
+                    if (moduleCode == "dashboard" && action == "View") return true;
+                    return false;
+                case "accountant":
+                    if (moduleCode == "reports") return true;
+                    if (moduleCode is "bilty" or "trips" or "billing" && action == "View") return true;
+                    if (moduleCode == "dashboard" && action == "View") return true;
+                    return false;
+                case "viewer":
+                    return action == "View";
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 — tenant_modules seed from EnabledModuleCodes.
+        /// Idempotent — skips any (tenant, module) with an active row already.
+        /// </summary>
+        private async Task SeedTenantModulesAsync(Guid tenantId, List<string> moduleCodes, int? actingUserId)
+        {
+            if (moduleCodes.Count == 0) return;
+            var catalog = await _context.Modules.AsNoTracking().ToListAsync();
+            var byCode = catalog.ToDictionary(m => m.Code.ToLowerInvariant(), m => m.Id);
+            var existingActive = await _context.TenantModules
+                .IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId && tm.EnabledUntil == null)
+                .Select(tm => tm.ModuleId)
+                .ToListAsync();
+            var existingSet = new HashSet<int>(existingActive);
+
+            foreach (var code in moduleCodes.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!byCode.TryGetValue(code.ToLowerInvariant(), out var moduleId)) continue;
+                if (existingSet.Contains(moduleId)) continue;
+                _context.TenantModules.Add(new TenantModule
+                {
+                    TenantId = tenantId,
+                    ModuleId = moduleId,
+                    IsEnabled = true,
+                    EnabledFrom = DateTime.UtcNow,
+                    EnabledUntil = null,
+                    EnabledBy = actingUserId,
+                    CreatedAt = DateTime.UtcNow
+                });
+                existingSet.Add(moduleId);
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 — like <see cref="SeedTenantModulesAsync"/> but
+        /// takes legacy feature keys (e.g. "billing.bill_book") instead of
+        /// module codes.
+        /// </summary>
+        private async Task SeedTenantModulesFromFeatureKeysAsync(Guid tenantId, List<string> featureKeys, int? actingUserId)
+        {
+            var codes = featureKeys
+                .Select(k => ResolveModuleCodeFromFeatureKey(k))
+                .Where(c => c != null)
+                .Select(c => c!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            await SeedTenantModulesAsync(tenantId, codes, actingUserId);
+        }
+
+        /// <summary>
+        /// TASK-046 Phase 1 — insert a user_roles M2M row for (tenantId, userId,
+        /// role.code). Also dual-writes users.role string per §Y so the legacy
+        /// path keeps working. Idempotent via partial unique index.
+        /// </summary>
+        private async Task AssignUserRoleAsync(Guid tenantId, int userId, string roleCode, int? assignedBy)
+        {
+            if (string.IsNullOrWhiteSpace(roleCode)) return;
+            var role = await _context.Roles
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Code.ToLower() == roleCode.ToLower());
+            if (role == null)
+            {
+                // custom role — create with IsSystem=false. Keeps users.role string valid.
+                role = new Role
+                {
+                    TenantId = tenantId,
+                    Code = roleCode.Trim().ToLowerInvariant(),
+                    Name = roleCode.Trim(),
+                    Description = "Custom role",
+                    IsSystem = false,
+                    IsActive = true,
+                    CreatedBy = assignedBy,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Roles.Add(role);
+                await _context.SaveChangesAsync();
+            }
+
+            var existing = await _context.UserRoles
+                .IgnoreQueryFilters()
+                .AnyAsync(ur => ur.TenantId == tenantId && ur.UserId == userId && ur.RoleId == role.Id && ur.RevokedAt == null);
+            if (!existing)
+            {
+                _context.UserRoles.Add(new UserRole
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    RoleId = role.Id,
+                    AssignedAt = DateTime.UtcNow,
+                    AssignedBy = assignedBy
+                });
+            }
+        }
+
+        // ------------------------------------------------------------
 
         private static ResourceUsageDto BuildResource(int current, int max)
         {

@@ -76,11 +76,12 @@ namespace KTransport.API.Services
             // 1. Organization-Level Subscribed Keys
             var subscribedKeys = new HashSet<string>(entitlements.EnabledMenuKeys, StringComparer.OrdinalIgnoreCase);
 
-            bool isSuperUser = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+            // TASK-046 Phase 1 bypass fix: ONLY the platform-operator SUPER_USER role
+            // short-circuits to the wildcard. admin / tenantadmin / superadmin /
+            // TENANT_OWNER are now tenant-scoped roles subject to the normal
+            // role_permissions + user_permission_overrides + tenant_modules
+            // intersection pipeline. See .agent/specs/decisions/authorization-rbac-architecture.md §F.
+            bool isSuperUser = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase);
 
             HashSet<string> effectiveKeys;
 
@@ -156,11 +157,10 @@ namespace KTransport.API.Services
 
         public async Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole, string? userIdOrName = null)
         {
-            bool isSuperUserCaller = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+            // TASK-046 Phase 1 bypass fix: only the platform-operator SUPER_USER
+            // role still wildcards here. Every other role goes through the
+            // tenant-scoped permissions pipeline.
+            bool isSuperUserCaller = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase);
 
             // TASK-044 Phase 3: tables are authoritative. Sub-users get the action-split
             // permission set directly from role_permissions / user_permission_overrides.
