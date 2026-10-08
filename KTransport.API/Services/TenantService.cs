@@ -160,15 +160,6 @@ namespace KTransport.API.Services
                     rep.IsEnabled = selectedReportKeys.Contains(rep.ReportKey);
                 }
 
-                var entitlementsDto = new TenantMenuEntitlementsDto
-                {
-                    TenantId = tenant.Id,
-                    EnabledMenuKeys = enabledMenuKeys,
-                    Reports = standardReports
-                };
-
-                var entitlementsJson = JsonSerializer.Serialize(entitlementsDto, JsonOptions);
-
                 var setting = new TenantSetting
                 {
                     TenantId = tenant.Id,
@@ -179,11 +170,36 @@ namespace KTransport.API.Services
                     FeatureFlagsJson = "{}",
                     IntegrationsJson = "{}",
                     CustomSettingsJson = "{}",
-                    MenuEntitlementsJson = entitlementsJson,
+                    // TASK-044 Phase 3: menu_entitlements_json dropped — entitlements go to normalized tables below.
                     CreatedAt = DateTime.UtcNow
                 };
 
                 _context.TenantSettings.Add(setting);
+
+                // TASK-044 Phase 3: persist tenant subscription + enabled reports into the normalized tables.
+                _context.TenantEntitlementSubscriptions.Add(new TenantEntitlementSubscription
+                {
+                    TenantId = tenant.Id,
+                    PlanTier = string.IsNullOrWhiteSpace(planTier) ? "Enterprise" : planTier,
+                    EnabledFeatureKeys = enabledMenuKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    EffectiveFrom = DateTime.UtcNow,
+                    EffectiveUntil = null,
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = adminUser.Id
+                });
+
+                foreach (var rep in standardReports)
+                {
+                    _context.TenantReportEntitlements.Add(new TenantReportEntitlement
+                    {
+                        TenantId = tenant.Id,
+                        ReportKey = rep.ReportKey,
+                        IsEnabled = rep.IsEnabled,
+                        UpdatedAt = DateTime.UtcNow,
+                        UpdatedBy = adminUser.Id
+                    });
+                }
+
                 await _context.SaveChangesAsync();
 
                 // 5. Send welcome email to the new admin (best effort — never blocks onboarding).
@@ -255,9 +271,14 @@ namespace KTransport.API.Services
                 .Where(s => tenantIds.Contains(s.TenantId))
                 .ToListAsync();
 
-            var settings = await _context.TenantSettings
+            // TASK-044 Phase 3: enabled modules/reports now live in normalized tables.
+            var entSubs = await _context.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
-                .Where(s => tenantIds.Contains(s.TenantId))
+                .Where(s => tenantIds.Contains(s.TenantId) && s.EffectiveUntil == null)
+                .ToListAsync();
+            var repRows = await _context.TenantReportEntitlements
+                .IgnoreQueryFilters()
+                .Where(r => tenantIds.Contains(r.TenantId) && r.IsEnabled)
                 .ToListAsync();
 
             var results = new List<TenantAdminListItemDto>();
@@ -269,27 +290,10 @@ namespace KTransport.API.Services
                                    ?? tenantUsers.FirstOrDefault();
 
                 var sub = subscriptions.FirstOrDefault(s => s.TenantId == tenant.Id);
-                var setting = settings.FirstOrDefault(s => s.TenantId == tenant.Id);
 
-                var enabledKeys = new List<string>();
-                var enabledReports = new List<string>();
-
-                if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson) && setting.MenuEntitlementsJson != "{}")
-                {
-                    try
-                    {
-                        var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                        if (parsed != null)
-                        {
-                            enabledKeys = parsed.EnabledMenuKeys ?? new List<string>();
-                            enabledReports = parsed.Reports?.Where(r => r.IsEnabled).Select(r => r.ReportKey).ToList() ?? new List<string>();
-                        }
-                    }
-                    catch
-                    {
-                        // Ignore parse errors
-                    }
-                }
+                var entSub = entSubs.FirstOrDefault(s => s.TenantId == tenant.Id);
+                var enabledKeys = entSub?.EnabledFeatureKeys?.ToList() ?? new List<string>();
+                var enabledReports = repRows.Where(r => r.TenantId == tenant.Id).Select(r => r.ReportKey).ToList();
 
                 // If default superadmin tenant, provide default full set if empty
                 if (enabledKeys.Count == 0 && tenant.Id == TenantConstants.DefaultTenantId)

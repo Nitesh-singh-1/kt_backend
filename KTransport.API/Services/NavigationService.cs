@@ -1,34 +1,78 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace KTransport.API.Services
 {
     public class NavigationService : INavigationService
     {
         private readonly KTransportDbContext _context;
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
+        private readonly IEntitlementsService? _entitlements;
+        private readonly ILogger<NavigationService>? _log;
+        private readonly IMenuCatalogService _menuCatalog;
+        private readonly IHttpContextAccessor? _httpContextAccessor;
 
+        // Legacy ctor kept for existing tests that only pass a DbContext.
+        // TASK-045 Phase 3: the menu catalog service is now the sole production
+        // path, so the legacy ctor instantiates one directly to keep those
+        // tests exercising the real builder.
         public NavigationService(KTransportDbContext context)
         {
             _context = context;
+            _menuCatalog = new MenuCatalogService(context, NullLogger<MenuCatalogService>.Instance);
+        }
+
+        // TASK-044 Phase 3: EntitlementsOptions removed — tables are the sole source.
+        public NavigationService(
+            KTransportDbContext context,
+            IEntitlementsService? entitlements,
+            ILogger<NavigationService>? log)
+        {
+            _context = context;
+            _entitlements = entitlements;
+            _log = log;
+            _menuCatalog = new MenuCatalogService(context, NullLogger<MenuCatalogService>.Instance);
+        }
+
+        // Full constructor used by DI. TASK-045 Phase 3: dual-read options param removed.
+        public NavigationService(
+            KTransportDbContext context,
+            IEntitlementsService? entitlements,
+            ILogger<NavigationService>? log,
+            IMenuCatalogService menuCatalog)
+        {
+            _context = context;
+            _entitlements = entitlements;
+            _log = log;
+            _menuCatalog = menuCatalog ?? new MenuCatalogService(context, NullLogger<MenuCatalogService>.Instance);
+        }
+
+        // Full constructor with HttpContext (DI-selected).
+        public NavigationService(
+            KTransportDbContext context,
+            IEntitlementsService? entitlements,
+            ILogger<NavigationService>? log,
+            IMenuCatalogService menuCatalog,
+            IHttpContextAccessor? httpContextAccessor)
+            : this(context, entitlements, log, menuCatalog)
+        {
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<List<DynamicMenuItemDto>> GetDynamicMenuAsync(Guid tenantId, string userRole, string? userIdOrName = null)
         {
             var entitlements = await GetTenantMenuEntitlementsAsync(tenantId);
-            
+
             // 1. Organization-Level Subscribed Keys
             var subscribedKeys = new HashSet<string>(entitlements.EnabledMenuKeys, StringComparer.OrdinalIgnoreCase);
 
@@ -47,81 +91,31 @@ namespace KTransport.API.Services
                 effectiveKeys.Add("dashboard");
                 effectiveKeys.Add("system");
                 effectiveKeys.Add("system.settings");
+                effectiveKeys.Add("*");
                 if (tenantId == TenantConstants.DefaultTenantId)
                 {
                     effectiveKeys.Add("clients");
                 }
             }
-            else
+            else if (_entitlements != null)
             {
-                // Sub User: Resolve assigned permissions
-                var userAssigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // TASK-044 Phase 3: tables are the sole authoritative source.
+                var resolvedUserId = await ResolveUserIdAsync(tenantId, userIdOrName);
+                var tablesActionKeys = await _entitlements.ComputeEffectivePermissionsFromTablesAsync(tenantId, resolvedUserId, userRole);
 
-                // 1. Check User-Specific Dedicated Overrides
-                if (!string.IsNullOrWhiteSpace(userIdOrName) && !string.IsNullOrWhiteSpace(entitlements.UserOverridesJson))
-                {
-                    try
-                    {
-                        var userOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(entitlements.UserOverridesJson, JsonOptions);
-                        if (userOverrides != null)
-                        {
-                            var matchingKey = userOverrides.Keys.FirstOrDefault(k => string.Equals(k, userIdOrName, StringComparison.OrdinalIgnoreCase));
-                            if (matchingKey != null && userOverrides[matchingKey] != null)
-                            {
-                                foreach (var k in userOverrides[matchingKey])
-                                {
-                                    userAssigned.Add(k);
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-
-                // 2. Check Role-Based Matrix Overrides if no direct user override was found
-                if (userAssigned.Count == 0 && !string.IsNullOrWhiteSpace(userRole) && !string.IsNullOrWhiteSpace(entitlements.RoleOverridesJson))
-                {
-                    try
-                    {
-                        var roleOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(entitlements.RoleOverridesJson, JsonOptions);
-                        if (roleOverrides != null)
-                        {
-                            var matchingRole = roleOverrides.Keys.FirstOrDefault(k => string.Equals(k, userRole, StringComparison.OrdinalIgnoreCase));
-                            if (matchingRole != null && roleOverrides[matchingRole] != null)
-                            {
-                                foreach (var k in roleOverrides[matchingRole])
-                                {
-                                    userAssigned.Add(k);
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-
-                // Sub-user with NO explicit assignment (neither a user override
-                // nor a role override) gets ONLY the dashboard. Previously this
-                // path handed them every subscribed feature of the organization,
-                // so an admin who created a new user with 4 modules assigned
-                // but whose assignment silently failed to persist would see
-                // the user get every module instead of 4. Minimal fallback here
-                // means: no assignment = no access (except dashboard). An admin
-                // noticing the missing modules will know to re-assign them
-                // rather than silently handing out broad access.
-                if (userAssigned.Count == 0)
-                {
-                    userAssigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dashboard" };
-                }
-
-                // Effective Access = Organization Subscription ∩ User Permissions
                 effectiveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var k in userAssigned)
+                foreach (var k in tablesActionKeys)
                 {
-                    var canon = FeatureConstants.Normalize(k);
-                    // Match either direct key or normalized canonical code
-                    if (subscribedKeys.Contains(k) || subscribedKeys.Any(sk => FeatureConstants.Normalize(sk) == canon))
+                    if (string.IsNullOrWhiteSpace(k)) continue;
+                    effectiveKeys.Add(k);
+                    var dot = k.LastIndexOf('.');
+                    if (dot > 0)
                     {
-                        effectiveKeys.Add(k);
+                        var tail = k.Substring(dot + 1).ToLowerInvariant();
+                        if (tail is "view" or "create" or "edit" or "delete" or "print" or "approve" or "export")
+                        {
+                            effectiveKeys.Add(k.Substring(0, dot));
+                        }
                     }
                 }
 
@@ -135,567 +129,68 @@ namespace KTransport.API.Services
                 effectiveKeys.Remove("saas");
                 effectiveKeys.Remove("SAAS_CONFIGURATION");
             }
-
-            var enabledReportKeys = entitlements.Reports
-                .Where(r => r.IsEnabled)
-                .Select(r => r.ReportKey)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var menu = new List<DynamicMenuItemDto>();
-
-            bool IsEnabled(string key)
+            else
             {
-                return effectiveKeys.Contains(key) || effectiveKeys.Contains(FeatureConstants.Normalize(key));
+                // Entitlements service not wired (legacy constructors used in some tests):
+                // fall back to the organization-subscribed set as the effective view.
+                effectiveKeys = new HashSet<string>(subscribedKeys, StringComparer.OrdinalIgnoreCase);
+                effectiveKeys.Add("dashboard");
             }
 
-            // 1. Dashboard
-            if (IsEnabled("dashboard"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "dashboard",
-                    Title = "Dashboard",
-                    Path = "/dashboard",
-                    Icon = "home",
-                    PermissionKey = "dashboard.view"
-                });
-            }
+            // TASK-045 Phase 3: menu_items table is the sole authoritative source.
+            // The DualReadMode harness and the ~550-line C# if/else fallback are gone.
+            return await _menuCatalog.BuildMenuFromTablesAsync(effectiveKeys, entitlements);
+        }
 
-            // 1b. Business Analytics (sales-vs-recovery, margin, trends)
-            if (IsEnabled("analytics"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "analytics",
-                    Title = "Business Analytics",
-                    Path = "/analytics",
-                    Icon = "barChart",
-                    PermissionKey = "dashboard.view"
-                });
-            }
-
-            // 2. Consignments (Bilty / GR Booking)
-            if (IsEnabled("consignments") || IsEnabled("consignments.create") || IsEnabled("consignments.all") || IsEnabled("delivery_settlement") || IsEnabled("DELIVERY_SETTLEMENT") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
-            {
-                var grChildren = new List<DynamicMenuItemDto>();
-
-                if (IsEnabled("consignments.create") || IsEnabled("gr.entry") || IsEnabled("GOOD_RECEIPT"))
-                {
-                    grChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "consignments.create",
-                        Title = "New Bilty (GR Booking)",
-                        Path = "/shipments/create",
-                        Icon = "package",
-                        PermissionKey = "consignments.create"
-                    });
-                }
-
-                if (IsEnabled("consignments.all") || IsEnabled("consignments") || IsEnabled("gr.list") || IsEnabled("gr") || IsEnabled("GOOD_RECEIPT") || IsEnabled("SHIPMENT"))
-                {
-                    grChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "consignments.all",
-                        Title = "All Bilties (GR Registry)",
-                        Path = "/shipments",
-                        Icon = "fileText",
-                        PermissionKey = "consignments.view"
-                    });
-                }
-
-                if (IsEnabled("consignments.delivery_settlement") || IsEnabled("delivery_settlement") || IsEnabled("DELIVERY_SETTLEMENT") || IsEnabled("consignments") || IsEnabled("GOOD_RECEIPT"))
-                {
-                    grChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "consignments.delivery_settlement",
-                        Title = "Delivery Settlement",
-                        Path = "/delivery-settlement",
-                        Icon = "checkCircle",
-                        PermissionKey = "consignments.settle"
-                    });
-                }
-
-                if (grChildren.Count > 0)
-                {
-                    menu.Add(new DynamicMenuItemDto
-                    {
-                        Id = "consignments",
-                        Title = "Bilty / GR Booking",
-                        Icon = "package",
-                        PermissionKey = "consignments.module",
-                        Children = grChildren
-                    });
-                }
-            }
-
-            // 2b. Quotations (sales enquiries → booking)
-            if (IsEnabled("quotations"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "quotations",
-                    Title = "Quotations & Enquiries",
-                    Path = "/quotations",
-                    Icon = "fileText",
-                    PermissionKey = "quotations.view"
-                });
-            }
-
-            // 3. Manifest & Dispatch (LR / Truck Challan & Trip Settlement)
-            if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST") || IsEnabled("trip_settlement") || IsEnabled("TRIP_SETTLEMENT") || IsEnabled("trips.settlement"))
-            {
-                var tripChildren = new List<DynamicMenuItemDto>();
-
-                if (IsEnabled("trips") || IsEnabled("challan") || IsEnabled("challan.list") || IsEnabled("challan.entry") || IsEnabled("MANIFEST"))
-                {
-                    tripChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "trips.all",
-                        Title = "Manifest & Dispatch (Challans)",
-                        Path = "/trips",
-                        Icon = "truck",
-                        PermissionKey = "trips.view"
-                    });
-                }
-
-                if (IsEnabled("empty_trips") || IsEnabled("trips") || IsEnabled("MANIFEST"))
-                {
-                    tripChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "empty_trips",
-                        Title = "Empty Trip Log",
-                        Path = "/empty-trips",
-                        Icon = "truck",
-                        PermissionKey = "trips.view"
-                    });
-                }
-
-                if (IsEnabled("trip_settlement") || IsEnabled("trips.settlement") || IsEnabled("TRIP_SETTLEMENT") || IsEnabled("trips") || IsEnabled("MANIFEST"))
-                {
-                    tripChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "trips.settlement",
-                        Title = "Trip Settlement",
-                        Path = "/trip-settlement",
-                        Icon = "dollarSign",
-                        PermissionKey = "trips.settle"
-                    });
-                }
-
-                if (tripChildren.Count > 0)
-                {
-                    menu.Add(new DynamicMenuItemDto
-                    {
-                        Id = "trips",
-                        Title = "Manifest & Dispatch",
-                        Icon = "truck",
-                        PermissionKey = "trips.view",
-                        Children = tripChildren
-                    });
-                }
-            }
-
-            // 4. POD & Deliveries
-            if (IsEnabled("pod") || IsEnabled("POD"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "pod",
-                    Title = "POD & Deliveries",
-                    Path = "/pod",
-                    Icon = "fileText",
-                    PermissionKey = "pod.view"
-                });
-            }
-
-            // 5. Freight Invoicing & Billing
-            // TASK-039: Module-level key gates the module's visibility ONLY. Each child
-            // below is gated by its own granular key (billing.bill_book / billing.invoices
-            // / billing.receipts). An ORed fallback to the module key here would make the
-            // per-page toggle dead — enabling the module auto-grants every child.
-            if (IsEnabled("billing") || IsEnabled("BILLING"))
-            {
-                var billingChildren = new List<DynamicMenuItemDto>();
-
-                if (IsEnabled("billing.bill_book") || IsEnabled("bill_book") || IsEnabled("BILL_BOOK"))
-                {
-                    billingChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "billing.bill_book",
-                        Title = "Bill Book (Consolidated)",
-                        Path = "/bill-book",
-                        Icon = "fileText",
-                        PermissionKey = "billing.view",
-                        Badge = "Freight Bill"
-                    });
-                }
-
-                if (IsEnabled("billing.invoices"))
-                {
-                    billingChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "billing.invoices",
-                        Title = "Freight Invoices",
-                        Path = "/billing",
-                        Icon = "fileText",
-                        PermissionKey = "billing.view"
-                    });
-                }
-
-                if (IsEnabled("billing.receipts") || IsEnabled("receipts") || IsEnabled("MONEY_RECEIPT"))
-                {
-                    billingChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "billing.receipts",
-                        Title = "Money Receipts (MR)",
-                        Path = "/receipts",
-                        Icon = "fileText",
-                        PermissionKey = "billing.view",
-                        Badge = "Paid MR"
-                    });
-                }
-
-                if (billingChildren.Count > 0)
-                {
-                    menu.Add(new DynamicMenuItemDto
-                    {
-                        Id = "billing",
-                        Title = "Freight Invoicing & Billing",
-                        Icon = "fileText",
-                        PermissionKey = "billing.view",
-                        Children = billingChildren
-                    });
-                }
-            }
-
-            // 6. Master Data (Parties & Fleet)
-            if (IsEnabled("master_data") || IsEnabled("master_data.parties") || IsEnabled("master_data.fleet") || IsEnabled("customers") || IsEnabled("fleet") || IsEnabled("PARTY") || IsEnabled("VEHICLE"))
-            {
-                var masterChildren = new List<DynamicMenuItemDto>();
-
-                if (IsEnabled("master_data.parties") || IsEnabled("customers") || IsEnabled("master_data") || IsEnabled("PARTY"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.parties",
-                        Title = "Party Directory",
-                        Path = "/customers",
-                        Icon = "fileText",
-                        PermissionKey = "parties.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.fleet",
-                        Title = "Fleet & Stations",
-                        Path = "/fleet",
-                        Icon = "truck",
-                        PermissionKey = "fleet.view"
-                    });
-
-                    if (IsEnabled("master_data.compliance") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                    {
-                        masterChildren.Add(new DynamicMenuItemDto
-                        {
-                            Id = "master_data.compliance",
-                            Title = "Fleet Compliance",
-                            Path = "/fleet/compliance",
-                            Icon = "info",
-                            PermissionKey = "fleet.view"
-                        });
-                    }
-                }
-
-                if (IsEnabled("master_data.tyres") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.tyres",
-                        Title = "Tyre Management",
-                        Path = "/tyres",
-                        Icon = "truck",
-                        PermissionKey = "fleet.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.spares") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.spares",
-                        Title = "Spare Parts Stock",
-                        Path = "/spare-parts",
-                        Icon = "cog",
-                        PermissionKey = "fleet.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.loans") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.loans",
-                        Title = "Vehicle EMI / Loans",
-                        Path = "/vehicle-loans",
-                        Icon = "barChart",
-                        PermissionKey = "fleet.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.driverledger") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("DRIVER") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.driverledger",
-                        Title = "Driver Ledger",
-                        Path = "/driver-ledger",
-                        Icon = "users",
-                        PermissionKey = "fleet.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.vehicleclaims") || IsEnabled("master_data.fleet") || IsEnabled("fleet") || IsEnabled("master_data") || IsEnabled("VEHICLE"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.vehicleclaims",
-                        Title = "Vehicle Insurance Claims",
-                        Path = "/vehicle-claims",
-                        Icon = "info",
-                        PermissionKey = "fleet.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.rates") || IsEnabled("rates") || IsEnabled("master_data"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.rates",
-                        Title = "Rate Contracts",
-                        Path = "/rates",
-                        Icon = "fileText",
-                        PermissionKey = "rates.view"
-                    });
-                }
-
-                if (IsEnabled("master_data.vendorrates") || IsEnabled("master_data") || IsEnabled("VENDOR"))
-                {
-                    masterChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data.vendorrates",
-                        Title = "Vendor Hire Rates",
-                        Path = "/vendor-rates",
-                        Icon = "truck",
-                        PermissionKey = "vendors.view"
-                    });
-                }
-
-                if (masterChildren.Count > 0)
-                {
-                    menu.Add(new DynamicMenuItemDto
-                    {
-                        Id = "master_data",
-                        Title = "Master Data",
-                        Icon = "cog",
-                        PermissionKey = "masterdata.module",
-                        Children = masterChildren
-                    });
-                }
-            }
-
-            // 7. Market Vendors & Hire
-            if (IsEnabled("vendors") || IsEnabled("VENDOR"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "vendors",
-                    Title = "Market Vendors & Hire",
-                    Path = "/vendors",
-                    Icon = "truck",
-                    PermissionKey = "vendors.view"
-                });
-            }
-
-            // 8. Damage & Claims
-            if (IsEnabled("claims") || IsEnabled("CLAIMS"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "claims",
-                    Title = "Damage & Claims",
-                    Path = "/claims",
-                    Icon = "info",
-                    PermissionKey = "claims.view"
-                });
-            }
-
-            // 9. Reports & Analytics
-            // TASK-039: Same sweep rule as the billing block above — the Reports MODULE
-            // key gates visibility of the parent menu entry only. Each report tab is a
-            // granular child key (`reports.<report_key>`) and must appear in the effective
-            // key set to be emitted. Previously the children iterated the tenant's
-            // `entitlements.Reports` and emitted every tenant-enabled report regardless
-            // of the user's per-report permission, which leaked hidden-report keys into
-            // the permissions endpoint and let sub-users see tabs they lack access to.
-            if (IsEnabled("reports") || IsEnabled("REPORTING"))
-            {
-                var reportChildren = new List<DynamicMenuItemDto>();
-
-                foreach (var rep in entitlements.Reports.Where(r => r.IsEnabled || enabledReportKeys.Contains(r.ReportKey)))
-                {
-                    var reportKey = $"reports.{rep.ReportKey}";
-                    if (!IsEnabled(reportKey))
-                    {
-                        continue;
-                    }
-
-                    reportChildren.Add(new DynamicMenuItemDto
-                    {
-                        Id = reportKey,
-                        Title = rep.Title,
-                        Path = $"/reports?tab={rep.ReportKey}",
-                        Icon = "fileText",
-                        PermissionKey = reportKey
-                    });
-                }
-
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "reports",
-                    Title = "Reports & Analytics",
-                    Path = "/reports",
-                    Icon = "barChart",
-                    PermissionKey = "reports.view",
-                    Badge = reportChildren.Count > 0 ? $"{reportChildren.Count}" : null,
-                    Children = reportChildren.Count > 0 ? reportChildren : null
-                });
-            }
-
-            // 10. Live GPS Tracker
-            if (IsEnabled("tracking") || IsEnabled("TRACKING"))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "tracking",
-                    Title = "Live GPS Tracker",
-                    Path = "/tracking",
-                    Icon = "info",
-                    PermissionKey = "tracking.view"
-                });
-            }
-
-            // 11. SuperAdmin / Client Management (Super User only)
-            if (isSuperUser && (IsEnabled("clients") || tenantId == TenantConstants.DefaultTenantId))
-            {
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "clients",
-                    Title = "Client Management",
-                    Path = "/clients",
-                    Icon = "lock",
-                    PermissionKey = "saas.tenants.manage",
-                    Badge = "SaaS"
-                });
-            }
-
-            // 12. System / SaaS Configuration Group (Super User only)
-            if (isSuperUser)
-            {
-                var systemChildren = new List<DynamicMenuItemDto>
-                {
-                    new DynamicMenuItemDto
-                    {
-                        Id = "system.users",
-                        Title = "Manage Users & Access",
-                        Path = "/users",
-                        Icon = "users",
-                        PermissionKey = "users.manage"
-                    },
-                    new DynamicMenuItemDto
-                    {
-                        Id = "system.settings",
-                        Title = "SaaS Configuration",
-                        Path = "/settings",
-                        Icon = "settings",
-                        PermissionKey = "settings.manage"
-                    },
-                    new DynamicMenuItemDto
-                    {
-                        Id = "system.onboard",
-                        Title = "Tenant Onboarding",
-                        Path = "/onboard",
-                        Icon = "info",
-                        PermissionKey = "tenant.onboard"
-                    },
-                    new DynamicMenuItemDto
-                    {
-                        Id = "system.forgot_password",
-                        Title = "Forgot Password",
-                        Path = "/forgot-password",
-                        Icon = "lock",
-                        PermissionKey = "auth.password_reset"
-                    }
-                };
-
-                menu.Add(new DynamicMenuItemDto
-                {
-                    Id = "system",
-                    Title = "System & Settings",
-                    Icon = "settings",
-                    Children = systemChildren
-                });
-            }
-
-            return menu;
+        private async Task<int?> ResolveUserIdAsync(Guid tenantId, string? userIdOrName)
+        {
+            if (string.IsNullOrWhiteSpace(userIdOrName)) return null;
+            if (int.TryParse(userIdOrName, out var uid)) return uid;
+            var u = await _context.Users
+                .IgnoreQueryFilters()
+                .Where(x => x.TenantId == tenantId && x.Username == userIdOrName)
+                .Select(x => (int?)x.Id)
+                .FirstOrDefaultAsync();
+            return u;
         }
 
         public async Task<List<string>> GetUserPermissionsAsync(Guid tenantId, string userRole, string? userIdOrName = null)
         {
-            var menu = await GetDynamicMenuAsync(tenantId, userRole, userIdOrName);
-            var permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            void CollectPermissions(DynamicMenuItemDto item)
-            {
-                // TASK-039: emit BOTH the role/action-level PermissionKey (e.g.
-                // `billing.view` — used for coarse "can see this screen group" UI gates)
-                // AND the item's Id (e.g. `billing.bill_book`, `reports.booking_register`
-                // — the granular, per-page key the backend attributes and the frontend's
-                // PagePermissionGuard check against). Without the Id in the list, a
-                // tenant with the Billing module but no `billing.bill_book` entitlement
-                // would still be impossible to tell apart from one that has it, because
-                // both children carry the same `billing.view` PermissionKey.
-                if (!string.IsNullOrWhiteSpace(item.PermissionKey))
-                {
-                    permissions.Add(item.PermissionKey);
-                }
-                if (!string.IsNullOrWhiteSpace(item.Id))
-                {
-                    permissions.Add(item.Id);
-                }
-                if (item.Children != null)
-                {
-                    foreach (var child in item.Children)
-                    {
-                        CollectPermissions(child);
-                    }
-                }
-            }
-
-            foreach (var item in menu)
-            {
-                CollectPermissions(item);
-            }
-
-            bool isSuperUser = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
+            bool isSuperUserCaller = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
                                string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
 
-            if (isSuperUser)
+            // TASK-044 Phase 3: tables are authoritative. Sub-users get the action-split
+            // permission set directly from role_permissions / user_permission_overrides.
+            if (!isSuperUserCaller && _entitlements != null)
+            {
+                var resolvedUserId = await ResolveUserIdAsync(tenantId, userIdOrName);
+                var tablesActionKeys = await _entitlements.ComputeEffectivePermissionsFromTablesAsync(tenantId, resolvedUserId, userRole);
+                var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var k in tablesActionKeys) result.Add(k);
+                result.Add("dashboard");
+                result.Add("dashboard.view");
+                return result.ToList();
+            }
+
+            var menu = await GetDynamicMenuAsync(tenantId, userRole, userIdOrName);
+            var permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void CollectPermissions(DynamicMenuItemDto item)
+            {
+                if (!string.IsNullOrWhiteSpace(item.PermissionKey)) permissions.Add(item.PermissionKey);
+                if (!string.IsNullOrWhiteSpace(item.Id)) permissions.Add(item.Id);
+                if (item.Children != null)
+                {
+                    foreach (var child in item.Children) CollectPermissions(child);
+                }
+            }
+
+            foreach (var item in menu) CollectPermissions(item);
+
+            if (isSuperUserCaller)
             {
                 permissions.Add("*");
                 permissions.Add("admin");
@@ -707,128 +202,117 @@ namespace KTransport.API.Services
             return permissions.ToList();
         }
 
+        /// <summary>
+        /// TASK-044 Phase 3: tenant entitlements are reconstructed from the normalized
+        /// tables (tenant_entitlement_subscriptions + tenant_report_entitlements) rather
+        /// than parsed from the dropped menu_entitlements_json column.
+        /// </summary>
         public async Task<TenantMenuEntitlementsDto> GetTenantMenuEntitlementsAsync(Guid tenantId)
         {
-            var setting = await _context.TenantSettings
+            var subscription = await _context.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+                .Where(s => s.TenantId == tenantId && s.EffectiveUntil == null)
+                .OrderByDescending(s => s.EffectiveFrom)
+                .FirstOrDefaultAsync();
 
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson) && setting.MenuEntitlementsJson != "{}")
+            var reportRows = await _context.TenantReportEntitlements
+                .IgnoreQueryFilters()
+                .Where(r => r.TenantId == tenantId)
+                .ToListAsync();
+
+            if (subscription == null && reportRows.Count == 0)
             {
-                try
-                {
-                    var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed != null && parsed.EnabledMenuKeys != null)
-                    {
-                        parsed.TenantId = tenantId;
-                        EnsureAllCatalogReportsPresent(parsed);
-                        return parsed;
-                    }
-                }
-                catch { }
+                return GetDefaultEntitlements(tenantId);
             }
 
-            return GetDefaultEntitlements(tenantId);
+            var catalog = GetStandardReportCatalog();
+            var reportStateByKey = reportRows.ToDictionary(r => r.ReportKey, r => r.IsEnabled, StringComparer.OrdinalIgnoreCase);
+            foreach (var rep in catalog)
+            {
+                if (reportStateByKey.TryGetValue(rep.ReportKey, out var isEnabled))
+                {
+                    rep.IsEnabled = isEnabled;
+                }
+                else
+                {
+                    rep.IsEnabled = false;
+                }
+            }
+
+            var dto = new TenantMenuEntitlementsDto
+            {
+                TenantId = tenantId,
+                PlanTier = subscription?.PlanTier ?? "Enterprise",
+                EnabledMenuKeys = subscription?.EnabledFeatureKeys?.ToList() ?? new List<string>(),
+                Reports = catalog
+            };
+            return dto;
         }
 
         public async Task<TenantMenuEntitlementsDto> UpdateTenantMenuEntitlementsAsync(Guid tenantId, TenantMenuEntitlementsDto dto)
         {
+            dto.TenantId = tenantId;
+
+            // Ensure a TenantSetting row exists (other fields on it still matter) but DO NOT
+            // write to the dropped menu_entitlements_json column.
             var setting = await _context.TenantSettings
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            dto.TenantId = tenantId;
-            var json = JsonSerializer.Serialize(dto, JsonOptions);
 
             if (setting == null)
             {
                 setting = new TenantSetting
                 {
                     TenantId = tenantId,
-                    MenuEntitlementsJson = json,
                     CreatedAt = DateTime.UtcNow
                 };
                 _context.TenantSettings.Add(setting);
             }
             else
             {
-                setting.MenuEntitlementsJson = json;
                 setting.UpdatedAt = DateTime.UtcNow;
             }
 
             await _context.SaveChangesAsync();
-            return dto;
-        }
 
-        private void EnsureAllCatalogReportsPresent(TenantMenuEntitlementsDto dto)
-        {
-            var standardReports = GetStandardReportCatalog();
-            var existingKeys = dto.Reports.Select(r => r.ReportKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var std in standardReports)
+            // Persist to the normalized tables (sole source of truth in Phase 3).
+            if (_entitlements != null)
             {
-                if (!existingKeys.Contains(std.ReportKey))
+                try
                 {
-                    dto.Reports.Add(new ReportEntitlementItemDto
+                    int? actingUserId = null;
+                    var principal = _httpContextAccessor?.HttpContext?.User;
+                    var sub = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                              ?? principal?.FindFirst("sub")?.Value;
+                    if (!string.IsNullOrWhiteSpace(sub) && int.TryParse(sub, out var uid))
                     {
-                        ReportKey = std.ReportKey,
-                        Title = std.Title,
-                        Description = std.Description,
-                        Category = std.Category,
-                        Path = std.Path,
-                        IsEnabled = false
-                    });
+                        actingUserId = uid;
+                    }
+                    await _entitlements.WriteTenantEntitlementsAsync(tenantId, dto, actingUserId);
+                }
+                catch (Exception ex)
+                {
+                    _log?.LogWarning(ex, "WriteTenantEntitlementsAsync failed tenant={TenantId}", tenantId);
                 }
             }
+
+            return dto;
         }
 
         private List<string> GetDefaultMenuKeys()
         {
             return new List<string>
             {
-                "dashboard",
-                "consignments",
-                "consignments.create",
-                "consignments.all",
-                "consignments.delivery_settlement",
-                "delivery_settlement",
-                "quotations",
-                "trips",
-                "trips.settlement",
-                "trip_settlement",
-                "empty_trips",
-                "pod",
-                "billing",
-                "billing.bill_book",
-                "bill_book",
-                "billing.invoices",
-                "billing.receipts",
-                "master_data",
-                "master_data.parties",
-                "master_data.fleet",
-                "master_data.compliance",
-                "master_data.tyres",
-                "master_data.spares",
-                "master_data.loans",
-                "master_data.driverledger",
-                "master_data.vehicleclaims",
-                "master_data.rates",
-                "master_data.vendorrates",
-                "vendors",
-                "claims",
-                "analytics",
-                "reports",
-                "reports.booking_register",
-                "reports.tax_summary",
-                "reports.party_outstanding",
-                "reports.trip_profitability",
-                "reports.vendor_payables",
-                "tracking",
-                "clients",
-                "system",
-                "system.settings",
-                "system.onboard",
-                "system.forgot_password"
+                "dashboard", "consignments", "consignments.create", "consignments.all",
+                "delivery_settlement", "quotations", "trips", "trip_settlement", "empty_trips",
+                "pod", "billing", "billing.bill_book", "bill_book", "billing.invoices", "billing.receipts",
+                "master_data", "master_data.parties", "master_data.fleet", "master_data.compliance",
+                "master_data.tyres", "master_data.spares", "master_data.loans", "master_data.driver_ledger",
+                "master_data.vehicle_claims", "master_data.rates", "master_data.vendor_rates",
+                "vendors", "claims", "analytics", "reports", "reports.booking_register",
+                "reports.tax_summary", "reports.party_outstanding", "reports.trip_profitability",
+                "reports.vendor_payables", "tracking", "clients", "system", "system.settings",
+                "system.onboard", "system.forgot_password"
             };
         }
 
@@ -847,51 +331,11 @@ namespace KTransport.API.Services
         {
             return new List<ReportEntitlementItemDto>
             {
-                new ReportEntitlementItemDto
-                {
-                    ReportKey = "booking_register",
-                    Title = "Consignment Booking Register",
-                    Description = "Comprehensive log of all booked goods receipts with weight, freight, and consignor breakdown",
-                    Category = "Operational",
-                    Path = "/reports?tab=booking_register",
-                    IsEnabled = true
-                },
-                new ReportEntitlementItemDto
-                {
-                    ReportKey = "tax_summary",
-                    Title = "GST & Tax Summary Report",
-                    Description = "Taxable amounts, CGST, SGST, IGST, and RCM breakdowns for monthly GST returns",
-                    Category = "Financial",
-                    Path = "/reports?tab=tax_summary",
-                    IsEnabled = true
-                },
-                new ReportEntitlementItemDto
-                {
-                    ReportKey = "party_outstanding",
-                    Title = "Customer Outstanding Ledger",
-                    Description = "Real-time receivables, billed vs settled balance, and customer aging summary",
-                    Category = "Financial",
-                    Path = "/reports?tab=party_outstanding",
-                    IsEnabled = true
-                },
-                new ReportEntitlementItemDto
-                {
-                    ReportKey = "trip_profitability",
-                    Title = "Trip Profitability & P&L",
-                    Description = "Trip revenue vs diesel, toll, driver advance, and vehicle expense margin analysis",
-                    Category = "Operational",
-                    Path = "/reports?tab=trip_profitability",
-                    IsEnabled = true
-                },
-                new ReportEntitlementItemDto
-                {
-                    ReportKey = "vendor_payables",
-                    Title = "Vendor & Lorry Hire Payables",
-                    Description = "Transporter / vehicle broker hiring contracts, paid advances, and pending dues",
-                    Category = "Financial",
-                    Path = "/reports?tab=vendor_payables",
-                    IsEnabled = true
-                }
+                new() { ReportKey = "booking_register", Title = "Consignment Booking Register", Description = "Comprehensive log of all booked goods receipts with weight, freight, and consignor breakdown", Category = "Operational", Path = "/reports?tab=booking_register", IsEnabled = true },
+                new() { ReportKey = "tax_summary", Title = "GST & Tax Summary Report", Description = "Taxable amounts, CGST, SGST, IGST, and RCM breakdowns for monthly GST returns", Category = "Financial", Path = "/reports?tab=tax_summary", IsEnabled = true },
+                new() { ReportKey = "party_outstanding", Title = "Customer Outstanding Ledger", Description = "Real-time receivables, billed vs settled balance, and customer aging summary", Category = "Financial", Path = "/reports?tab=party_outstanding", IsEnabled = true },
+                new() { ReportKey = "trip_profitability", Title = "Trip Profitability & P&L", Description = "Trip revenue vs diesel, toll, driver advance, and vehicle expense margin analysis", Category = "Operational", Path = "/reports?tab=trip_profitability", IsEnabled = true },
+                new() { ReportKey = "vendor_payables", Title = "Vendor & Lorry Hire Payables", Description = "Transporter / vehicle broker hiring contracts, paid advances, and pending dues", Category = "Financial", Path = "/reports?tab=vendor_payables", IsEnabled = true }
             };
         }
     }

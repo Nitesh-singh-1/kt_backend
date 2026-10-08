@@ -2,11 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
-using System.Text.Json;
 using System.Threading.Tasks;
 using KTransport.API.Common;
 using KTransport.API.Data;
-using KTransport.API.DTOs;
 using Microsoft.EntityFrameworkCore;
 
 namespace KTransport.API.Services
@@ -14,11 +12,6 @@ namespace KTransport.API.Services
     public class FeatureAuthorizationService : IFeatureAuthorizationService
     {
         private readonly KTransportDbContext _context;
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
 
         public FeatureAuthorizationService(KTransportDbContext context)
         {
@@ -50,44 +43,36 @@ namespace KTransport.API.Services
                 return false;
             }
 
-            // Platform authority is reserved for super users of the default/platform tenant only.
-            // Onboarded clients live in their own tenants and can therefore never be platform admins,
-            // regardless of the role string on their account.
             var tenantClaim = user.FindFirst("tenant_id")?.Value ?? user.FindFirst("TenantId")?.Value;
             return Guid.TryParse(tenantClaim, out var tenantId) && tenantId == TenantContext.DefaultTenantId;
         }
 
+        /// <summary>
+        /// TASK-044 Phase 3: subscribed features now come from
+        /// tenant_entitlement_subscriptions, not the dropped menu_entitlements_json.
+        /// </summary>
         public async Task<HashSet<string>> GetSubscribedFeaturesAsync(Guid tenantId)
         {
-            var setting = await _context.TenantSettings
+            var subscription = await _context.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+                .Where(s => s.TenantId == tenantId && s.EffectiveUntil == null)
+                .OrderByDescending(s => s.EffectiveFrom)
+                .FirstOrDefaultAsync();
 
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson) && setting.MenuEntitlementsJson != "{}")
+            if (subscription != null && subscription.EnabledFeatureKeys != null && subscription.EnabledFeatureKeys.Count > 0)
             {
-                try
+                foreach (var key in subscription.EnabledFeatureKeys)
                 {
-                    var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed?.EnabledMenuKeys != null && parsed.EnabledMenuKeys.Count > 0)
+                    result.Add(key);
+                    var canonical = FeatureConstants.Normalize(key);
+                    if (!string.IsNullOrWhiteSpace(canonical))
                     {
-                        foreach (var key in parsed.EnabledMenuKeys)
-                        {
-                            result.Add(key);
-                            var canonical = FeatureConstants.Normalize(key);
-                            if (!string.IsNullOrWhiteSpace(canonical))
-                            {
-                                result.Add(canonical);
-                            }
-                        }
-                        return result;
+                        result.Add(canonical);
                     }
                 }
-                catch
-                {
-                    // Fallback to defaults
-                }
+                return result;
             }
 
             // Default fallback: Starter/Enterprise features
@@ -98,6 +83,10 @@ namespace KTransport.API.Services
             return result;
         }
 
+        /// <summary>
+        /// TASK-044 Phase 3: user+role effective grants now come from
+        /// role_permissions / user_permission_overrides.
+        /// </summary>
         public async Task<HashSet<string>> GetEffectiveFeaturesForUserAsync(Guid tenantId, string userRole, string userIdOrName)
         {
             var subscribedFeatures = await GetSubscribedFeaturesAsync(tenantId);
@@ -109,7 +98,6 @@ namespace KTransport.API.Services
 
             if (isSuper)
             {
-                // Super User gets all organization-subscribed features + admin features
                 var superSet = new HashSet<string>(subscribedFeatures, StringComparer.OrdinalIgnoreCase)
                 {
                     FeatureConstants.SAAS_CONFIGURATION,
@@ -120,83 +108,81 @@ namespace KTransport.API.Services
                 return superSet;
             }
 
-            // Sub User: Look up User-Specific Overrides from TenantSettings
-            var setting = await _context.TenantSettings
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            var userAllowedRaw = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson))
+            // Resolve userId from id-or-username.
+            int? userId = null;
+            if (!string.IsNullOrWhiteSpace(userIdOrName))
             {
-                try
+                if (int.TryParse(userIdOrName, out var parsed))
                 {
-                    var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed != null && !string.IsNullOrWhiteSpace(parsed.UserOverridesJson))
-                    {
-                        var userOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(parsed.UserOverridesJson, JsonOptions);
-                        if (userOverrides != null)
-                        {
-                            var matchingKey = userOverrides.Keys.FirstOrDefault(k => 
-                                string.Equals(k, userIdOrName, StringComparison.OrdinalIgnoreCase));
-
-                            if (matchingKey != null && userOverrides[matchingKey] != null)
-                            {
-                                foreach (var k in userOverrides[matchingKey])
-                                {
-                                    userAllowedRaw.Add(k);
-                                    var canon = FeatureConstants.Normalize(k);
-                                    if (!string.IsNullOrWhiteSpace(canon)) userAllowedRaw.Add(canon);
-                                }
-                            }
-                        }
-                    }
-
-                    // If no direct user override, check role override
-                    if (userAllowedRaw.Count == 0 && parsed != null && !string.IsNullOrWhiteSpace(parsed.RoleOverridesJson))
-                    {
-                        var roleOverrides = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(parsed.RoleOverridesJson, JsonOptions);
-                        if (roleOverrides != null)
-                        {
-                            var matchingRole = roleOverrides.Keys.FirstOrDefault(k => 
-                                string.Equals(k, userRole, StringComparison.OrdinalIgnoreCase));
-
-                            if (matchingRole != null && roleOverrides[matchingRole] != null)
-                            {
-                                foreach (var k in roleOverrides[matchingRole])
-                                {
-                                    userAllowedRaw.Add(k);
-                                    var canon = FeatureConstants.Normalize(k);
-                                    if (!string.IsNullOrWhiteSpace(canon)) userAllowedRaw.Add(canon);
-                                }
-                            }
-                        }
-                    }
+                    userId = parsed;
                 }
-                catch
+                else
                 {
-                    // Ignore parse errors
+                    var row = await _context.Users
+                        .IgnoreQueryFilters()
+                        .Where(u => u.TenantId == tenantId && u.Username == userIdOrName)
+                        .Select(u => (int?)u.Id)
+                        .FirstOrDefaultAsync();
+                    userId = row;
                 }
             }
 
-            // Sub-user with NO explicit assignment (neither a user override
-            // nor a role override) gets ONLY the dashboard. Previously this
-            // handed them every subscribed feature of the organization,
-            // which silently granted broad access when an admin's assignment
-            // failed to persist. Matches the stricter fallback in
-            // NavigationService.GetDynamicMenuAsync so the sidebar and the
-            // feature-authorization check stay consistent.
+            var userAllowedRaw = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. User overrides take precedence.
+            List<string> userGrants = new();
+            if (userId.HasValue)
+            {
+                userGrants = await _context.UserPermissionOverrides
+                    .IgnoreQueryFilters()
+                    .Where(o => o.TenantId == tenantId && o.UserId == userId.Value && o.IsGranted && o.SupersededBy == null)
+                    .Select(o => o.PermissionKey)
+                    .ToListAsync();
+            }
+
+            // 2. Role grants are the fallback.
+            List<string> roleGrants = new();
+            if (!string.IsNullOrWhiteSpace(userRole))
+            {
+                roleGrants = await _context.RolePermissions
+                    .IgnoreQueryFilters()
+                    .Where(r => r.TenantId == tenantId && r.RoleName == userRole && r.RevokedAt == null)
+                    .Select(r => r.PermissionKey)
+                    .ToListAsync();
+            }
+
+            var source = userGrants.Count > 0 ? userGrants : roleGrants;
+            foreach (var permKey in source)
+            {
+                if (string.IsNullOrWhiteSpace(permKey)) continue;
+                userAllowedRaw.Add(permKey);
+                // Also add the base feature key so legacy feature-level checks still match.
+                var idx = permKey.LastIndexOf('.');
+                if (idx > 0)
+                {
+                    var tail = permKey.Substring(idx + 1).ToLowerInvariant();
+                    if (tail is "view" or "create" or "edit" or "delete" or "print" or "approve" or "export")
+                    {
+                        var baseKey = permKey.Substring(0, idx);
+                        userAllowedRaw.Add(baseKey);
+                        var canon = FeatureConstants.Normalize(baseKey);
+                        if (!string.IsNullOrWhiteSpace(canon)) userAllowedRaw.Add(canon);
+                    }
+                }
+                var canonFull = FeatureConstants.Normalize(permKey);
+                if (!string.IsNullOrWhiteSpace(canonFull)) userAllowedRaw.Add(canonFull);
+            }
+
+            // Sub-user with NO explicit grants gets ONLY the dashboard.
             if (userAllowedRaw.Count == 0)
             {
                 userAllowedRaw.Add("dashboard");
             }
 
-            // Always allow dashboard for active sub-users
             userAllowedRaw.Add("dashboard");
             userAllowedRaw.Add("DASHBOARD");
 
             // Effective Access = SubscribedFeatures ∩ UserAssignedPermissions
-            // A user can NEVER receive a feature that the organization has not subscribed to!
             var effective = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in userAllowedRaw)
             {
@@ -220,7 +206,6 @@ namespace KTransport.API.Services
 
             var canonicalRequested = FeatureConstants.Normalize(featureCode);
 
-            // 1. SaaS Configuration is STRICTLY reserved for Super User
             if (canonicalRequested == FeatureConstants.SAAS_CONFIGURATION)
             {
                 if (IsSuperUser(user))
@@ -230,7 +215,6 @@ namespace KTransport.API.Services
                 return FeatureAuthorizationResult.Forbidden("Access denied: SaaS Configuration is restricted to Organization Super Users.");
             }
 
-            // 2. Check Organization Subscription Level
             var subscribedFeatures = await GetSubscribedFeaturesAsync(tenantId);
             bool isSubscribed = subscribedFeatures.Contains(featureCode) || subscribedFeatures.Contains(canonicalRequested);
 
@@ -239,13 +223,11 @@ namespace KTransport.API.Services
                 return FeatureAuthorizationResult.Forbidden($"Access denied: Organization is not subscribed to module '{featureCode}'.");
             }
 
-            // 3. Super User gets access to any feature subscribed by their organization
             if (IsSuperUser(user))
             {
                 return FeatureAuthorizationResult.Success();
             }
 
-            // 4. Sub User: Verify User-level permission (checking by username, userId, or name claim)
             var role = user.FindFirst(ClaimTypes.Role)?.Value
                        ?? user.FindFirst("role")?.Value
                        ?? "SUB_USER";

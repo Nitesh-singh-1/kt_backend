@@ -103,9 +103,10 @@ public class InvoiceControllerAccessControlTests
     public async Task InvoiceController_PostInvoice_Returns403_WhenPageKeyMissing()
     {
         // User has the BILLING module (via class-level [RequireFeature]) but is missing
-        // the granular `billing.bill_book` page key. The attribute must deny.
-        var filter = new RequirePermissionAttribute("billing.bill_book");
-        var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "billing.view", "dashboard.view" });
+        // the granular `billing.bill_book.create` page key. The attribute must deny.
+        var filter = new RequirePermissionAttribute("billing.bill_book.create");
+        // TASK-042: a `.view`-only grant must NOT satisfy a `.create` attribute.
+        var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "billing.view", "billing.bill_book.view", "dashboard.view" });
 
         await filter.OnAuthorizationAsync(ctx);
 
@@ -118,8 +119,8 @@ public class InvoiceControllerAccessControlTests
     [Fact]
     public async Task InvoiceController_PostInvoice_Succeeds_WhenPageKeyPresent()
     {
-        var filter = new RequirePermissionAttribute("billing.bill_book");
-        var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "billing.view", "billing.bill_book", "dashboard.view" });
+        var filter = new RequirePermissionAttribute("billing.bill_book.create");
+        var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "billing.view", "billing.bill_book.create", "dashboard.view" });
 
         await filter.OnAuthorizationAsync(ctx);
 
@@ -131,7 +132,7 @@ public class InvoiceControllerAccessControlTests
     [Fact]
     public async Task InvoiceController_PostInvoice_Succeeds_ForSuperUserWildcard()
     {
-        var filter = new RequirePermissionAttribute("billing.bill_book");
+        var filter = new RequirePermissionAttribute("billing.bill_book.create");
         var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "*", "admin" }, role: "SUPER_USER");
 
         await filter.OnAuthorizationAsync(ctx);
@@ -143,7 +144,7 @@ public class InvoiceControllerAccessControlTests
     [Fact]
     public async Task InvoiceController_PostInvoice_Returns401_WhenUnauthenticated()
     {
-        var filter = new RequirePermissionAttribute("billing.bill_book");
+        var filter = new RequirePermissionAttribute("billing.bill_book.create");
         var ctx = BuildFilterContext(permissionsReturnedByNav: Array.Empty<string>(), authenticated: false);
 
         await filter.OnAuthorizationAsync(ctx);
@@ -172,6 +173,42 @@ public class InvoiceControllerAccessControlTests
                       .Cast<RequirePermissionAttribute>()
                       .FirstOrDefault();
         Assert.NotNull(attr);
+    }
+
+    // ---------- TASK-042: action-split keys wired on the correct HTTP verbs --
+    [Theory]
+    [InlineData(nameof(InvoiceController.GetUnbilled), "billing.bill_book.view")]
+    [InlineData(nameof(InvoiceController.GetUnbilledParties), "billing.bill_book.view")]
+    [InlineData(nameof(InvoiceController.GetUnbilledByParty), "billing.bill_book.view")]
+    [InlineData(nameof(InvoiceController.CreateInvoice), "billing.bill_book.create")]
+    [InlineData(nameof(InvoiceController.CreateBillBookInvoice), "billing.bill_book.create")]
+    [InlineData(nameof(InvoiceController.BulkBill), "billing.bill_book.create")]
+    public void InvoiceController_BillBookFlowMethods_UseActionSplitPermissionKey(string methodName, string expectedKey)
+    {
+        var mi = typeof(InvoiceController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(mi);
+        var attr = mi!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true)
+                      .Cast<RequirePermissionAttribute>()
+                      .FirstOrDefault();
+        Assert.NotNull(attr);
+
+        // Reflect the private field — the attribute's key is otherwise encapsulated.
+        var fld = typeof(RequirePermissionAttribute)
+            .GetField("_permissionKey", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(fld);
+        var actualKey = (string?)fld!.GetValue(attr);
+        Assert.Equal(expectedKey, actualKey);
+    }
+
+    // ---------- TASK-042: GET /api/invoice/unbilled is `.view` ----------
+    [Fact]
+    public async Task InvoiceController_GetUnbilled_Succeeds_WithOnlyViewKey()
+    {
+        var filter = new RequirePermissionAttribute("billing.bill_book.view");
+        var ctx = BuildFilterContext(permissionsReturnedByNav: new[] { "billing.view", "billing.bill_book.view" });
+
+        await filter.OnAuthorizationAsync(ctx);
+        Assert.Null(ctx.Result);
     }
 
     [Fact]

@@ -58,7 +58,7 @@ namespace KTransport.API.Controllers
         // module-level read endpoints (GetInvoices / GetInvoiceById / UpdateInvoice /
         // VoidInvoice / RecordPayment) stay at the module gate only.
         [HttpGet("unbilled")]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.view")]
         public async Task<ActionResult<List<UnbilledShipmentDto>>> GetUnbilled([FromQuery] string? search = null)
         {
             var result = await _invoiceService.GetUnbilledShipmentsAsync(search);
@@ -66,7 +66,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("unbilled-parties")]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.view")]
         public async Task<ActionResult<List<PartyUnbilledSummaryDto>>> GetUnbilledParties([FromQuery] string? search = null)
         {
             var result = await _invoiceService.GetUnbilledPartiesSummaryAsync(search);
@@ -74,7 +74,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("unbilled-by-party")]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.view")]
         public async Task<ActionResult<List<UnbilledShipmentDto>>> GetUnbilledByParty([FromQuery] string? partyName = null, [FromQuery] long? partyId = null)
         {
             var result = await _invoiceService.GetUnbilledShipmentsByPartyAsync(partyName, partyId);
@@ -82,7 +82,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("bill-book")]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.create")]
         public async Task<ActionResult<BillBookInvoiceResponseDto>> CreateBillBookInvoice([FromBody] CreateBillBookRequestDto request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -94,7 +94,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("bulk-bill")]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.create")]
         public async Task<ActionResult<BulkBillResultDto>> BulkBill([FromBody] BulkBillRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -104,7 +104,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
-        [RequirePermission("billing.bill_book")]
+        [RequirePermission("billing.bill_book.create")]
         public async Task<ActionResult<InvoiceDto>> CreateInvoice([FromBody] CreateInvoiceRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
