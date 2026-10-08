@@ -148,13 +148,18 @@ namespace KTransport.API.Services
                     ((baseFeature.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) || baseFeature.Equals("empty_trips", StringComparison.OrdinalIgnoreCase)) &&
                      (tenantFeatureKeys.Contains("trips") || tenantFeatureKeys.Contains("challan") || tenantFeatureKeys.Contains("trip")));
 
+                bool hasGranularChildrenForRoot = tenantFeatureKeys.Any(k =>
+                    k.StartsWith(rootFeature + ".", StringComparison.OrdinalIgnoreCase) ||
+                    k.StartsWith(normalizedRoot + ".", StringComparison.OrdinalIgnoreCase));
+
+                bool isFeatureSubscribed =
+                    tenantFeatureKeys.Contains(baseFeature) ||
+                    tenantFeatureKeys.Contains(normalizedBase) ||
+                    (!hasGranularChildrenForRoot && (tenantFeatureKeys.Contains(rootFeature) || tenantFeatureKeys.Contains(normalizedRoot))) ||
+                    isParentFeatureSubscribed;
+
                 // Legacy intersection — stays as rollback safety.
-                if (tenantFeatureKeys.Count > 0 &&
-                    !tenantFeatureKeys.Contains(baseFeature) &&
-                    !tenantFeatureKeys.Contains(normalizedBase) &&
-                    !tenantFeatureKeys.Contains(rootFeature) &&
-                    !tenantFeatureKeys.Contains(normalizedRoot) &&
-                    !isParentFeatureSubscribed)
+                if (tenantFeatureKeys.Count > 0 && !isFeatureSubscribed)
                 {
                     continue;
                 }
@@ -445,6 +450,41 @@ namespace KTransport.API.Services
             {
                 var mCode = ResolveModuleCode(perm.FeatureKey);
                 if (mCode == null || !enabledModCodeSet.Contains(mCode)) continue;
+
+                var baseF = perm.FeatureKey;
+                var normF = EntitlementsCatalog.NormalizeFeatureKey(baseF);
+                var rootF = baseF.Contains('.') ? baseF.Substring(0, baseF.IndexOf('.')) : baseF;
+                var normRootF = EntitlementsCatalog.NormalizeFeatureKey(rootF);
+
+                bool hasGranular = allFeatureKeysToPersist.Any(k =>
+                    k.StartsWith(rootF + ".", StringComparison.OrdinalIgnoreCase) ||
+                    k.StartsWith(normRootF + ".", StringComparison.OrdinalIgnoreCase));
+
+                bool isParentAllowed =
+                    (baseF.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) &&
+                     (allFeatureKeysToPersist.Contains("consignments") || allFeatureKeysToPersist.Contains("bilty") || allFeatureKeysToPersist.Contains("gr"))) ||
+                    ((baseF.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) || baseF.Equals("empty_trips", StringComparison.OrdinalIgnoreCase)) &&
+                     (allFeatureKeysToPersist.Contains("trips") || allFeatureKeysToPersist.Contains("challan") || allFeatureKeysToPersist.Contains("trip")));
+
+                bool isPermAllowed =
+                    allFeatureKeysToPersist.Contains(baseF) ||
+                    allFeatureKeysToPersist.Contains(normF) ||
+                    (!hasGranular && (allFeatureKeysToPersist.Contains(rootF) || allFeatureKeysToPersist.Contains(normRootF))) ||
+                    isParentAllowed;
+
+                if (!isPermAllowed)
+                {
+                    // Revoke if previously granted
+                    var existingGrant = await _db.RolePermissions
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(r => r.TenantId == tenantId && (r.RoleId == adminRole.Id || r.RoleName.ToLower() == "admin") && r.PermissionKey == perm.Key && r.RevokedAt == null);
+                    if (existingGrant != null)
+                    {
+                        existingGrant.RevokedAt = DateTime.UtcNow;
+                    }
+                    continue;
+                }
+
                 if (existingAdminPermSet.Contains(perm.Key)) continue;
 
                 _db.RolePermissions.Add(new RolePermission

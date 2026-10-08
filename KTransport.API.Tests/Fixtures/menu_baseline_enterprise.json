@@ -150,7 +150,7 @@
         "title": "Party Directory",
         "path": "/customers",
         "icon": "fileText",
-        "permissionKey": "parties.view",
+        "permissionKey": "master_data.parties.view",
         "badge": null,
         "children": []
       },
@@ -159,7 +159,7 @@
         "title": "Fleet \u0026 Stations",
         "path": "/fleet",
         "icon": "truck",
-        "permissionKey": "fleet.view",
+        "permissionKey": "master_data.fleet.view",
         "badge": null,
         "children": []
       },
@@ -168,7 +168,7 @@
         "title": "Fleet Compliance",
         "path": "/fleet/compliance",
         "icon": "info",
-        "permissionKey": "fleet.view",
+        "permissionKey": "master_data.compliance.view",
         "badge": null,
         "children": []
       },
@@ -177,7 +177,7 @@
         "title": "Tyre Management",
         "path": "/tyres",
         "icon": "truck",
-        "permissionKey": "fleet.view",
+        "permissionKey": "master_data.tyres.view",
         "badge": null,
         "children": []
       },
@@ -186,7 +186,7 @@
         "title": "Spare Parts Stock",
         "path": "/spare-parts",
         "icon": "cog",
-        "permissionKey": "fleet.view",
+        "permissionKey": "master_data.spares.view",
         "badge": null,
         "children": []
       },
@@ -195,7 +195,7 @@
         "title": "Vehicle EMI / Loans",
         "path": "/vehicle-loans",
         "icon": "barChart",
-        "permissionKey": "fleet.view",
+        "permissionKey": "master_data.loans.view",
         "badge": null,
         "children": []
       },
@@ -222,7 +222,7 @@
         "title": "Rate Contracts",
         "path": "/rates",
         "icon": "fileText",
-        "permissionKey": "rates.view",
+        "permissionKey": "master_data.rates.view",
         "badge": null,
         "children": []
       },

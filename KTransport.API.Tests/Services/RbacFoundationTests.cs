@@ -96,7 +96,16 @@ public class RbacFoundationTests
             new Module { Id = 3, Code = "pod",       Name = "POD" },
             new Module { Id = 4, Code = "billing",   Name = "Billing" },
             new Module { Id = 5, Code = "reports",   Name = "Reports" },
-            new Module { Id = 6, Code = "trips",     Name = "Trips" }
+            new Module { Id = 6, Code = "trips",     Name = "Trips" },
+            new Module { Id = 7, Code = "master_data", Name = "Master Data" },
+            new Module { Id = 8, Code = "vendors",    Name = "Vendors" },
+            new Module { Id = 9, Code = "claims",     Name = "Claims" },
+            new Module { Id = 10, Code = "quotations", Name = "Quotations" },
+            new Module { Id = 11, Code = "tracking",   Name = "Tracking" },
+            new Module { Id = 12, Code = "analytics",  Name = "Analytics" },
+            new Module { Id = 13, Code = "system",     Name = "System" },
+            new Module { Id = 14, Code = "trip_settlement", Name = "Trip Settlement" },
+            new Module { Id = 15, Code = "delivery_settlement", Name = "Delivery Settlement" }
         );
         ctx.MenuItems.AddRange(
             new MenuItem { Key = "dashboard", Title = "Dashboard", Path = "/dashboard", Icon = "LayoutDashboard", IsActive = true, DisplayOrder = 1 },
@@ -830,5 +839,107 @@ public class RbacFoundationTests
         var tripsMenu = menu.FirstOrDefault(m => m.Id == "trips");
         Assert.NotNull(tripsMenu);
         Assert.Contains(tripsMenu.Children, c => c.Id == "trip_settlement");
+    }
+
+    [Fact]
+    public async Task GranularMasterData_OnlyEmitsAssignedSubPages_InMenu()
+    {
+        await using var ctx = NewContext();
+        await SeedCatalogsAsync(ctx);
+
+        // Seed full menu rows
+        foreach (var r in MenuCatalogSeedData.Rows)
+        {
+            if (!ctx.MenuItems.Any(m => m.Key == r.Key))
+            {
+                ctx.MenuItems.Add(new MenuItem
+                {
+                    Key = r.Key,
+                    ParentKey = r.ParentKey,
+                    Title = r.Title,
+                    Path = r.Path,
+                    Icon = r.Icon,
+                    PermissionKey = r.PermissionKey,
+                    Badge = r.Badge,
+                    DisplayOrder = r.DisplayOrder,
+                    VisibilityRule = r.VisibilityRule,
+                    IsActive = true
+                });
+            }
+        }
+
+        // Seed full permissions
+        foreach (var f in EntitlementsCatalog.Features)
+        {
+            foreach (var a in f.Actions)
+            {
+                var key = $"{f.FeatureKey}.{a.ToLowerInvariant()}";
+                if (!ctx.Permissions.Any(p => p.Key == key))
+                {
+                    ctx.Permissions.Add(new Permission { Key = key, FeatureKey = f.FeatureKey, Action = a });
+                }
+            }
+        }
+
+        var customTenantId = Guid.NewGuid();
+        ctx.Tenants.Add(new Tenant
+        {
+            Id = customTenantId,
+            Name = "Granular Master Tenant",
+            Code = "GRAN-MASTER",
+            IsActive = true
+        });
+
+        var adminUser = new User
+        {
+            TenantId = customTenantId,
+            Username = "nitesh_admin",
+            FullName = "Nitesh Admin",
+            Email = "nitesh@kt.local",
+            Password = "hash",
+            Role = "admin",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        ctx.Users.Add(adminUser);
+        await ctx.SaveChangesAsync();
+
+        var entService = NewEntitlements(ctx);
+        var navService = NewNav(ctx, entService);
+
+        // Platform Admin assigns ONLY master_data.parties and master_data.fleet (and parent master_data)
+        await entService.WriteTenantEntitlementsAsync(customTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = customTenantId,
+            PlanTier = "Enterprise",
+            EnabledMenuKeys = new List<string>
+            {
+                "dashboard",
+                "consignments",
+                "master_data",
+                "master_data.parties",
+                "master_data.fleet"
+            }
+        }, 1);
+
+        var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", adminUser.Username);
+
+        var masterDataMenu = menu.FirstOrDefault(m => m.Id == "master_data");
+        Assert.NotNull(masterDataMenu);
+
+        var childIds = masterDataMenu.Children.Select(c => c.Id).ToList();
+
+        // Must contain explicitly assigned items
+        Assert.Contains("master_data.parties", childIds);
+        Assert.Contains("master_data.fleet", childIds);
+
+        // Must NOT contain omitted items
+        Assert.DoesNotContain("master_data.tyres", childIds);
+        Assert.DoesNotContain("master_data.spares", childIds);
+        Assert.DoesNotContain("master_data.loans", childIds);
+        Assert.DoesNotContain("master_data.driver_ledger", childIds);
+        Assert.DoesNotContain("master_data.vehicle_claims", childIds);
+        Assert.DoesNotContain("master_data.rates", childIds);
+        Assert.DoesNotContain("master_data.vendor_rates", childIds);
     }
 }

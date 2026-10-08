@@ -53,15 +53,15 @@ namespace KTransport.API.Common
             new("billing.receipts",  "billing", "Money Receipts (MR)",      "/receipts",  "fileText", "billing.view", "Paid MR",      2, null),
 
             // ---- master_data children ----
-            new("master_data.parties",        "master_data", "Party Directory",          "/customers",        "fileText", "parties.view",                     null, 0, null),
-            new("master_data.fleet",          "master_data", "Fleet & Stations",         "/fleet",            "truck",    "fleet.view",                       null, 1, null),
-            new("master_data.compliance",     "master_data", "Fleet Compliance",         "/fleet/compliance", "info",     "fleet.view",                       null, 2, null),
-            new("master_data.tyres",          "master_data", "Tyre Management",          "/tyres",            "truck",    "fleet.view",                       null, 3, null),
-            new("master_data.spares",         "master_data", "Spare Parts Stock",        "/spare-parts",      "cog",      "fleet.view",                       null, 4, null),
-            new("master_data.loans",          "master_data", "Vehicle EMI / Loans",      "/vehicle-loans",    "barChart", "fleet.view",                       null, 5, null),
+            new("master_data.parties",        "master_data", "Party Directory",          "/customers",        "fileText", "master_data.parties.view",         null, 0, null),
+            new("master_data.fleet",          "master_data", "Fleet & Stations",         "/fleet",            "truck",    "master_data.fleet.view",           null, 1, null),
+            new("master_data.compliance",     "master_data", "Fleet Compliance",         "/fleet/compliance", "info",     "master_data.compliance.view",      null, 2, null),
+            new("master_data.tyres",          "master_data", "Tyre Management",          "/tyres",            "truck",    "master_data.tyres.view",           null, 3, null),
+            new("master_data.spares",         "master_data", "Spare Parts Stock",        "/spare-parts",      "cog",      "master_data.spares.view",          null, 4, null),
+            new("master_data.loans",          "master_data", "Vehicle EMI / Loans",      "/vehicle-loans",    "barChart", "master_data.loans.view",           null, 5, null),
             new("master_data.driver_ledger",  "master_data", "Driver Ledger",            "/driver-ledger",    "users",    "master_data.driver_ledger.view",   null, 6, null),
             new("master_data.vehicle_claims", "master_data", "Vehicle Insurance Claims", "/vehicle-claims",   "info",     "master_data.vehicle_claims.view",  null, 7, null),
-            new("master_data.rates",          "master_data", "Rate Contracts",           "/rates",            "fileText", "rates.view",                       null, 8, null),
+            new("master_data.rates",          "master_data", "Rate Contracts",           "/rates",            "fileText", "master_data.rates.view",           null, 8, null),
             new("master_data.vendor_rates",   "master_data", "Vendor Hire Rates",        "/vendor-rates",     "truck",    "master_data.vendor_rates.view",    null, 9, null),
 
             // ---- system children ----
