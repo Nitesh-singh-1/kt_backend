@@ -70,5 +70,114 @@ namespace KTransport.API.Controllers
                 ByTenant = grouped
             });
         }
+
+        [HttpPatch("{id:int}/status")]
+        [HttpPut("{id:int}/status")]
+        public async Task<ActionResult<MenuItemDto>> UpdateStatus(int id, [FromBody] UpdateMenuItemStatusRequest request)
+        {
+            var item = await _db.MenuItems.FindAsync(id);
+            if (item == null)
+            {
+                return NotFound(new { success = false, message = $"Menu item with ID {id} not found." });
+            }
+
+            item.IsActive = request.IsActive;
+            await _db.SaveChangesAsync();
+
+            return Ok(ToDto(item));
+        }
+
+        [HttpPost("batch-status")]
+        public async Task<ActionResult> BatchUpdateStatus([FromBody] BatchUpdateMenuItemStatusRequest request)
+        {
+            IQueryable<Models.MenuItem> query = _db.MenuItems;
+
+            if (request.Ids != null && request.Ids.Count > 0)
+            {
+                query = query.Where(m => request.Ids.Contains(m.Id));
+            }
+            else if (request.Keys != null && request.Keys.Count > 0)
+            {
+                query = query.Where(m => request.Keys.Contains(m.Key));
+            }
+            else
+            {
+                return BadRequest(new { success = false, message = "Either 'ids' or 'keys' must be provided." });
+            }
+
+            var items = await query.ToListAsync();
+            foreach (var item in items)
+            {
+                item.IsActive = request.IsActive;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new
+            {
+                success = true,
+                updatedCount = items.Count,
+                updatedKeys = items.Select(i => i.Key).ToList(),
+                isActive = request.IsActive
+            });
+        }
+
+        [HttpPost("hide-incomplete-master-data")]
+        public async Task<ActionResult> HideIncompleteMasterData()
+        {
+            // Keep Party Directory and Fleet & Stations active; deactivate the other 8 incomplete master data items
+            var allowedKeys = new[] { "master_data.parties", "master_data.fleet" };
+            var items = await _db.MenuItems
+                .Where(m => m.ParentKey == "master_data" && !allowedKeys.Contains(m.Key))
+                .ToListAsync();
+
+            foreach (var item in items)
+            {
+                item.IsActive = false;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new
+            {
+                success = true,
+                message = "Incomplete master data menus have been hidden.",
+                hiddenKeys = items.Select(i => i.Key).ToList()
+            });
+        }
+
+        [HttpPost("reset-master-data")]
+        public async Task<ActionResult> ResetMasterData()
+        {
+            var items = await _db.MenuItems
+                .Where(m => m.ParentKey == "master_data")
+                .ToListAsync();
+
+            foreach (var item in items)
+            {
+                item.IsActive = true;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new
+            {
+                success = true,
+                message = "All master data menus have been restored as active.",
+                activeKeys = items.Select(i => i.Key).ToList()
+            });
+        }
+
+        private static MenuItemDto ToDto(Models.MenuItem m) => new()
+        {
+            Id = m.Id,
+            Key = m.Key,
+            ParentKey = m.ParentKey,
+            Title = m.Title,
+            Path = m.Path,
+            Icon = m.Icon,
+            PermissionKey = m.PermissionKey,
+            Badge = m.Badge,
+            DisplayOrder = m.DisplayOrder,
+            VisibilityRule = m.VisibilityRule,
+            IsActive = m.IsActive
+        };
     }
 }

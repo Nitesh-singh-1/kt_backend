@@ -13,7 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    [RequireFeature(FeatureConstants.GOOD_RECEIPT)]
+    [RequireFeature(FeatureConstants.GOOD_RECEIPT, FeatureConstants.SHIPMENT, "bilty", "consignments")]
     public class ShipmentController : ControllerBase
     {
         private readonly IShipmentService _shipmentService;
@@ -38,7 +38,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
-        [RequirePermission("consignments.all.view", "consignments.create.view")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentById(long id)
         {
             var response = await _shipmentService.GetShipmentByIdAsync(id);
@@ -47,7 +47,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("by-no/{shipmentNo}")]
-        [RequirePermission("consignments.all.view", "consignments.create.view")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentByNo(string shipmentNo)
         {
             var response = await _shipmentService.GetShipmentByNoAsync(shipmentNo);
@@ -56,7 +56,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
-        [RequirePermission("consignments.all.view", "consignments.create.view")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentListResponse>> GetAllShipments(
             [FromQuery] ShipmentStatus? status,
             [FromQuery] TaxTreatment? taxTreatment,

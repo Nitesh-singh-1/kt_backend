@@ -12,7 +12,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    [RequireFeature(FeatureConstants.VEHICLE)]
+    [RequireFeature(FeatureConstants.VEHICLE, FeatureConstants.GOOD_RECEIPT, FeatureConstants.MANIFEST)]
     public class FleetController : ControllerBase
     {
         private readonly IFleetService _fleetService;
@@ -24,7 +24,7 @@ namespace KTransport.API.Controllers
 
         // Vehicles
         [HttpGet("vehicles")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<VehicleDto>>> GetVehicles(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -36,7 +36,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("vehicles/lookup")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<VehicleLookupDto>>> GetVehicleLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetVehicleLookupAsync(q);
@@ -44,7 +44,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("vehicles/{id:long}")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<VehicleDto>> GetVehicleById(long id)
         {
             var result = await _fleetService.GetVehicleByIdAsync(id);
@@ -82,7 +82,7 @@ namespace KTransport.API.Controllers
 
         // Drivers
         [HttpGet("drivers")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<DriverDto>>> GetDrivers(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -94,7 +94,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("drivers/lookup")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<DriverLookupDto>>> GetDriverLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetDriverLookupAsync(q);
@@ -102,7 +102,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("drivers/{id:long}")]
-        [RequirePermission("master_data.fleet.view")]
+        [RequirePermission("master_data.fleet.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<DriverDto>> GetDriverById(long id)
         {
             var result = await _fleetService.GetDriverByIdAsync(id);
@@ -149,7 +149,7 @@ namespace KTransport.API.Controllers
 
         // Locations
         [HttpGet("locations")]
-        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<LocationDto>>> GetLocations(
             [FromQuery] string? search = null,
             [FromQuery] int? page = null,
@@ -161,7 +161,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("locations/lookup")]
-        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<List<LocationLookupDto>>> GetLocationLookup([FromQuery] string? q = null)
         {
             var result = await _fleetService.GetLocationLookupAsync(q);
@@ -169,7 +169,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("locations/{id:long}")]
-        [RequirePermission("master_data.fleet.view", "master_data.parties.view")]
+        [RequirePermission("master_data.fleet.view", "master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "trips.view", "trips.create")]
         public async Task<ActionResult<LocationDto>> GetLocationById(long id)
         {
             var result = await _fleetService.GetLocationByIdAsync(id);

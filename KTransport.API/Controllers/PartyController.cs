@@ -13,7 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    [RequireFeature(FeatureConstants.PARTY)]
+    [RequireFeature(FeatureConstants.PARTY, FeatureConstants.GOOD_RECEIPT, FeatureConstants.BILLING, FeatureConstants.MANIFEST)]
     public class PartyController : ControllerBase
     {
         private readonly IPartyService _partyService;
@@ -24,7 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
-        [RequirePermission("master_data.parties.view")]
+        [RequirePermission("master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create")]
         public async Task<ActionResult<List<PartyDto>>> GetParties(
             [FromQuery] string? search = null,
             [FromQuery] PartyType? partyType = null,
@@ -38,7 +38,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("lookup")]
-        [RequirePermission("master_data.parties.view")]
+        [RequirePermission("master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create", "billing.view", "trips.view")]
         public async Task<ActionResult<List<PartyLookupDto>>> GetPartyLookup(
             [FromQuery] string? q = null,
             [FromQuery] PartyType? partyType = null)
@@ -48,7 +48,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
-        [RequirePermission("master_data.parties.view")]
+        [RequirePermission("master_data.parties.view", "consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create", "consignments.create.create")]
         public async Task<ActionResult<PartyDto>> GetPartyById(long id)
         {
             var party = await _partyService.GetPartyByIdAsync(id);

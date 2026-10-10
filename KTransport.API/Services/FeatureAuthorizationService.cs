@@ -53,13 +53,30 @@ namespace KTransport.API.Services
         /// </summary>
         public async Task<HashSet<string>> GetSubscribedFeaturesAsync(Guid tenantId)
         {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Read from canonical tenant_modules table (TASK-049)
+            var tenantModules = await (from tm in _context.TenantModules.IgnoreQueryFilters()
+                                       join m in _context.Modules.IgnoreQueryFilters() on tm.ModuleId equals m.Id
+                                       where tm.TenantId == tenantId && tm.EnabledUntil == null
+                                       select m.Code).ToListAsync();
+
+            foreach (var modCode in tenantModules)
+            {
+                result.Add(modCode);
+                var canonical = FeatureConstants.Normalize(modCode);
+                if (!string.IsNullOrWhiteSpace(canonical))
+                {
+                    result.Add(canonical);
+                }
+            }
+
+            // 2. Read from tenant_entitlement_subscriptions table
             var subscription = await _context.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
                 .Where(s => s.TenantId == tenantId && s.EffectiveUntil == null)
                 .OrderByDescending(s => s.EffectiveFrom)
                 .FirstOrDefaultAsync();
-
-            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (subscription != null && subscription.EnabledFeatureKeys != null && subscription.EnabledFeatureKeys.Count > 0)
             {
@@ -72,6 +89,10 @@ namespace KTransport.API.Services
                         result.Add(canonical);
                     }
                 }
+            }
+
+            if (result.Count > 0)
+            {
                 return result;
             }
 

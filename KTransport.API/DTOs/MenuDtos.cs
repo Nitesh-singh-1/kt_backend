@@ -35,4 +35,16 @@ namespace KTransport.API.DTOs
         public int TotalMismatches { get; set; }
         public List<MenuParityReportTenantGroupDto> ByTenant { get; set; } = new();
     }
+
+    public class UpdateMenuItemStatusRequest
+    {
+        public bool IsActive { get; set; }
+    }
+
+    public class BatchUpdateMenuItemStatusRequest
+    {
+        public List<string>? Keys { get; set; }
+        public List<int>? Ids { get; set; }
+        public bool IsActive { get; set; }
+    }
 }
