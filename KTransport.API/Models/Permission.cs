@@ -22,5 +22,16 @@ namespace KTransport.API.Models
         public string? Description { get; set; }
 
         public int DisplayOrder { get; set; } = 0;
+
+        /// <summary>
+        /// TASK-049 Option B: FK to <see cref="Module"/>.Id. Added NOT NULL after
+        /// the <c>MenuRbacNormalization</c> migration backfills from
+        /// <see cref="FeatureKey"/> prefix. Lets admin role seeding and menu
+        /// rendering become pure structural joins instead of fuzzy string
+        /// matchers.
+        /// </summary>
+        public int ModuleId { get; set; }
+
+        public virtual Module? Module { get; set; }
     }
 }

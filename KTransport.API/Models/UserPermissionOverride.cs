@@ -24,6 +24,15 @@ namespace KTransport.API.Models
 
         public string PermissionKey { get; set; } = string.Empty;
 
+        /// <summary>
+        /// TASK-049 Option B: FK to <see cref="Permission.Id"/>. Nullable to
+        /// cover legacy rows; new inserts always set it. Dual-written with
+        /// <see cref="PermissionKey"/>.
+        /// </summary>
+        public int? PermissionId { get; set; }
+
+        public virtual Permission? Permission { get; set; }
+
         /// <summary>true = extra grant; false = explicit revoke of a role-inherited grant.</summary>
         public bool IsGranted { get; set; } = true;
 

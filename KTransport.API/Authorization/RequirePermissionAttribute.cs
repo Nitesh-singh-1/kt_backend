@@ -81,8 +81,8 @@ namespace KTransport.API.Authorization
                        ?? string.Empty;
 
             // Resolve the user from the JWT identity claim first, then fall back to
-            // name claim. NavigationService accepts either (it looks the id up in the
-            // UserOverridesJson map, which is keyed on usernames OR numeric ids).
+            // name claim. NavigationService accepts either (it looks the id up in
+            // the user_permission_overrides table, keyed on usernames or numeric ids).
             var userIdOrName = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
                                ?? user.FindFirst(ClaimTypes.Name)?.Value
                                ?? user.FindFirst("sub")?.Value

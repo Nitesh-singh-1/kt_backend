@@ -11,11 +11,14 @@ using Microsoft.Extensions.Logging;
 namespace KTransport.API.Services
 {
     /// <summary>
-    /// TASK-045 Phase 3: menu_items catalog is the sole production source for
-    /// <see cref="NavigationService.GetDynamicMenuAsync"/>. The Phase 1/2 shadow
-    /// helpers (<see cref="BuildMenuIdSetFromTablesAsync"/> +
-    /// <see cref="LogParityIfShadowAsync"/>) are kept behind <c>[Obsolete]</c>
-    /// for one release in case any dev script still invokes them.
+    /// TASK-049 Option B: menu rendering is a structural filter — a row is
+    /// visible iff the user's effective permission set contains its
+    /// PermissionKey (or its row.Key, as a fallback for parent-group rows
+    /// whose permission_key is a .module placeholder not present in the
+    /// permissions catalog). The TASK-048 extended IsVisible matcher
+    /// (dotted-alias, NormalizeFeatureKey, .view fallback) is DELETED — the
+    /// permissions catalog is now authoritative and permission keys are the
+    /// identifiers downstream code expects.
     /// </summary>
     public class MenuCatalogService : IMenuCatalogService
     {
@@ -41,124 +44,47 @@ namespace KTransport.API.Services
             return rows.Select(ToDto).ToList();
         }
 
-        [Obsolete("Phase 1/2 shadow helper. Phase 3 removed the dual-read harness. Kept for one release in case any dev script invokes it. Will be deleted in next release.")]
+        [Obsolete("TASK-049 Option B deleted the shadow-read dual-matcher. Kept as a thin wrapper for one release in case any dev script invokes it.")]
         public async Task<HashSet<string>> BuildMenuIdSetFromTablesAsync(
             Guid tenantId,
             int? userId,
             string? userRole,
             IReadOnlyCollection<string> effectivePermissionKeys)
         {
-            var effective = new HashSet<string>(
-                effectivePermissionKeys ?? Array.Empty<string>(),
-                StringComparer.OrdinalIgnoreCase);
-
-            var rows = await _db.MenuItems
-                .AsNoTracking()
-                .Where(m => m.IsActive)
-                .OrderBy(m => m.ParentKey)
-                .ThenBy(m => m.DisplayOrder)
-                .ToListAsync();
-
-            var byParent = rows
-                .Where(r => r.ParentKey != null)
-                .GroupBy(r => r.ParentKey!)
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-
+            var entitlements = new TenantMenuEntitlementsDto { TenantId = tenantId, Reports = new() };
+            var effective = new HashSet<string>(effectivePermissionKeys ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            var menu = await BuildMenuFromTablesAsync(effective, entitlements);
             var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            bool wildcardSet = effective.Contains("*");
-
-            foreach (var top in rows.Where(r => r.ParentKey == null))
+            void collect(DynamicMenuItemDto i)
             {
-                bool topVisible = wildcardSet
-                                  || effective.Contains(top.Key)
-                                  || (!string.IsNullOrWhiteSpace(top.PermissionKey) && effective.Contains(top.PermissionKey))
-                                  || (!string.IsNullOrWhiteSpace(top.PermissionKey) && effective.Contains(top.PermissionKey + ".view"))
-                                  || string.IsNullOrWhiteSpace(top.PermissionKey);
-
-                var visibleChildren = new List<MenuItem>();
-                if (byParent.TryGetValue(top.Key, out var children))
-                {
-                    foreach (var c in children)
-                    {
-                        bool childVisible = wildcardSet
-                                            || effective.Contains(c.Key)
-                                            || (!string.IsNullOrWhiteSpace(c.PermissionKey) && effective.Contains(c.PermissionKey))
-                                            || (!string.IsNullOrWhiteSpace(c.PermissionKey) && effective.Contains(c.PermissionKey + ".view"))
-                                            || string.IsNullOrWhiteSpace(c.PermissionKey);
-                        if (childVisible) visibleChildren.Add(c);
-                    }
-                }
-
-                bool isParentGroup = string.IsNullOrWhiteSpace(top.Path);
-                if (isParentGroup)
-                {
-                    if (visibleChildren.Count == 0) continue;
-                    if (!topVisible) continue;
-                }
-                else
-                {
-                    if (!topVisible) continue;
-                }
-
-                emitted.Add(top.Key);
-                foreach (var c in visibleChildren) emitted.Add(c.Key);
+                emitted.Add(i.Id);
+                if (i.Children != null) foreach (var c in i.Children) collect(c);
             }
-
+            foreach (var m in menu) collect(m);
             return emitted;
         }
 
-        [Obsolete("Phase 1/2 shadow helper. Phase 3 removed the dual-read harness. Kept for one release in case any dev script invokes it. Will be deleted in next release.")]
-        public async Task LogParityIfShadowAsync(
+        [Obsolete("TASK-049 Option B deleted the parity shadow log. Kept as a no-op for one release.")]
+        public Task LogParityIfShadowAsync(
             Guid tenantId,
             int? userId,
             string? userRole,
             HashSet<string> codeTreeIds,
-            HashSet<string> tablesIds)
-        {
-            try
-            {
-                bool IsDeferredReportChild(string id) =>
-                    id.StartsWith("reports.", StringComparison.OrdinalIgnoreCase);
-
-                var codeOnly = codeTreeIds
-                    .Except(tablesIds, StringComparer.OrdinalIgnoreCase)
-                    .Where(id => !IsDeferredReportChild(id))
-                    .ToList();
-                var tablesOnly = tablesIds
-                    .Except(codeTreeIds, StringComparer.OrdinalIgnoreCase)
-                    .Where(id => !IsDeferredReportChild(id))
-                    .ToList();
-
-                if (codeOnly.Count == 0 && tablesOnly.Count == 0) return;
-
-                _log.LogWarning(
-                    "menu_parity_mismatch tenant={TenantId} user={UserId} role={Role} code_only=[{CodeOnlyKeys}] tables_only=[{TablesOnlyKeys}]",
-                    tenantId, userId, userRole, string.Join(",", codeOnly), string.Join(",", tablesOnly));
-
-                _db.MenuParityLogs.Add(new MenuParityLog
-                {
-                    TenantId = tenantId,
-                    UserId = userId,
-                    UserRole = userRole,
-                    CodeOnlyKeys = codeOnly,
-                    TablesOnlyKeys = tablesOnly,
-                    LoggedAt = DateTime.UtcNow
-                });
-                await _db.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "menu_parity dual-read logging failed tenant={TenantId}", tenantId);
-            }
-        }
+            HashSet<string> tablesIds) => Task.CompletedTask;
 
         /// <summary>
-        /// TASK-045 Phase 3: sole production path. Table-authoritative menu
-        /// builder. Loads <c>menu_items</c> rows, filters by
-        /// <paramref name="effectiveKeys"/>, and appends per-tenant conditional
-        /// children for the <c>reports</c> parent
-        /// (<c>visibility_rule='report_entitlement'</c>). Returns a
-        /// ready-to-serialize list of <see cref="DynamicMenuItemDto"/>.
+        /// TASK-049 Option B: the sole production menu builder.
+        ///
+        /// Visibility rule (per menu.md §5.4):
+        ///   - SUPER_USER wildcard '*': every active menu_items row.
+        ///   - Else a leaf is visible iff <c>effective.Contains(row.PermissionKey)</c>
+        ///     OR <c>effective.Contains(row.Key)</c> (back-compat for the
+        ///     legacy NavigationService(ctx) ctor path that still passes
+        ///     feature keys instead of permission keys).
+        ///   - A parent-group row (no path) is emitted iff any of its
+        ///     children are visible.
+        ///   - The <c>reports</c> parent appends per-tenant children from
+        ///     <c>entitlements.Reports</c> (visibility_rule='report_entitlement').
         /// </summary>
         public async Task<List<DynamicMenuItemDto>> BuildMenuFromTablesAsync(
             HashSet<string> effectiveKeys,
@@ -178,16 +104,19 @@ namespace KTransport.API.Services
                 .GroupBy(r => r.ParentKey!)
                 .ToDictionary(g => g.Key, g => g.OrderBy(x => x.DisplayOrder).ToList(), StringComparer.OrdinalIgnoreCase);
 
-            // Super-user wildcard: short-circuits every permission check.
             bool wildcard = effective.Contains("*");
 
+            // Structural filter — no fuzzy matching, no dotted-alias, no
+            // NormalizeFeatureKey. The authoritative identifiers are
+            // menu_items.key and menu_items.permission_key.
             bool IsVisible(MenuItem row)
             {
                 if (wildcard) return true;
                 if (string.IsNullOrWhiteSpace(row.PermissionKey)) return true;
-                return effective.Contains(row.PermissionKey)
-                       || effective.Contains(row.PermissionKey + ".view")
-                       || effective.Contains(row.Key);
+
+                if (effective.Contains(row.Key)) return true;
+                if (effective.Contains(row.PermissionKey)) return true;
+                return false;
             }
 
             var reportsByKey = (entitlements?.Reports ?? new List<ReportEntitlementItemDto>())
@@ -199,7 +128,6 @@ namespace KTransport.API.Services
             foreach (var top in rows.Where(r => r.ParentKey == null).OrderBy(r => r.DisplayOrder))
             {
                 bool isParentGroup = string.IsNullOrWhiteSpace(top.Path);
-                if (!isParentGroup && !IsVisible(top)) continue;
 
                 var dto = new DynamicMenuItemDto
                 {
@@ -230,9 +158,7 @@ namespace KTransport.API.Services
                     }
                 }
 
-                // Reports children: visibility_rule='report_entitlement' appends
-                // dynamic children from entitlements.Reports (enabled only, with
-                // per-report permission gating via effective keys).
+                // Reports children: visibility_rule='report_entitlement'.
                 if (string.Equals(top.VisibilityRule, "report_entitlement", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (var rep in reportsByKey)
@@ -259,9 +185,15 @@ namespace KTransport.API.Services
                     }
                 }
 
-                // Parent groups (no path) are only emitted when they have at
-                // least one visible child or top is explicitly visible.
-                if (isParentGroup && dto.Children.Count == 0 && !IsVisible(top)) continue;
+                if (isParentGroup)
+                {
+                    // Parent group needs at least one visible child.
+                    if (dto.Children.Count == 0 && !IsVisible(top)) continue;
+                }
+                else
+                {
+                    if (!IsVisible(top)) continue;
+                }
 
                 result.Add(dto);
             }

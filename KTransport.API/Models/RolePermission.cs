@@ -38,6 +38,17 @@ namespace KTransport.API.Models
         /// <summary>Semantic FK to <see cref="Permission.Key"/>; stored as string.</summary>
         public string PermissionKey { get; set; } = string.Empty;
 
+        /// <summary>
+        /// TASK-049 Option B: FK to <see cref="Permission.Id"/>. Nullable
+        /// because legacy rows backfilled by <c>MenuRbacNormalization</c>
+        /// migration — new inserts set it unconditionally. Dual-written with
+        /// <see cref="PermissionKey"/> for audit and rollback safety per
+        /// ADR §Y.
+        /// </summary>
+        public int? PermissionId { get; set; }
+
+        public virtual Permission? Permission { get; set; }
+
         public DateTime GrantedAt { get; set; } = DateTime.UtcNow;
 
         public int? GrantedBy { get; set; }

@@ -655,11 +655,16 @@ public class RbacFoundationTests
         Assert.Contains("reports", activeModules);
         Assert.Contains("dashboard", activeModules);
 
-        // Verify effective permissions for client_admin
+        // Verify effective permissions for client_admin. TASK-049 Option B:
+        // admin role is seeded with every permission whose module is in the
+        // enabled tenant_modules set (gr→bilty, challan→trips). The old
+        // auto-grant branches for delivery_settlement / trip_settlement are
+        // DELETED — those stay off unless explicitly selected.
         var effective = await entService.ComputeEffectivePermissionsFromTablesAsync(customTenantId, adminUser.Id, "admin");
         Assert.Contains("consignments.create.create", effective);
         Assert.Contains("consignments.all.view", effective);
         Assert.Contains("trips.view", effective);
+        Assert.DoesNotContain("delivery_settlement.view", effective); // menu.md §2 bug 3 regression gate.
 
         // Verify dynamic menu generated for client_admin
         var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", "client_admin");
@@ -822,12 +827,14 @@ public class RbacFoundationTests
         var entService = NewEntitlements(ctx);
         var navService = NewNav(ctx, entService);
 
-        // Provision tenant with consignments (bilty) and trips
+        // TASK-049 Option B: no more parent→child auto-grant. Delivery
+        // Settlement and Trip Settlement appear in the menu ONLY when their
+        // modules are explicitly in the request. Provision all four.
         await entService.WriteTenantEntitlementsAsync(customTenantId, new TenantMenuEntitlementsDto
         {
             TenantId = customTenantId,
             PlanTier = "Enterprise",
-            EnabledMenuKeys = new List<string> { "consignments", "trips" }
+            ModuleCodes = new List<string> { "bilty", "trips", "delivery_settlement", "trip_settlement" }
         }, 1);
 
         var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", adminUser.Username);
@@ -907,19 +914,15 @@ public class RbacFoundationTests
         var entService = NewEntitlements(ctx);
         var navService = NewNav(ctx, entService);
 
-        // Platform Admin assigns ONLY master_data.parties and master_data.fleet (and parent master_data)
+        // TASK-049 Option B: platform-admin grants are now module-level.
+        // Admin sees every sub-page of an enabled module; granular
+        // per-sub-page access must be enforced through role_permissions
+        // on a non-admin role, not through the module list.
         await entService.WriteTenantEntitlementsAsync(customTenantId, new TenantMenuEntitlementsDto
         {
             TenantId = customTenantId,
             PlanTier = "Enterprise",
-            EnabledMenuKeys = new List<string>
-            {
-                "dashboard",
-                "consignments",
-                "master_data",
-                "master_data.parties",
-                "master_data.fleet"
-            }
+            ModuleCodes = new List<string> { "dashboard", "bilty", "master_data" }
         }, 1);
 
         var menu = await navService.GetDynamicMenuAsync(customTenantId, "admin", adminUser.Username);
@@ -928,18 +931,10 @@ public class RbacFoundationTests
         Assert.NotNull(masterDataMenu);
 
         var childIds = masterDataMenu.Children.Select(c => c.Id).ToList();
-
-        // Must contain explicitly assigned items
+        // Full sub-page coverage for admin.
         Assert.Contains("master_data.parties", childIds);
         Assert.Contains("master_data.fleet", childIds);
-
-        // Must NOT contain omitted items
-        Assert.DoesNotContain("master_data.tyres", childIds);
-        Assert.DoesNotContain("master_data.spares", childIds);
-        Assert.DoesNotContain("master_data.loans", childIds);
-        Assert.DoesNotContain("master_data.driver_ledger", childIds);
-        Assert.DoesNotContain("master_data.vehicle_claims", childIds);
-        Assert.DoesNotContain("master_data.rates", childIds);
-        Assert.DoesNotContain("master_data.vendor_rates", childIds);
+        Assert.Contains("master_data.tyres", childIds);
+        Assert.Contains("master_data.driver_ledger", childIds);
     }
 }

@@ -414,6 +414,122 @@ public class MenuCatalogServiceTests
         Assert.Equal(5, reportChildren.Count);
     }
 
+    // ============================================================
+    // TASK-049 Option B — the dotted-alias matcher is DELETED. Visibility
+    // is now a structural equality check against row.Key / row.PermissionKey.
+    // Replacement test: when effective contains the row.Key directly, the
+    // row is visible.
+    // ============================================================
+    [Fact]
+    public async Task BuildMenuFromTablesAsync_matches_row_key_directly()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+
+        var effective = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "dashboard", "dashboard.view",
+            "consignments",            // parent group
+            "delivery_settlement"      // leaf under consignments
+        };
+        var entitlements = new TenantMenuEntitlementsDto { TenantId = TestTenantId, Reports = new() };
+
+        var svc = NewService(ctx);
+        var menu = await svc.BuildMenuFromTablesAsync(effective, entitlements);
+
+        var consignments = menu.FirstOrDefault(m => m.Id == "consignments");
+        Assert.NotNull(consignments);
+        Assert.Contains(consignments!.Children, c => c.Id == "delivery_settlement");
+    }
+
+    // Regression: WriteTenantEntitlementsAsync must never mutate the global
+    // menu_items.is_active flag. Confirms the TASK-048 invariant.
+    [Fact]
+    public async Task WriteTenantEntitlements_does_not_modify_menu_items_IsActive()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+
+        var row = await ctx.MenuItems.FirstAsync(m => m.Key == "delivery_settlement");
+        Assert.True(row.IsActive);
+        var rowId = row.Id;
+
+        // Minimal subscription so Write path has something to update.
+        ctx.TenantEntitlementSubscriptions.Add(new TenantEntitlementSubscription
+        {
+            TenantId = TestTenantId,
+            PlanTier = "Enterprise",
+            EnabledFeatureKeys = new List<string> { "dashboard" },
+            EffectiveFrom = DateTime.UtcNow,
+            EffectiveUntil = null
+        });
+        await ctx.SaveChangesAsync();
+
+        var ent = new EntitlementsService(ctx, NullLogger<EntitlementsService>.Instance);
+
+        // Cycle: assign then revoke the delivery_settlement feature.
+        await ent.WriteTenantEntitlementsAsync(TestTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = TestTenantId,
+            PlanTier = "Enterprise",
+            EnabledMenuKeys = new List<string> { "dashboard", "consignments", "consignments.delivery_settlement" },
+            Reports = new()
+        }, userId: null);
+
+        var afterAssign = await ctx.MenuItems.AsNoTracking().FirstAsync(m => m.Id == rowId);
+        Assert.True(afterAssign.IsActive, "menu_items.IsActive must not be flipped by assign");
+
+        await ent.WriteTenantEntitlementsAsync(TestTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = TestTenantId,
+            PlanTier = "Enterprise",
+            EnabledMenuKeys = new List<string> { "dashboard" },
+            Reports = new()
+        }, userId: null);
+
+        var afterRevoke = await ctx.MenuItems.AsNoTracking().FirstAsync(m => m.Id == rowId);
+        Assert.True(afterRevoke.IsActive, "menu_items.IsActive must not be flipped by revoke");
+    }
+
+    // TASK-049 Option B: tenant has `bilty` ONLY → sidebar must NOT show
+    // `delivery_settlement`. Regression gate for menu.md §2 bug 3.
+    [Fact]
+    public async Task BuildMenu_new_query_hides_submodule_when_tenant_module_absent()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+
+        // Seed a minimal module catalog so the structural writer resolves.
+        ctx.Modules.AddRange(
+            new Module { Id = 1, Code = "dashboard", Name = "Dashboard" },
+            new Module { Id = 2, Code = "bilty",     Name = "Bilty" },
+            new Module { Id = 15, Code = "delivery_settlement", Name = "Delivery Settlement" },
+            new Module { Id = 13, Code = "system",   Name = "System" }
+        );
+        ctx.Permissions.AddRange(
+            new Permission { Id = 1, Key = "dashboard.view",             FeatureKey = "dashboard",            Action = "View", ModuleId = 1 },
+            new Permission { Id = 2, Key = "consignments.view",          FeatureKey = "consignments",         Action = "View", ModuleId = 2 },
+            new Permission { Id = 3, Key = "consignments.create",        FeatureKey = "consignments.create",  Action = "Create", ModuleId = 2 },
+            new Permission { Id = 4, Key = "delivery_settlement.view",   FeatureKey = "delivery_settlement",  Action = "View", ModuleId = 15 }
+        );
+        ctx.Users.Add(new User { Id = 42, TenantId = TestTenantId, Username = "admin", Password = "x", Role = "admin", IsActive = true, CreatedAt = DateTime.UtcNow });
+        await ctx.SaveChangesAsync();
+
+        var ent = new EntitlementsService(ctx, NullLogger<EntitlementsService>.Instance);
+        await ent.WriteTenantEntitlementsAsync(TestTenantId, new TenantMenuEntitlementsDto
+        {
+            TenantId = TestTenantId,
+            ModuleCodes = new List<string> { "bilty" }
+        }, userId: 1);
+
+        var nav = new NavigationService(ctx, ent, NullLogger<NavigationService>.Instance);
+        var menu = await nav.GetDynamicMenuAsync(TestTenantId, "admin", "42");
+
+        var consignments = menu.FirstOrDefault(m => m.Id == "consignments");
+        Assert.NotNull(consignments);
+        Assert.DoesNotContain(consignments!.Children, c => c.Id == "delivery_settlement");
+    }
+
     // Every top-level/child catalog Id is honored via the legacy NavigationService(ctx) ctor.
     [Fact]
     public async Task Phase3_EveryTopLevelId_HasParentNullRowInCatalog()

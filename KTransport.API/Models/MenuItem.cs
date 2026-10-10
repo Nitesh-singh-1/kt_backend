@@ -44,5 +44,17 @@ namespace KTransport.API.Models
 
         /// <summary>Soft-delete. Phase 2+ admin UI uses this instead of DELETE.</summary>
         public bool IsActive { get; set; } = true;
+
+        /// <summary>
+        /// TASK-049 Option B: FK to <see cref="Module"/>.Id. Backfilled by the
+        /// <c>MenuRbacNormalization</c> migration from <see cref="Key"/> /
+        /// <see cref="ParentKey"/>. The structural menu join uses this column
+        /// (instead of fuzzy string lookups on <see cref="Key"/> or
+        /// <see cref="PermissionKey"/>). Legacy string columns stay through
+        /// Phase A for the one-release transition and are dropped in Phase B.
+        /// </summary>
+        public int ModuleId { get; set; }
+
+        public virtual Module? Module { get; set; }
     }
 }

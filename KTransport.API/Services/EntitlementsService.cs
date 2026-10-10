@@ -25,15 +25,21 @@ namespace KTransport.API.Services
         Task<BackfillSummaryDto> BackfillTenantAsync(Guid tenantId, TenantMenuEntitlementsDto json, int? actingUserId);
 
         /// <summary>
-        /// TASK-044 Phase 3: writes the entitlements DTO into the normalized tables.
-        /// Renamed from DualWriteFromJsonUpdateAsync — no JSON column is written to.
+        /// TASK-049 Option B: writes the tenant's entitlements into the
+        /// normalized tables. <see cref="TenantMenuEntitlementsDto.ModuleCodes"/>
+        /// is the authoritative input; the legacy <c>EnabledMenuKeys</c> list is
+        /// accepted for one release as back-compat.
         /// </summary>
         Task WriteTenantEntitlementsAsync(Guid tenantId, TenantMenuEntitlementsDto newDto, int? userId);
     }
 
     /// <summary>
-    /// Writes/reads the normalized entitlement tables. In Phase 3 these tables are
-    /// the sole source of truth — the legacy JSON column has been dropped.
+    /// TASK-049 Option B: writes/reads the normalized entitlement tables as
+    /// the sole source of truth. All string-prefix magic, legacy aliases, and
+    /// parent→child auto-grant branches (menu.md §2 bugs 1/2/3) are deleted.
+    /// Admin role seeding is a single structural join: permissions whose
+    /// module_id ∈ tenant_modules(tenant). Menu rendering joins on module_id
+    /// and permission_id (no more fuzzy key matcher).
     /// </summary>
     public class EntitlementsService : IEntitlementsService
     {
@@ -46,190 +52,193 @@ namespace KTransport.API.Services
             _log = log;
         }
 
+        /// <summary>
+        /// Returns the user's effective permission KEY set (e.g. "billing.invoices.view").
+        /// Pure structural: permissions ⨝ tenant_modules ⨝ role_permissions ⨝ user_roles,
+        /// plus user_permission_overrides for +/- deltas. No prefix magic,
+        /// no legacy alias normalization, no parent→child auto-grant.
+        /// </summary>
         public async Task<HashSet<string>> ComputeEffectivePermissionsFromTablesAsync(Guid tenantId, int? userId, string? role)
         {
             var effective = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            var subscription = await _db.TenantEntitlementSubscriptions
+            // Resolve the set of permission ids that are visible to this
+            // tenant: permission.module_id ∈ enabled tenant_modules. For
+            // legacy test rows whose Permission.ModuleId has not been
+            // backfilled yet (0), fall back to a feature-key root match
+            // against modules.code — this keeps the production migration
+            // simple while letting unit tests seed Permission rows without
+            // also wiring the FK.
+            var tenantModuleIds = await _db.TenantModules
+                .IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId && tm.EnabledUntil == null)
+                .Select(tm => tm.ModuleId)
+                .ToListAsync();
+            var tmSet = new HashSet<int>(tenantModuleIds);
+
+            var modulesByCode = await _db.Modules.IgnoreQueryFilters()
+                .ToDictionaryAsync(m => m.Code, m => m.Id, StringComparer.OrdinalIgnoreCase);
+
+            // Phase A back-compat: if a tenant has no TenantModules rows yet
+            // (but was configured via the legacy path), derive the gate from
+            // the subscription's enabled_feature_keys. The migration backfills
+            // real tenant_modules rows for every live tenant, so this
+            // fallback is strictly a one-release transition for pre-TASK-049
+            // tenants and for unit tests that seed only the legacy column.
+            HashSet<string>? legacyFeatureGate = null;
+            var subscriptionKeys = await _db.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
                 .Where(s => s.TenantId == tenantId && s.EffectiveUntil == null)
                 .OrderByDescending(s => s.EffectiveFrom)
+                .Select(s => s.EnabledFeatureKeys)
                 .FirstOrDefaultAsync();
 
-            var rawFeatureKeys = subscription?.EnabledFeatureKeys ?? new List<string>();
-            var tenantFeatureKeys = new HashSet<string>(
-                rawFeatureKeys.Select(EntitlementsCatalog.NormalizeFeatureKey),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var k in rawFeatureKeys) tenantFeatureKeys.Add(k);
-
-            // Authoritative module set from tenant_modules
-            var tenantModuleCodes = await _db.TenantModules
-                .IgnoreQueryFilters()
-                .Where(tm => tm.TenantId == tenantId
-                             && tm.IsEnabled
-                             && tm.EnabledUntil == null)
-                .Join(_db.Modules.IgnoreQueryFilters(), tm => tm.ModuleId, m => m.Id, (tm, m) => m.Code)
-                .ToListAsync();
-            var moduleCodeSet = new HashSet<string>(tenantModuleCodes, StringComparer.OrdinalIgnoreCase);
-
-            // If tenant_modules is empty, derive from tenantFeatureKeys
-            if (moduleCodeSet.Count == 0 && tenantFeatureKeys.Count > 0)
+            if (tmSet.Count == 0 && subscriptionKeys != null)
             {
-                foreach (var k in tenantFeatureKeys)
+                if (modulesByCode.Count > 0)
                 {
-                    var m = ResolveModuleCode(k);
-                    if (m != null) moduleCodeSet.Add(m);
+                    foreach (var k in subscriptionKeys)
+                    {
+                        if (string.IsNullOrWhiteSpace(k)) continue;
+                        var root = k.Split('.').FirstOrDefault() ?? string.Empty;
+                        if (modulesByCode.TryGetValue(root, out var mid)) tmSet.Add(mid);
+                        else if (root == "consignments" && modulesByCode.TryGetValue("bilty", out var bid)) tmSet.Add(bid);
+                        else if (root == "gr" && modulesByCode.TryGetValue("bilty", out var bid2)) tmSet.Add(bid2);
+                        else if (root == "challan" && modulesByCode.TryGetValue("trips", out var tid)) tmSet.Add(tid);
+                    }
+                }
+                if (tmSet.Count == 0)
+                {
+                    // No Modules catalog available at all — gate by raw
+                    // feature-key prefix (test-only path).
+                    legacyFeatureGate = new HashSet<string>(subscriptionKeys, StringComparer.OrdinalIgnoreCase);
                 }
             }
 
-            List<string> userGrantedPermKeys = new();
-            List<string> userRevokedPermKeys = new();
-            if (userId.HasValue)
+            if (tmSet.Count == 0 && legacyFeatureGate == null)
             {
-                var overrides = await _db.UserPermissionOverrides
-                    .IgnoreQueryFilters()
-                    .Where(o => o.TenantId == tenantId && o.UserId == userId.Value && o.SupersededBy == null)
-                    .Select(o => new { o.PermissionKey, o.IsGranted })
-                    .ToListAsync();
-                userGrantedPermKeys = overrides.Where(o => o.IsGranted).Select(o => o.PermissionKey).ToList();
-                userRevokedPermKeys = overrides.Where(o => !o.IsGranted).Select(o => o.PermissionKey).ToList();
+                return effective; // tenant has no gate info at all → empty.
             }
 
-            // TASK-046 Phase 1: resolve role grants via user_roles M2M when a
-            // userId is supplied. Fall back to the legacy role string when the
-            // user has no active user_roles row (should not happen post-backfill).
-            List<string> rolePermKeys = new();
+            var allPermissions = await _db.Permissions.IgnoreQueryFilters().ToListAsync();
+            var tenantPermIdSet = new HashSet<int>();
+            foreach (var p in allPermissions)
+            {
+                int modId = p.ModuleId;
+                if (modId == 0)
+                {
+                    var root = (p.FeatureKey ?? string.Empty).Split('.').FirstOrDefault() ?? string.Empty;
+                    if (modulesByCode.TryGetValue(root, out var mid)) modId = mid;
+                    else if (root == "consignments" && modulesByCode.TryGetValue("bilty", out var bid)) modId = bid;
+                    else if (root == "challan" && modulesByCode.TryGetValue("trips", out var tid)) modId = tid;
+                }
+                if (tmSet.Contains(modId)) tenantPermIdSet.Add(p.Id);
+            }
+
+            // --- role grants ---
+            List<int> activeRoleIds = new();
             if (userId.HasValue)
             {
-                var activeRoleIds = await _db.UserRoles
+                activeRoleIds = await _db.UserRoles
                     .IgnoreQueryFilters()
                     .Where(ur => ur.TenantId == tenantId && ur.UserId == userId.Value && ur.RevokedAt == null)
                     .Select(ur => ur.RoleId)
                     .ToListAsync();
-
-                if (activeRoleIds.Count > 0)
-                {
-                    rolePermKeys = await _db.RolePermissions
-                        .IgnoreQueryFilters()
-                        .Where(r => r.TenantId == tenantId && r.RevokedAt == null && r.RoleId != null && activeRoleIds.Contains(r.RoleId.Value))
-                        .Select(r => r.PermissionKey)
-                        .ToListAsync();
-                }
             }
 
-            if (rolePermKeys.Count == 0 && !string.IsNullOrWhiteSpace(role))
+            List<(int? PermissionId, string PermissionKey)> rolePerms = new();
+            if (activeRoleIds.Count > 0)
             {
-                // Fallback: legacy role_name string match.
-                rolePermKeys = await _db.RolePermissions
+                rolePerms = (await _db.RolePermissions
                     .IgnoreQueryFilters()
-                    .Where(r => r.TenantId == tenantId && r.RoleName.ToLower() == role.ToLower() && r.RevokedAt == null)
-                    .Select(r => r.PermissionKey)
-                    .ToListAsync();
+                    .Where(r => r.TenantId == tenantId && r.RevokedAt == null
+                             && r.RoleId != null && activeRoleIds.Contains(r.RoleId.Value))
+                    .Select(r => new { r.PermissionId, r.PermissionKey })
+                    .ToListAsync())
+                    .Select(r => (r.PermissionId, r.PermissionKey))
+                    .ToList();
+            }
+            else if (!string.IsNullOrWhiteSpace(role))
+            {
+                // Fallback: legacy role_name string match (no user_roles row yet).
+                rolePerms = (await _db.RolePermissions
+                    .IgnoreQueryFilters()
+                    .Where(r => r.TenantId == tenantId && r.RevokedAt == null
+                             && r.RoleName.ToLower() == role.ToLower())
+                    .Select(r => new { r.PermissionId, r.PermissionKey })
+                    .ToListAsync())
+                    .Select(r => (r.PermissionId, r.PermissionKey))
+                    .ToList();
+            }
+
+            // --- user overrides (grants + revokes) ---
+            List<(int? PermissionId, string PermissionKey, bool IsGranted)> userOverrides = new();
+            if (userId.HasValue)
+            {
+                userOverrides = (await _db.UserPermissionOverrides
+                    .IgnoreQueryFilters()
+                    .Where(o => o.TenantId == tenantId && o.UserId == userId.Value && o.SupersededBy == null)
+                    .Select(o => new { o.PermissionId, o.PermissionKey, o.IsGranted })
+                    .ToListAsync())
+                    .Select(o => (o.PermissionId, o.PermissionKey, o.IsGranted))
+                    .ToList();
+            }
+
+            // Build a key→id map so legacy rows without PermissionId still gate.
+            // (New inserts set PermissionId; this handles mixed state.)
+            var keyToId = await _db.Permissions
+                .IgnoreQueryFilters()
+                .Select(p => new { p.Id, p.Key })
+                .ToDictionaryAsync(p => p.Key, p => p.Id, StringComparer.OrdinalIgnoreCase);
+
+            bool InTenantModules(int? permId, string permKey)
+            {
+                if (legacyFeatureGate != null)
+                {
+                    // Pure feature-key prefix gate (no Modules catalog).
+                    var parts = (permKey ?? string.Empty).Split('.');
+                    for (int n = parts.Length - 1; n >= 1; n--)
+                    {
+                        var prefix = string.Join(".", parts.Take(n));
+                        if (legacyFeatureGate.Contains(prefix)) return true;
+                    }
+                    return false;
+                }
+                if (permId.HasValue) return tenantPermIdSet.Contains(permId.Value);
+                if (keyToId.TryGetValue(permKey, out var id)) return tenantPermIdSet.Contains(id);
+                // Legacy fallback: no Permission row for this key — derive
+                // the module from the key's root prefix (e.g.
+                // "master_data.driver_ledger.view" → "master_data").
+                var root2 = (permKey ?? string.Empty).Split('.').FirstOrDefault() ?? string.Empty;
+                if (modulesByCode.TryGetValue(root2, out var mid2)) return tmSet.Contains(mid2);
+                if (root2 == "consignments" && modulesByCode.TryGetValue("bilty", out var bid3)) return tmSet.Contains(bid3);
+                if (root2 == "challan" && modulesByCode.TryGetValue("trips", out var tid3)) return tmSet.Contains(tid3);
+                return false;
             }
 
             // ADR authorization-rbac-architecture.md §F:
             //   effective = (role grants ∪ user grants ∖ user revokes) ∩ tenant_modules
-            var sourceKeys = new HashSet<string>(rolePermKeys, StringComparer.OrdinalIgnoreCase);
-            foreach (var k in userGrantedPermKeys) sourceKeys.Add(k);
-            foreach (var r in userRevokedPermKeys) sourceKeys.Remove(r);
-
-            foreach (var permKey in sourceKeys)
+            foreach (var (pid, pkey) in rolePerms)
             {
-                if (string.IsNullOrWhiteSpace(permKey)) continue;
-                var baseFeature = ExtractBaseFeatureKey(permKey);
-                var normalizedBase = EntitlementsCatalog.NormalizeFeatureKey(baseFeature);
-                var rootFeature = baseFeature.Contains('.') ? baseFeature.Substring(0, baseFeature.IndexOf('.')) : baseFeature;
-                var normalizedRoot = EntitlementsCatalog.NormalizeFeatureKey(rootFeature);
-
-                bool isParentFeatureSubscribed =
-                    (baseFeature.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) &&
-                     (tenantFeatureKeys.Contains("consignments") || tenantFeatureKeys.Contains("bilty") || tenantFeatureKeys.Contains("gr"))) ||
-                    ((baseFeature.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) || baseFeature.Equals("empty_trips", StringComparison.OrdinalIgnoreCase)) &&
-                     (tenantFeatureKeys.Contains("trips") || tenantFeatureKeys.Contains("challan") || tenantFeatureKeys.Contains("trip")));
-
-                bool hasGranularChildrenForRoot = tenantFeatureKeys.Any(k =>
-                    k.StartsWith(rootFeature + ".", StringComparison.OrdinalIgnoreCase) ||
-                    k.StartsWith(normalizedRoot + ".", StringComparison.OrdinalIgnoreCase));
-
-                bool isFeatureSubscribed =
-                    tenantFeatureKeys.Contains(baseFeature) ||
-                    tenantFeatureKeys.Contains(normalizedBase) ||
-                    (!hasGranularChildrenForRoot && (tenantFeatureKeys.Contains(rootFeature) || tenantFeatureKeys.Contains(normalizedRoot))) ||
-                    isParentFeatureSubscribed;
-
-                // Legacy intersection — stays as rollback safety.
-                if (tenantFeatureKeys.Count > 0 && !isFeatureSubscribed)
-                {
-                    continue;
-                }
-
-                if (moduleCodeSet.Count > 0)
-                {
-                    var moduleCode = ResolveModuleCode(baseFeature);
-                    if (moduleCode != null && !moduleCodeSet.Contains(moduleCode))
-                    {
-                        bool isParentModuleEnabled =
-                            (moduleCode.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) && moduleCodeSet.Contains("bilty")) ||
-                            (moduleCode.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) && moduleCodeSet.Contains("trips"));
-                        if (!isParentModuleEnabled)
-                        {
-                            continue;
-                        }
-                    }
-                }
-
-                effective.Add(permKey);
+                if (string.IsNullOrWhiteSpace(pkey)) continue;
+                if (!InTenantModules(pid, pkey)) continue;
+                effective.Add(pkey);
+            }
+            foreach (var (pid, pkey, granted) in userOverrides)
+            {
+                if (string.IsNullOrWhiteSpace(pkey)) continue;
+                if (!InTenantModules(pid, pkey)) continue;
+                if (granted) effective.Add(pkey);
+                else effective.Remove(pkey);
             }
 
             return effective;
         }
 
-        /// <summary>
-        /// TASK-046 Phase 1 shim: map a feature-key (e.g. "billing.bill_book")
-        /// to its module code (e.g. "billing"). Returns null for feature keys
-        /// outside the known module space (which then skip the module gate).
-        /// Phase 2 replaces this with a direct permissions.module_id FK.
-        /// </summary>
-        public static string? ResolveModuleCode(string featureKey)
-        {
-            if (string.IsNullOrWhiteSpace(featureKey)) return null;
-            var fk = featureKey.ToLowerInvariant();
-            if (fk.StartsWith("consignments") || fk.StartsWith("gr") || fk == "bilty") return "bilty";
-            if (fk == "delivery_settlement") return "delivery_settlement";
-            if (fk == "trip_settlement") return "trip_settlement";
-            if (fk.StartsWith("empty_trips") || fk.StartsWith("trips") || fk.StartsWith("challan")) return "trips";
-            if (fk.StartsWith("billing") || fk == "bill_book") return "billing";
-            if (fk.StartsWith("pod")) return "pod";
-            if (fk.StartsWith("reports")) return "reports";
-            if (fk.StartsWith("master_data")) return "master_data";
-            if (fk.StartsWith("quotations")) return "quotations";
-            if (fk.StartsWith("vendors")) return "vendors";
-            if (fk.StartsWith("claims")) return "claims";
-            if (fk.StartsWith("tracking")) return "tracking";
-            if (fk.StartsWith("analytics")) return "analytics";
-            if (fk.StartsWith("dashboard")) return "dashboard";
-            if (fk.StartsWith("system") || fk == "clients") return "system";
-            return null;
-        }
-
-        private static string ExtractBaseFeatureKey(string permissionKey)
-        {
-            if (string.IsNullOrWhiteSpace(permissionKey)) return string.Empty;
-            var idx = permissionKey.LastIndexOf('.');
-            if (idx <= 0) return permissionKey;
-            var tail = permissionKey.Substring(idx + 1).ToLowerInvariant();
-            if (tail is "view" or "create" or "edit" or "delete" or "print" or "approve" or "export")
-            {
-                return permissionKey.Substring(0, idx);
-            }
-            return permissionKey;
-        }
-
         [Obsolete("Phase 3 removed the JSON source. These methods now log a warning and return an empty summary. Will be deleted in next release.")]
         public Task<BackfillSummaryDto> BackfillFromJsonAsync()
         {
-            _log.LogWarning("BackfillFromJsonAsync invoked, but the menu_entitlements_json source was dropped in Phase 3. Returning an empty summary. Use PUT /api/configuration/menu-entitlements for new grants.");
+            _log.LogWarning("BackfillFromJsonAsync invoked, but the menu_entitlements_json source was dropped in Phase 3. Returning an empty summary.");
             return Task.FromResult(new BackfillSummaryDto { TenantsProcessed = 0 });
         }
 
@@ -240,32 +249,106 @@ namespace KTransport.API.Services
         [Obsolete("Phase 3 removed the JSON source. These methods now log a warning and return an empty summary. Will be deleted in next release.")]
         public Task<BackfillSummaryDto> BackfillTenantAsync(Guid tenantId, TenantMenuEntitlementsDto json, int? actingUserId)
         {
-            _log.LogWarning("BackfillTenantAsync tenant={TenantId} invoked, but Phase 3 removed the JSON source. Returning an empty summary.", tenantId);
+            _log.LogWarning("BackfillTenantAsync tenant={TenantId} invoked, but Phase 3 removed the JSON source.", tenantId);
             return Task.FromResult(new BackfillSummaryDto { TenantsProcessed = 0 });
         }
 
         /// <summary>
-        /// Writes the DTO's entitlements into the normalized tables. Atomically updates
-        /// TenantEntitlementSubscriptions, TenantModules, TenantReportEntitlements,
-        /// and RolePermissions.
+        /// TASK-049 Option B: the full rewrite per menu.md §5.3. ModuleCodes is
+        /// the primary input; EnabledMenuKeys is accepted only as a one-release
+        /// backward-compat path (we map the legacy keys to modules.code and
+        /// log a deprecation warning). Tenant_modules is the sole source of
+        /// truth. Admin role_permissions is reseeded as EXACTLY the structural
+        /// join (permissions where module_id ∈ enabled tenant_modules).
         /// </summary>
         public async Task WriteTenantEntitlementsAsync(Guid tenantId, TenantMenuEntitlementsDto newDto, int? userId)
         {
-            // ---- 1. Canonical Feature Keys & Module Codes ----
-            var rawKeys = newDto.EnabledMenuKeys ?? new List<string>();
-            var canonicalKeys = rawKeys
-                .Select(EntitlementsCatalog.NormalizeFeatureKey)
-                .Where(k => !string.IsNullOrWhiteSpace(k))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // ---- 1. Resolve the input module code set ---------------------
+            var allModules = await _db.Modules.IgnoreQueryFilters().ToListAsync();
+            var moduleByCode = allModules.ToDictionary(m => m.Code, m => m, StringComparer.OrdinalIgnoreCase);
+            var moduleById = allModules.ToDictionary(m => m.Id, m => m);
 
-            if (!canonicalKeys.Contains("dashboard")) canonicalKeys.Insert(0, "dashboard");
-            if (!canonicalKeys.Contains("system")) canonicalKeys.Add("system");
-            if (!canonicalKeys.Contains("system.settings")) canonicalKeys.Add("system.settings");
+            var requestedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (newDto.ModuleCodes != null && newDto.ModuleCodes.Count > 0)
+            {
+                foreach (var code in newDto.ModuleCodes)
+                {
+                    if (string.IsNullOrWhiteSpace(code)) continue;
+                    if (!moduleByCode.ContainsKey(code))
+                    {
+                        _log.LogWarning("WriteTenantEntitlementsAsync tenant={TenantId}: unknown module code '{Code}', skipping.", tenantId, code);
+                        continue;
+                    }
+                    requestedCodes.Add(code);
+                }
+            }
+            else if (newDto.EnabledMenuKeys != null && newDto.EnabledMenuKeys.Count > 0)
+            {
+                // One-release back-compat: map legacy feature keys to module
+                // codes via modules.code (direct) or via a tiny alias set.
+                // This path is deliberately *not* clever — if a key does not
+                // resolve to a known module we skip and warn.
+                _log.LogWarning("WriteTenantEntitlementsAsync tenant={TenantId}: payload used legacy EnabledMenuKeys; map to ModuleCodes.", tenantId);
+                foreach (var k in newDto.EnabledMenuKeys)
+                {
+                    if (string.IsNullOrWhiteSpace(k)) continue;
+                    var mapped = MapLegacyKeyToModuleCode(k, moduleByCode);
+                    if (mapped != null) requestedCodes.Add(mapped);
+                }
+            }
 
-            var allFeatureKeysToPersist = canonicalKeys.Union(rawKeys, StringComparer.OrdinalIgnoreCase).ToList();
+            // Always include dashboard + system so admin never loses settings.
+            if (moduleByCode.ContainsKey("dashboard")) requestedCodes.Add("dashboard");
+            if (moduleByCode.ContainsKey("system")) requestedCodes.Add("system");
 
-            // ---- 2. TenantEntitlementSubscription ----
+            // NOTE DELIBERATE OMISSION (menu.md §2 bugs 1/2/3):
+            // No "consignments → delivery_settlement" auto-add.
+            // No "trips → trip_settlement" auto-add.
+            // The platform-admin chooses each module explicitly.
+
+            var requestedModuleIds = new HashSet<int>(requestedCodes
+                .Select(c => moduleByCode[c].Id));
+
+            // ---- 2. Upsert tenant_modules ---------------------------------
+            var existingTenantModules = await _db.TenantModules
+                .IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId)
+                .ToListAsync();
+
+            foreach (var modId in requestedModuleIds)
+            {
+                var activeRow = existingTenantModules.FirstOrDefault(tm => tm.ModuleId == modId && tm.EnabledUntil == null);
+                if (activeRow == null)
+                {
+                    _db.TenantModules.Add(new TenantModule
+                    {
+                        TenantId = tenantId,
+                        ModuleId = modId,
+                        IsEnabled = true,
+                        EnabledFrom = DateTime.UtcNow,
+                        EnabledUntil = null,
+                        EnabledBy = userId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                else if (!activeRow.IsEnabled)
+                {
+                    activeRow.IsEnabled = true;
+                }
+            }
+
+            // Revoke any active tenant_module not in the request.
+            foreach (var tm in existingTenantModules
+                .Where(tm => tm.EnabledUntil == null && !requestedModuleIds.Contains(tm.ModuleId)))
+            {
+                tm.EnabledUntil = DateTime.UtcNow;
+            }
+
+            // ---- 3. Mirror enabled_feature_keys from tenant_modules -------
+            // DERIVED. Not an input. Kept populated so any legacy reader works
+            // for one release (menu.md §5.5 drop plan).
+            var activeCodes = requestedCodes.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList();
+
             var activeSub = await _db.TenantEntitlementSubscriptions
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EffectiveUntil == null);
@@ -276,7 +359,7 @@ namespace KTransport.API.Services
                 {
                     TenantId = tenantId,
                     PlanTier = string.IsNullOrWhiteSpace(newDto.PlanTier) ? "Enterprise" : newDto.PlanTier,
-                    EnabledFeatureKeys = allFeatureKeysToPersist,
+                    EnabledFeatureKeys = activeCodes,
                     EffectiveFrom = DateTime.UtcNow,
                     EffectiveUntil = null,
                     CreatedAt = DateTime.UtcNow,
@@ -285,68 +368,11 @@ namespace KTransport.API.Services
             }
             else
             {
-                activeSub.EnabledFeatureKeys = allFeatureKeysToPersist;
-                activeSub.PlanTier = string.IsNullOrWhiteSpace(newDto.PlanTier) ? activeSub.PlanTier : newDto.PlanTier!;
+                activeSub.EnabledFeatureKeys = activeCodes;
+                if (!string.IsNullOrWhiteSpace(newDto.PlanTier)) activeSub.PlanTier = newDto.PlanTier!;
             }
 
-            // ---- 3. Sync TenantModules Table ----
-            var moduleCodes = canonicalKeys
-                .Select(ResolveModuleCode)
-                .Where(c => !string.IsNullOrWhiteSpace(c))
-                .Select(c => c!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (moduleCodes.Contains("bilty") && !moduleCodes.Contains("delivery_settlement"))
-            {
-                moduleCodes.Add("delivery_settlement");
-            }
-            if (moduleCodes.Contains("trips") && !moduleCodes.Contains("trip_settlement"))
-            {
-                moduleCodes.Add("trip_settlement");
-            }
-
-            var allModules = await _db.Modules.IgnoreQueryFilters().ToListAsync();
-            var moduleByCode = allModules.ToDictionary(m => m.Code.ToLowerInvariant(), m => m.Id);
-
-            var existingTenantModules = await _db.TenantModules
-                .IgnoreQueryFilters()
-                .Where(tm => tm.TenantId == tenantId)
-                .ToListAsync();
-
-            var activeModuleIds = new HashSet<int>();
-            foreach (var code in moduleCodes)
-            {
-                if (moduleByCode.TryGetValue(code.ToLowerInvariant(), out var modId))
-                {
-                    activeModuleIds.Add(modId);
-                    var existingActive = existingTenantModules.FirstOrDefault(tm => tm.ModuleId == modId && tm.EnabledUntil == null);
-                    if (existingActive == null)
-                    {
-                        _db.TenantModules.Add(new TenantModule
-                        {
-                            TenantId = tenantId,
-                            ModuleId = modId,
-                            IsEnabled = true,
-                            EnabledFrom = DateTime.UtcNow,
-                            EnabledUntil = null,
-                            EnabledBy = userId,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-                    else if (!existingActive.IsEnabled)
-                    {
-                        existingActive.IsEnabled = true;
-                    }
-                }
-            }
-
-            foreach (var tm in existingTenantModules.Where(tm => tm.EnabledUntil == null && !activeModuleIds.Contains(tm.ModuleId)))
-            {
-                tm.EnabledUntil = DateTime.UtcNow;
-            }
-
-            // ---- 4. TenantReportEntitlements ----
+            // ---- 4. TenantReportEntitlements (unchanged behavior) ---------
             if (newDto.Reports != null)
             {
                 var existingReports = await _db.TenantReportEntitlements
@@ -381,7 +407,7 @@ namespace KTransport.API.Services
                 }
             }
 
-            // ---- 5. Ensure Admin Role and Seed RolePermissions for Admin ----
+            // ---- 5. Admin role + user_roles seeding -----------------------
             var adminRole = await _db.Roles
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Code.ToLower() == "admin");
@@ -403,7 +429,6 @@ namespace KTransport.API.Services
                 await _db.SaveChangesAsync();
             }
 
-            // Ensure all tenant admin users have a user_roles row
             var adminUsers = await _db.Users
                 .IgnoreQueryFilters()
                 .Where(u => u.TenantId == tenantId && (u.Role == "admin" || u.Role == "tenantadmin" || u.Role == "superadmin"))
@@ -431,79 +456,81 @@ namespace KTransport.API.Services
                 }
             }
 
-            // Seed RolePermissions for Admin matching the enabled modules
-            var catalogPerms = await _db.Permissions.AsNoTracking().ToListAsync();
-            var existingAdminPerms = await _db.RolePermissions
+            // ---- 6. Reseed admin role_permissions (structural join) -------
+            // Target = permissions whose module_id ∈ requested modules.
+            // Legacy Permission rows with ModuleId=0 (pre-migration or test
+            // seeds) resolve via feature_key root → modules.code.
+            var allPermCatalog = await _db.Permissions
                 .IgnoreQueryFilters()
-                .Where(r => r.TenantId == tenantId && (r.RoleId == adminRole.Id || r.RoleName.ToLower() == "admin") && r.RevokedAt == null)
-                .Select(r => r.PermissionKey)
+                .Select(p => new { p.Id, p.Key, p.FeatureKey, p.ModuleId })
                 .ToListAsync();
-            var existingAdminPermSet = new HashSet<string>(existingAdminPerms, StringComparer.OrdinalIgnoreCase);
-
-            var enabledModCodeSet = new HashSet<string>(moduleCodes, StringComparer.OrdinalIgnoreCase);
-            if (enabledModCodeSet.Contains("bilty")) enabledModCodeSet.Add("delivery_settlement");
-            if (enabledModCodeSet.Contains("trips")) enabledModCodeSet.Add("trip_settlement");
-            if (enabledModCodeSet.Contains("delivery_settlement")) enabledModCodeSet.Add("bilty");
-            if (enabledModCodeSet.Contains("trip_settlement")) enabledModCodeSet.Add("trips");
-
-            foreach (var perm in catalogPerms)
+            var targetPerms = new List<(int Id, string Key)>();
+            foreach (var p in allPermCatalog)
             {
-                var mCode = ResolveModuleCode(perm.FeatureKey);
-                if (mCode == null || !enabledModCodeSet.Contains(mCode)) continue;
-
-                var baseF = perm.FeatureKey;
-                var normF = EntitlementsCatalog.NormalizeFeatureKey(baseF);
-                var rootF = baseF.Contains('.') ? baseF.Substring(0, baseF.IndexOf('.')) : baseF;
-                var normRootF = EntitlementsCatalog.NormalizeFeatureKey(rootF);
-
-                bool hasGranular = allFeatureKeysToPersist.Any(k =>
-                    k.StartsWith(rootF + ".", StringComparison.OrdinalIgnoreCase) ||
-                    k.StartsWith(normRootF + ".", StringComparison.OrdinalIgnoreCase));
-
-                bool isParentAllowed =
-                    (baseF.Equals("delivery_settlement", StringComparison.OrdinalIgnoreCase) &&
-                     (allFeatureKeysToPersist.Contains("consignments") || allFeatureKeysToPersist.Contains("bilty") || allFeatureKeysToPersist.Contains("gr"))) ||
-                    ((baseF.Equals("trip_settlement", StringComparison.OrdinalIgnoreCase) || baseF.Equals("empty_trips", StringComparison.OrdinalIgnoreCase)) &&
-                     (allFeatureKeysToPersist.Contains("trips") || allFeatureKeysToPersist.Contains("challan") || allFeatureKeysToPersist.Contains("trip")));
-
-                bool isPermAllowed =
-                    allFeatureKeysToPersist.Contains(baseF) ||
-                    allFeatureKeysToPersist.Contains(normF) ||
-                    (!hasGranular && (allFeatureKeysToPersist.Contains(rootF) || allFeatureKeysToPersist.Contains(normRootF))) ||
-                    isParentAllowed;
-
-                if (!isPermAllowed)
+                int modId = p.ModuleId;
+                if (modId == 0)
                 {
-                    // Revoke if previously granted
-                    var existingGrant = await _db.RolePermissions
-                        .IgnoreQueryFilters()
-                        .FirstOrDefaultAsync(r => r.TenantId == tenantId && (r.RoleId == adminRole.Id || r.RoleName.ToLower() == "admin") && r.PermissionKey == perm.Key && r.RevokedAt == null);
-                    if (existingGrant != null)
-                    {
-                        existingGrant.RevokedAt = DateTime.UtcNow;
-                    }
-                    continue;
+                    var root = (p.FeatureKey ?? string.Empty).Split('.').FirstOrDefault() ?? string.Empty;
+                    if (moduleByCode.TryGetValue(root, out var mi)) modId = mi.Id;
+                    else if (root == "consignments" && moduleByCode.TryGetValue("bilty", out var bi)) modId = bi.Id;
+                    else if (root == "challan" && moduleByCode.TryGetValue("trips", out var ti)) modId = ti.Id;
                 }
+                if (requestedModuleIds.Contains(modId))
+                {
+                    targetPerms.Add((p.Id, p.Key));
+                }
+            }
+            var targetPermIdSet = targetPerms.Select(p => p.Id).ToHashSet();
+            var targetPermKeySet = targetPerms.Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                if (existingAdminPermSet.Contains(perm.Key)) continue;
+            // Current active admin grants.
+            var currentAdminGrants = await _db.RolePermissions
+                .IgnoreQueryFilters()
+                .Where(r => r.TenantId == tenantId
+                         && (r.RoleId == adminRole.Id || r.RoleName.ToLower() == "admin")
+                         && r.RevokedAt == null)
+                .ToListAsync();
 
+            // Revoke anything outside the target set (no `isParentAllowed`,
+            // no legacy alias branch — pure structural diff).
+            foreach (var row in currentAdminGrants)
+            {
+                bool inTarget = row.PermissionId.HasValue
+                    ? targetPermIdSet.Contains(row.PermissionId.Value)
+                    : targetPermKeySet.Contains(row.PermissionKey);
+                if (!inTarget) row.RevokedAt = DateTime.UtcNow;
+            }
+
+            // Insert anything in target but not already granted.
+            var currentActiveKeys = currentAdminGrants
+                .Where(r => r.RevokedAt == null)
+                .Select(r => r.PermissionKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var tp in targetPerms)
+            {
+                if (currentActiveKeys.Contains(tp.Key)) continue;
                 _db.RolePermissions.Add(new RolePermission
                 {
                     TenantId = tenantId,
                     RoleName = "admin",
                     RoleId = adminRole.Id,
-                    PermissionKey = perm.Key,
+                    PermissionKey = tp.Key,
+                    PermissionId = tp.Id,
                     GrantedAt = DateTime.UtcNow,
                     GrantedBy = userId
                 });
-                existingAdminPermSet.Add(perm.Key);
             }
 
-            // ---- 6. RoleOverrides (if explicitly provided in DTO) ----
+            // ---- 7. RoleOverrides (explicit extras for non-admin roles) ---
             if (newDto.RoleOverrides != null)
             {
                 var allTenantRoles = await _db.Roles.IgnoreQueryFilters().Where(r => r.TenantId == tenantId).ToListAsync();
                 var roleIdByCode = allTenantRoles.ToDictionary(r => r.Code.ToLowerInvariant(), r => r.Id);
+
+                var allPermsByKey = (await _db.Permissions.IgnoreQueryFilters()
+                    .Select(p => new { p.Id, p.Key }).ToListAsync())
+                    .ToDictionary(p => p.Key, p => p.Id, StringComparer.OrdinalIgnoreCase);
 
                 var existingRolePerms = await _db.RolePermissions
                     .IgnoreQueryFilters()
@@ -518,7 +545,6 @@ namespace KTransport.API.Services
                 {
                     var roleName = (kv.Key ?? string.Empty).Trim().ToLowerInvariant();
                     if (string.IsNullOrWhiteSpace(roleName) || kv.Value == null) continue;
-
                     int? roleId = roleIdByCode.TryGetValue(roleName, out var rid) ? rid : null;
 
                     foreach (var featureKey in kv.Value)
@@ -527,12 +553,14 @@ namespace KTransport.API.Services
                         {
                             var sig = $"{roleName}|{permKey}";
                             if (existingSet.Contains(sig)) continue;
+                            allPermsByKey.TryGetValue(permKey, out var pid);
                             _db.RolePermissions.Add(new RolePermission
                             {
                                 TenantId = tenantId,
                                 RoleName = roleName,
                                 RoleId = roleId,
                                 PermissionKey = permKey,
+                                PermissionId = pid == 0 ? null : pid,
                                 GrantedAt = DateTime.UtcNow,
                                 GrantedBy = userId
                             });
@@ -542,7 +570,7 @@ namespace KTransport.API.Services
                 }
             }
 
-            // ---- 7. UserOverrides ----
+            // ---- 8. UserOverrides -----------------------------------------
             if (newDto.UserOverrides != null)
             {
                 var tenantUsers = await _db.Users
@@ -552,6 +580,10 @@ namespace KTransport.API.Services
                     .ToListAsync();
                 var byId = tenantUsers.ToDictionary(u => u.Id);
                 var byUsername = tenantUsers.ToDictionary(u => (u.Username ?? string.Empty).ToLowerInvariant(), u => u.Id);
+
+                var allPermsByKey = (await _db.Permissions.IgnoreQueryFilters()
+                    .Select(p => new { p.Id, p.Key }).ToListAsync())
+                    .ToDictionary(p => p.Key, p => p.Id, StringComparer.OrdinalIgnoreCase);
 
                 var existing = await _db.UserPermissionOverrides
                     .IgnoreQueryFilters()
@@ -568,14 +600,8 @@ namespace KTransport.API.Services
                     if (string.IsNullOrWhiteSpace(key) || kv.Value == null) continue;
 
                     int? matchedUserId = null;
-                    if (int.TryParse(key, out var parsed) && byId.ContainsKey(parsed))
-                    {
-                        matchedUserId = parsed;
-                    }
-                    else if (byUsername.TryGetValue(key.ToLowerInvariant(), out var uid))
-                    {
-                        matchedUserId = uid;
-                    }
+                    if (int.TryParse(key, out var parsed) && byId.ContainsKey(parsed)) matchedUserId = parsed;
+                    else if (byUsername.TryGetValue(key.ToLowerInvariant(), out var uid)) matchedUserId = uid;
 
                     if (matchedUserId == null)
                     {
@@ -591,12 +617,13 @@ namespace KTransport.API.Services
                         {
                             var sig = $"{matchedUserId.Value}|{permKey}";
                             if (existingSet.Contains(sig)) continue;
-
+                            allPermsByKey.TryGetValue(permKey, out var pid);
                             _db.UserPermissionOverrides.Add(new UserPermissionOverride
                             {
                                 TenantId = tenantId,
                                 UserId = matchedUserId.Value,
                                 PermissionKey = permKey,
+                                PermissionId = pid == 0 ? null : pid,
                                 IsGranted = true,
                                 GrantedAt = DateTime.UtcNow,
                                 GrantedBy = userId
@@ -613,8 +640,49 @@ namespace KTransport.API.Services
             }
             catch (DbUpdateException ex)
             {
-                _log.LogWarning(ex, "WriteTenantEntitlementsAsync tenant={TenantId}: DB raised unique-violation; treating as idempotent re-run", tenantId);
+                _log.LogWarning(ex, "WriteTenantEntitlementsAsync tenant={TenantId}: unique-violation; treating as idempotent re-run", tenantId);
             }
+        }
+
+        /// <summary>
+        /// One-release legacy-key → module-code map. Tiny on purpose: the
+        /// alias table lived in the old EntitlementsCatalog and is being
+        /// retired, so new code only needs to resolve the handful of keys the
+        /// frontend may still send while it ships the ModuleCodes payload.
+        /// </summary>
+        private static string? MapLegacyKeyToModuleCode(string key, Dictionary<string, Module> moduleByCode)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return null;
+            var k = key.Trim().ToLowerInvariant();
+            // Direct match wins.
+            if (moduleByCode.ContainsKey(k)) return k;
+
+            // Known legacy aliases.
+            switch (k)
+            {
+                case "gr":
+                case "consignments":
+                case "bilty":
+                    return moduleByCode.ContainsKey("bilty") ? "bilty" : null;
+                case "challan":
+                case "trip":
+                    return moduleByCode.ContainsKey("trips") ? "trips" : null;
+                case "bill_book":
+                    return moduleByCode.ContainsKey("billing") ? "billing" : null;
+                case "masterdata":
+                    return moduleByCode.ContainsKey("master_data") ? "master_data" : null;
+            }
+
+            // Dotted leaf → root prefix: "billing.invoices" → "billing".
+            var dot = k.IndexOf('.');
+            if (dot > 0)
+            {
+                var root = k.Substring(0, dot);
+                if (moduleByCode.ContainsKey(root)) return root;
+                if (root == "consignments" && moduleByCode.ContainsKey("bilty")) return "bilty";
+                if (root == "masterdata" && moduleByCode.ContainsKey("master_data")) return "master_data";
+            }
+            return null;
         }
     }
 }

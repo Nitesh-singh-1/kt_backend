@@ -92,23 +92,30 @@ public class EntitlementsServiceTests
     }
 #pragma warning restore CS0618
 
-    // ---- Phase 3 contract test 2: WriteTenantEntitlementsAsync creates rows ----
+    // ---- TASK-049 Option B: WriteTenantEntitlementsAsync creates rows
+    //      and mirrors enabled_feature_keys from the derived module code set. ----
     [Fact]
-    public async Task Phase3_WriteTenantEntitlementsAsync_RoleGrant_WritesToRolePermissions()
+    public async Task TASK049_WriteTenantEntitlementsAsync_SeedsAdminAndMirrorsModuleCodes()
     {
         await using var ctx = NewContext();
         ctx.TenantSettings.Add(new TenantSetting { TenantId = TestTenantId, CreatedAt = DateTime.UtcNow });
+        ctx.Modules.AddRange(
+            new Module { Id = 1, Code = "dashboard", Name = "Dashboard" },
+            new Module { Id = 2, Code = "billing",   Name = "Billing" },
+            new Module { Id = 3, Code = "system",    Name = "System" }
+        );
+        ctx.Permissions.AddRange(
+            new Permission { Id = 101, Key = "billing.view",          FeatureKey = "billing",         Action = "View",   ModuleId = 2 },
+            new Permission { Id = 102, Key = "billing.invoices.view", FeatureKey = "billing.invoices",Action = "View",   ModuleId = 2 },
+            new Permission { Id = 103, Key = "dashboard.view",        FeatureKey = "dashboard",       Action = "View",   ModuleId = 1 }
+        );
         await ctx.SaveChangesAsync();
 
         var dto = new TenantMenuEntitlementsDto
         {
             TenantId = TestTenantId,
             PlanTier = "Enterprise",
-            EnabledMenuKeys = new List<string> { "dashboard", "billing", "billing.invoices" },
-            RoleOverrides = new Dictionary<string, List<string>>
-            {
-                { "admin", new List<string> { "billing.invoices" } }
-            }
+            ModuleCodes = new List<string> { "billing" }
         };
 
         var svc = NewService(ctx);
@@ -116,39 +123,23 @@ public class EntitlementsServiceTests
 
         var rolePerms = await ctx.RolePermissions.IgnoreQueryFilters().ToListAsync();
         Assert.NotEmpty(rolePerms);
-        Assert.All(rolePerms, r => Assert.StartsWith("billing.invoices.", r.PermissionKey));
+        // Admin role should get every billing.* permission (and dashboard,
+        // which is auto-included alongside system).
+        Assert.Contains(rolePerms, r => r.PermissionKey == "billing.view");
+        Assert.Contains(rolePerms, r => r.PermissionKey == "billing.invoices.view");
+
         var sub = await ctx.TenantEntitlementSubscriptions.IgnoreQueryFilters().FirstAsync();
-        Assert.Contains("billing.invoices", sub.EnabledFeatureKeys);
+        // enabled_feature_keys is now the DERIVED module code mirror.
+        Assert.Contains("billing", sub.EnabledFeatureKeys);
+        Assert.Contains("dashboard", sub.EnabledFeatureKeys);
     }
 
-    // ---- Phase 3 contract test 3: WriteTenantEntitlementsAsync IGNORES legacy JSON fields ----
-    [Fact]
-    public async Task Phase3_WriteTenantEntitlements_IgnoresLegacyJsonFields()
-    {
-        await using var ctx = NewContext();
-        ctx.TenantSettings.Add(new TenantSetting { TenantId = TestTenantId, CreatedAt = DateTime.UtcNow });
-        await ctx.SaveChangesAsync();
-
-#pragma warning disable CS0618
-        var dto = new TenantMenuEntitlementsDto
-        {
-            TenantId = TestTenantId,
-            PlanTier = "Enterprise",
-            EnabledMenuKeys = new List<string> { "dashboard", "billing", "billing.invoices" },
-            RoleOverridesJson = "{\"admin\":[\"billing.invoices\"]}", // should be IGNORED
-            UserOverridesJson = "{\"1\":[\"billing.invoices\"]}"      // should be IGNORED
-        };
-#pragma warning restore CS0618
-
-        var svc = NewService(ctx);
-        await svc.WriteTenantEntitlementsAsync(TestTenantId, dto, userId: 1);
-
-        var rolePerms = await ctx.RolePermissions.IgnoreQueryFilters().ToListAsync();
-        var userOverrides = await ctx.UserPermissionOverrides.IgnoreQueryFilters().ToListAsync();
-
-        Assert.Empty(rolePerms);
-        Assert.Empty(userOverrides);
-    }
+    // ---- TASK-049b: RoleOverridesJson / UserOverridesJson blob fields were
+    // deleted from TenantMenuEntitlementsDto. The former Phase 3 contract test
+    // that proved they were IGNORED is obsolete — the fields no longer exist,
+    // so there is nothing to ignore. The structured RoleOverrides /
+    // UserOverrides dictionary write path is covered by the Phase 3 tests
+    // above and by the new NavigationServiceTests in this task.
 
     // ---- Phase 3 contract test 4: ComputeEffectivePermissions reads tables ----
     [Fact]

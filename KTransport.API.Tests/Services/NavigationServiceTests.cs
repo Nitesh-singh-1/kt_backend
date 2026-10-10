@@ -183,4 +183,171 @@ public class NavigationServiceTests
             c => c.Id == "reports.vendor_payables");
         Assert.Contains("reports.vendor_payables", permissions, StringComparer.OrdinalIgnoreCase);
     }
+
+    // ---- TASK-049b regression tests ---------------------------------------
+    // Owner-observed bug: GET /api/configuration/tenants/{id}/menu-entitlements
+    // was returning legacy dotted strings (consignments.create,
+    // consignments.delivery_settlement) inside enabledMenuKeys because
+    // NavigationService was reading subscription.EnabledFeatureKeys instead of
+    // the authoritative tenant_modules-derived moduleCodes list. The DTO also
+    // still carried obsolete RoleOverridesJson / UserOverridesJson string
+    // fields which leaked into the serialized response.
+
+    private static void SeedModuleWithCode(KTransportDbContext ctx, int id, string code)
+    {
+        ctx.Modules.Add(new Module
+        {
+            Id = id,
+            Code = code,
+            Name = code,
+            IsActive = true,
+            DisplayOrder = id,
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+
+    [Fact]
+    public async Task GetTenantMenuEntitlements_returns_moduleCodes_only_no_legacy_dotted_strings()
+    {
+        await using var ctx = NewContext();
+
+        // Authoritative source of truth: tenant_modules = {consignments, trips}
+        SeedModuleWithCode(ctx, 1, "consignments");
+        SeedModuleWithCode(ctx, 2, "trips");
+        ctx.TenantSettings.Add(new TenantSetting { TenantId = TestTenantId, CreatedAt = DateTime.UtcNow });
+        ctx.TenantModules.Add(new TenantModule
+        {
+            TenantId = TestTenantId,
+            ModuleId = 1,
+            IsEnabled = true,
+            EnabledFrom = DateTime.UtcNow,
+            EnabledUntil = null
+        });
+        ctx.TenantModules.Add(new TenantModule
+        {
+            TenantId = TestTenantId,
+            ModuleId = 2,
+            IsEnabled = true,
+            EnabledFrom = DateTime.UtcNow,
+            EnabledUntil = null
+        });
+
+        // Stale legacy column: still carries pre-049 dotted strings. GET must
+        // ignore this and surface only the moduleCodes-derived set.
+        ctx.TenantEntitlementSubscriptions.Add(new TenantEntitlementSubscription
+        {
+            TenantId = TestTenantId,
+            PlanTier = "Enterprise",
+            EnabledFeatureKeys = new List<string>
+            {
+                "consignments.delivery_settlement",
+                "consignments.create",
+                "gr.list"
+            },
+            EffectiveFrom = DateTime.UtcNow,
+            EffectiveUntil = null
+        });
+        await ctx.SaveChangesAsync();
+
+        var service = new NavigationService(ctx);
+        var dto = await service.GetTenantMenuEntitlementsAsync(TestTenantId);
+
+        Assert.NotNull(dto.ModuleCodes);
+        Assert.Equal(new[] { "consignments", "trips" }, dto.ModuleCodes!.OrderBy(x => x).ToArray());
+
+        // EnabledMenuKeys mirrors ModuleCodes exactly — no stale dotted keys.
+        Assert.Equal(dto.ModuleCodes!.OrderBy(x => x), dto.EnabledMenuKeys.OrderBy(x => x));
+        Assert.DoesNotContain("consignments.delivery_settlement", dto.EnabledMenuKeys);
+        Assert.DoesNotContain("consignments.create", dto.EnabledMenuKeys);
+        Assert.DoesNotContain("gr.list", dto.EnabledMenuKeys);
+    }
+
+    [Fact]
+    public async Task GetTenantMenuEntitlements_response_does_not_contain_RoleOverridesJson_or_UserOverridesJson()
+    {
+        await using var ctx = NewContext();
+        SeedModuleWithCode(ctx, 1, "consignments");
+        ctx.TenantSettings.Add(new TenantSetting { TenantId = TestTenantId, CreatedAt = DateTime.UtcNow });
+        ctx.TenantModules.Add(new TenantModule
+        {
+            TenantId = TestTenantId,
+            ModuleId = 1,
+            IsEnabled = true,
+            EnabledFrom = DateTime.UtcNow,
+            EnabledUntil = null
+        });
+        ctx.TenantEntitlementSubscriptions.Add(new TenantEntitlementSubscription
+        {
+            TenantId = TestTenantId,
+            PlanTier = "Enterprise",
+            EnabledFeatureKeys = new List<string> { "consignments" },
+            EffectiveFrom = DateTime.UtcNow,
+            EffectiveUntil = null
+        });
+        await ctx.SaveChangesAsync();
+
+        var service = new NavigationService(ctx);
+        var dto = await service.GetTenantMenuEntitlementsAsync(TestTenantId);
+
+        // The DTO type itself must no longer carry the legacy JSON fields.
+        var dtoType = typeof(TenantMenuEntitlementsDto);
+        Assert.Null(dtoType.GetProperty("RoleOverridesJson"));
+        Assert.Null(dtoType.GetProperty("UserOverridesJson"));
+
+        // And serialized shape must not include those field names at all.
+        var json = System.Text.Json.JsonSerializer.Serialize(dto);
+        Assert.DoesNotContain("RoleOverridesJson", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UserOverridesJson", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task NavigationService_DeliverySettlement_EmittedUnderConsignments_WhenGranted()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+        SeedTenantEntitlements(ctx, new List<string>
+        {
+            "dashboard",
+            "consignments",
+            "consignments.all",
+            "delivery_settlement"
+        });
+
+        var service = new NavigationService(ctx);
+        var menu = await service.GetDynamicMenuAsync(TestTenantId, AdminRole, AdminId);
+        var permissions = await service.GetUserPermissionsAsync(TestTenantId, AdminRole, AdminId);
+
+        var consignments = FindMenu(menu, "consignments");
+        Assert.NotNull(consignments);
+        Assert.NotNull(consignments!.Children);
+
+        Assert.Contains(consignments.Children, c => c.Id == "delivery_settlement");
+        var dsItem = consignments.Children.First(c => c.Id == "delivery_settlement");
+        Assert.Equal("/delivery-settlement", dsItem.Path);
+        Assert.Contains("delivery_settlement", permissions, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task NavigationService_DeliverySettlement_NotEmitted_WhenModuleMissing()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+        SeedTenantEntitlements(ctx, new List<string>
+        {
+            "dashboard",
+            "consignments",
+            "consignments.all"
+        });
+
+        var service = new NavigationService(ctx);
+        var menu = await service.GetDynamicMenuAsync(TestTenantId, AdminRole, AdminId);
+        var permissions = await service.GetUserPermissionsAsync(TestTenantId, AdminRole, AdminId);
+
+        var consignments = FindMenu(menu, "consignments");
+        Assert.NotNull(consignments);
+        Assert.NotNull(consignments!.Children);
+
+        Assert.DoesNotContain(consignments.Children, c => c.Id == "delivery_settlement");
+        Assert.DoesNotContain("delivery_settlement", permissions, StringComparer.OrdinalIgnoreCase);
+    }
 }

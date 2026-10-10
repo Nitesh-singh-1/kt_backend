@@ -100,38 +100,37 @@ namespace KTransport.API.Services
             }
             else if (_entitlements != null)
             {
-                // TASK-044 Phase 3: tables are the sole authoritative source.
+                // TASK-049 Option B: tables are the sole authoritative source.
+                // The structural ComputeEffective returns the full set of
+                // effective permission keys (e.g. "billing.invoices.view").
+                // Menu visibility then checks menu_items.permission_key /
+                // menu_items.key against that set — no prefix-expansion,
+                // no NormalizeFeatureKey. The 40-line expansion loop is
+                // deleted; its only purpose was to feed the old fuzzy
+                // IsVisible matcher.
                 var resolvedUserId = await ResolveUserIdAsync(tenantId, userIdOrName);
                 var tablesActionKeys = await _entitlements.ComputeEffectivePermissionsFromTablesAsync(tenantId, resolvedUserId, userRole);
 
-                effectiveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                effectiveKeys = new HashSet<string>(tablesActionKeys, StringComparer.OrdinalIgnoreCase);
+
+                // For each granted permission key also index its feature-key
+                // prefix so menu_items rows whose `key` matches the feature
+                // (e.g. row key='billing.invoices', permission='billing.invoices.view')
+                // stay visible. One single prefix hop; no legacy alias magic.
                 foreach (var k in tablesActionKeys)
                 {
                     if (string.IsNullOrWhiteSpace(k)) continue;
-                    effectiveKeys.Add(k);
-
-                    var parts = k.Split('.');
-                    var prefix = "";
-                    for (int i = 0; i < parts.Length; i++)
+                    var lastDot = k.LastIndexOf('.');
+                    if (lastDot > 0)
                     {
-                        prefix = i == 0 ? parts[0] : prefix + "." + parts[i];
-                        effectiveKeys.Add(prefix);
-                        effectiveKeys.Add(prefix + ".module");
-                        effectiveKeys.Add(prefix + ".view");
-                    }
-
-                    var norm = EntitlementsCatalog.NormalizeFeatureKey(k);
-                    if (!string.IsNullOrWhiteSpace(norm))
-                    {
-                        effectiveKeys.Add(norm);
-                        var normParts = norm.Split('.');
-                        var normPrefix = "";
-                        for (int i = 0; i < normParts.Length; i++)
+                        var featurePrefix = k.Substring(0, lastDot);
+                        effectiveKeys.Add(featurePrefix);
+                        // Root prefix too (so a 3-dot key like billing.invoices.view
+                        // also surfaces 'billing' for the parent-group row).
+                        var firstDot = k.IndexOf('.');
+                        if (firstDot > 0 && firstDot < lastDot)
                         {
-                            normPrefix = i == 0 ? normParts[0] : normPrefix + "." + normParts[i];
-                            effectiveKeys.Add(normPrefix);
-                            effectiveKeys.Add(normPrefix + ".module");
-                            effectiveKeys.Add(normPrefix + ".view");
+                            effectiveKeys.Add(k.Substring(0, firstDot));
                         }
                     }
                 }
@@ -184,22 +183,19 @@ namespace KTransport.API.Services
             // permission set directly from role_permissions / user_permission_overrides.
             if (!isSuperUserCaller && _entitlements != null)
             {
+                // TASK-049 Option B: structural compute, then one feature-key
+                // prefix hop so UI code that still queries `billing` surfaces
+                // the parent group when any `billing.*.*` leaf is granted.
                 var resolvedUserId = await ResolveUserIdAsync(tenantId, userIdOrName);
                 var tablesActionKeys = await _entitlements.ComputeEffectivePermissionsFromTablesAsync(tenantId, resolvedUserId, userRole);
-                var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var result = new HashSet<string>(tablesActionKeys, StringComparer.OrdinalIgnoreCase);
                 foreach (var k in tablesActionKeys)
                 {
                     if (string.IsNullOrWhiteSpace(k)) continue;
-                    result.Add(k);
-
-                    var parts = k.Split('.');
-                    var prefix = "";
-                    for (int i = 0; i < parts.Length; i++)
-                    {
-                        prefix = i == 0 ? parts[0] : prefix + "." + parts[i];
-                        result.Add(prefix);
-                        result.Add(prefix + ".view");
-                    }
+                    var lastDot = k.LastIndexOf('.');
+                    if (lastDot > 0) result.Add(k.Substring(0, lastDot));
+                    var firstDot = k.IndexOf('.');
+                    if (firstDot > 0 && firstDot < lastDot) result.Add(k.Substring(0, firstDot));
                 }
                 result.Add("dashboard");
                 result.Add("dashboard.view");
@@ -270,11 +266,32 @@ namespace KTransport.API.Services
                 }
             }
 
+            // TASK-049 Option B: derive ModuleCodes from tenant_modules
+            // (authoritative). EnabledMenuKeys is kept populated as the legacy
+            // mirror for Phase A readers.
+            var moduleCodes = await (
+                from tm in _context.TenantModules.IgnoreQueryFilters()
+                join m in _context.Modules.IgnoreQueryFilters() on tm.ModuleId equals m.Id
+                where tm.TenantId == tenantId && tm.EnabledUntil == null
+                orderby m.Code
+                select m.Code
+            ).ToListAsync();
+
+            // TASK-049b: ModuleCodes derived from tenant_modules is authoritative.
+            // When tenant_modules has rows, EnabledMenuKeys mirrors ModuleCodes
+            // directly (ignoring any stale dotted keys in subscription.EnabledFeatureKeys).
+            // When tenant_modules is empty, fall back to EnabledFeatureKeys for Phase A
+            // legacy test compatibility (matching EntitlementsService tmSet.Count == 0 fallback).
+            var effectiveMenuKeys = moduleCodes.Count > 0
+                ? moduleCodes
+                : (subscription?.EnabledFeatureKeys?.ToList() ?? moduleCodes);
+
             var dto = new TenantMenuEntitlementsDto
             {
                 TenantId = tenantId,
                 PlanTier = subscription?.PlanTier ?? "Enterprise",
-                EnabledMenuKeys = subscription?.EnabledFeatureKeys?.ToList() ?? new List<string>(),
+                ModuleCodes = moduleCodes,
+                EnabledMenuKeys = effectiveMenuKeys,
                 Reports = catalog
             };
             return dto;

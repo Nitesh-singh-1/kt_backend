@@ -42,6 +42,16 @@ public partial class KTransportDbContext
             entity.Property(e => e.VisibilityRule).HasMaxLength(60).HasColumnName("visibility_rule");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
 
+            // TASK-049 Option B: structural FK to modules.id. The legacy
+            // string columns (key / parent_key / permission_key) are kept
+            // through Phase A per the migration policy — Phase B drops them.
+            entity.Property(e => e.ModuleId).HasColumnName("module_id");
+            entity.HasIndex(e => e.ModuleId, "menu_items_module_id_idx");
+            entity.HasOne(e => e.Module).WithMany()
+                .HasForeignKey(e => e.ModuleId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_menu_items_module");
+
             // Self-FK on parent_key → key. ON DELETE CASCADE so dropping a
             // module cascades to its children.
             entity.HasOne<MenuItem>()

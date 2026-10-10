@@ -36,6 +36,16 @@ public partial class KTransportDbContext
             entity.Property(e => e.Action).HasMaxLength(20).HasColumnName("action");
             entity.Property(e => e.Description).HasMaxLength(200).HasColumnName("description");
             entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("display_order");
+
+            // TASK-049 Option B: structural FK to modules.id (NOT NULL after
+            // MenuRbacNormalization backfill). permissions.feature_key stays
+            // for one release as a derived view-of-last-resort.
+            entity.Property(e => e.ModuleId).HasColumnName("module_id");
+            entity.HasIndex(e => e.ModuleId, "permissions_module_id_idx");
+            entity.HasOne(e => e.Module).WithMany()
+                .HasForeignKey(e => e.ModuleId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_permissions_module");
         });
 
         modelBuilder.Entity<TenantEntitlementSubscription>(entity =>
@@ -123,6 +133,14 @@ public partial class KTransportDbContext
             entity.Property(e => e.RevokeReason).HasMaxLength(500).HasColumnName("revoke_reason");
             entity.Property(e => e.SupersededBy).HasColumnName("superseded_by");
 
+            // TASK-049 Option B: structural FK to permissions.id.
+            entity.Property(e => e.PermissionId).HasColumnName("permission_id");
+            entity.HasIndex(e => e.PermissionId, "role_permissions_permission_id_idx");
+            entity.HasOne(e => e.Permission).WithMany()
+                .HasForeignKey(e => e.PermissionId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_role_permissions_permission");
+
             entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
 
             entity.HasOne(d => d.Tenant).WithMany()
@@ -155,6 +173,14 @@ public partial class KTransportDbContext
             entity.Property(e => e.GrantedBy).HasColumnName("granted_by");
             entity.Property(e => e.SupersededBy).HasColumnName("superseded_by");
             entity.Property(e => e.RevokeReason).HasMaxLength(500).HasColumnName("revoke_reason");
+
+            // TASK-049 Option B: structural FK to permissions.id.
+            entity.Property(e => e.PermissionId).HasColumnName("permission_id");
+            entity.HasIndex(e => e.PermissionId, "user_perm_overrides_permission_id_idx");
+            entity.HasOne(e => e.Permission).WithMany()
+                .HasForeignKey(e => e.PermissionId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_user_perm_overrides_permission");
 
             entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
 
