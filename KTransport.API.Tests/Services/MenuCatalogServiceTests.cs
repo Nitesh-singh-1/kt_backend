@@ -125,11 +125,11 @@ public class MenuCatalogServiceTests
     [Fact]
     public void SeedMigration_Produces36RowsExactly()
     {
-        Assert.Equal(36, MenuCatalogSeedData.Rows.Length);
+        Assert.Equal(37, MenuCatalogSeedData.Rows.Length);
 
         using var ctx = NewContext();
         ApplyMenuSeed(ctx);
-        Assert.Equal(36, ctx.MenuItems.Count());
+        Assert.Equal(37, ctx.MenuItems.Count());
     }
 
     [Fact]

@@ -27,7 +27,7 @@ namespace KTransport.API.Common
             new("analytics",     null, "Business Analytics",          "/analytics",  "barChart", "dashboard.view",      null,     1, null),
             new("consignments",  null, "Bilty / GR Booking",          null,          "package",  "consignments.module", null,     2, null),
             new("quotations",    null, "Quotations & Enquiries",      "/quotations", "fileText", "quotations.view",     null,     3, null),
-            new("trips",         null, "Manifest & Dispatch",         "/trips",      "truck",    "trips.view",          null,     4, null),
+            new("trips",         null, "Challan",                     "/trips",      "truck",    "trips.view",          null,     4, null),
             new("pod",           null, "POD & Deliveries",            "/pod",        "fileText", "pod.view",            null,     5, null),
             new("billing",       null, "Freight Invoicing & Billing", null,          "fileText", "billing.view",        null,     6, null),
             new("master_data",   null, "Master Data",                 null,          "cog",      "masterdata.module",   null,     7, null),
@@ -44,6 +44,7 @@ namespace KTransport.API.Common
             new("delivery_settlement",   "consignments", "Delivery Settlement",       "/delivery-settlement", "checkCircle", "delivery_settlement.view",  null, 2, null),
 
             // ---- trips children ----
+            new("trips.challan",    "trips", "Truck Challan",    "/trips",           "truck",      "trips.view",             null, 0, null),
             new("empty_trips",      "trips", "Empty Trip Log",   "/empty-trips",     "truck",      "trips.view",             null, 1, null),
             new("trip_settlement",  "trips", "Trip Settlement",  "/trip-settlement", "dollarSign", "trip_settlement.view",   null, 2, null),
 
