@@ -94,7 +94,7 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidAudience = jwtSettings?.Audience,
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        ClockSkew = TimeSpan.FromMinutes(5)
     };
 });
 
@@ -132,6 +132,10 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
 builder.Services.AddScoped<ITenantConfigurationService, TenantConfigurationService>();
 builder.Services.AddScoped<INavigationService, NavigationService>();
+// TASK-044 Phase 3: entitlements normalized tables are sole source of truth.
+builder.Services.AddScoped<IEntitlementsService, EntitlementsService>();
+// TASK-045 Phase 3: menu_items table is sole authoritative source for the navigation menu.
+builder.Services.AddScoped<IMenuCatalogService, MenuCatalogService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
@@ -214,7 +218,7 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddFixedWindowLimiter("AuthPolicy", limiterOptions =>
     {
-        limiterOptions.PermitLimit = 10;
+        limiterOptions.PermitLimit = builder.Environment.IsDevelopment() ? 300 : 60;
         limiterOptions.Window = TimeSpan.FromMinutes(1);
         limiterOptions.QueueLimit = 0;
     });
@@ -229,6 +233,12 @@ builder.Services
     .AddDbContextCheck<KTransportDbContext>(name: "database", tags: new[] { "ready" });
 
 var app = builder.Build();
+
+// TASK-044 Phase 3 removed the `--backfill-entitlements` CLI. The JSON
+// source column (`tenant_settings.menu_entitlements_json`) was dropped and
+// `EntitlementsService.BackfillFromJsonAsync` is now an [Obsolete] no-op.
+// Grants are created via `PUT /api/configuration/menu-entitlements` or the
+// upcoming SaaS admin UI; nothing to invoke from the command line.
 
 // TASK-010: correlation-id middleware must run BEFORE ExceptionHandlingMiddleware and
 // before request logging so the same X-Request-Id appears in the response header, in
@@ -446,12 +456,20 @@ using (var scope = app.Services.CreateScope())
             }
 
             // Seed the default admin user, or repair its login on a fresh DB.
-            // The InitialCreate migration seeds an admin via HasData with a stale placeholder password
-            // hash that does NOT actually verify against "admin123". On a fresh database that row is
-            // created by Migrate() before this block runs, so we detect the untouched stale hash and
-            // reset it to a real BCrypt hash of "admin123". An admin whose password was already changed
-            // (any other hash) is left untouched.
+            // The InitialCreate migration seeds an admin via HasData — meaning on a truly fresh
+            // database, Migrate() ABOVE already inserted this row (with its migration-time literal
+            // values) before this block ever runs. `seededAdmin == null` therefore never actually
+            // happens in practice; every fresh-DB fix has to be a self-heal against the migration's
+            // baked-in values below, not the "insert new" branch (kept only as defence in depth —
+            // e.g. if the row were ever manually deleted and the app restarted).
+            //
+            // Two independent self-heals, each applied only if its field still matches the
+            // migration's known placeholder — a field the operator already customized (password
+            // changed, name changed) is left alone:
+            //   1. Password: the HasData hash doesn't actually verify against "admin123" — reset it.
+            //   2. FullName: the HasData seed used a placeholder "Kundan Kumar" — reset to "Super Admin".
             const string StaleSeedAdminHash = "$2a$11$0aBw4j5tM1Ew2k5hF8O/TehI5jY9K2HkZ0K6o0tM6dYp/1R9Gq8m6";
+            const string StaleSeedAdminName = "Kundan Kumar";
             var seededAdmin = dbContext.Users.IgnoreQueryFilters().FirstOrDefault(u => u.Username == "admin");
             if (seededAdmin == null)
             {
@@ -468,11 +486,24 @@ using (var scope = app.Services.CreateScope())
                 });
                 dbContext.SaveChanges();
             }
-            else if (seededAdmin.Password == StaleSeedAdminHash)
+            else
             {
-                seededAdmin.Password = BCrypt.Net.BCrypt.HashPassword("admin123");
-                dbContext.SaveChanges();
-                logger.LogInformation("Repaired default admin login on first-time initialization.");
+                var healed = false;
+                if (seededAdmin.Password == StaleSeedAdminHash)
+                {
+                    seededAdmin.Password = BCrypt.Net.BCrypt.HashPassword("admin123");
+                    healed = true;
+                }
+                if (seededAdmin.FullName == StaleSeedAdminName)
+                {
+                    seededAdmin.FullName = "Super Admin";
+                    healed = true;
+                }
+                if (healed)
+                {
+                    dbContext.SaveChanges();
+                    logger.LogInformation("Repaired default admin seed values (password and/or display name) on first-time initialization.");
+                }
             }
 
             logger.LogInformation("Database startup initialization completed successfully.");

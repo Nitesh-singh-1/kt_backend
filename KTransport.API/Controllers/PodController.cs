@@ -25,6 +25,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("pod.view")]
         public async Task<ActionResult<List<PodRecordDto>>> GetPods(
             [FromQuery] PodStatus? status = null,
             [FromQuery] string? search = null)
@@ -34,6 +35,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("shipment/{shipmentId:long}")]
+        [RequirePermission("pod.view")]
         public async Task<ActionResult<PodRecordDto>> GetPodByShipmentId(long shipmentId)
         {
             var pod = await _podService.GetPodByShipmentIdAsync(shipmentId);
@@ -42,6 +44,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("pending-shipments")]
+        [RequirePermission("pod.view")]
         public async Task<ActionResult<List<PodPendingShipmentDto>>> GetPendingShipments()
         {
             var shipments = await _podService.GetPendingPodShipmentsAsync();
@@ -49,6 +52,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("upload")]
+        [RequirePermission("pod.create", "pod.edit")]
         public async Task<ActionResult<PodRecordDto>> UploadPod([FromBody] UploadPodRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -59,6 +63,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/verify")]
+        [RequirePermission("pod.edit")]
         public async Task<ActionResult<PodRecordDto>> VerifyPod(long id, [FromBody] VerifyPodRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -70,6 +75,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("pod.edit")]
         public async Task<ActionResult> DeletePod(long id)
         {
             var success = await _podService.DeletePodAsync(id);

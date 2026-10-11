@@ -67,7 +67,10 @@ namespace KTransport.API.Services
             foreach (var feat in request.AssignedFeatures ?? new List<string>())
             {
                 var canon = FeatureConstants.Normalize(feat);
-                if (subscribed.Contains(feat) || subscribed.Contains(canon))
+                var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
+                var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
+                if (subscribed.Contains(feat) || subscribed.Contains(canon) ||
+                    subscribed.Contains(root) || subscribed.Contains(canonRoot))
                 {
                     validAssigned.Add(feat);
                 }

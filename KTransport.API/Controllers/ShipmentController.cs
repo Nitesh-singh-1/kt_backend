@@ -13,7 +13,7 @@ namespace KTransport.API.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    [RequireFeature(FeatureConstants.GOOD_RECEIPT)]
+    [RequireFeature(FeatureConstants.GOOD_RECEIPT, FeatureConstants.SHIPMENT, "bilty", "consignments")]
     public class ShipmentController : ControllerBase
     {
         private readonly IShipmentService _shipmentService;
@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> CreateShipment([FromBody] CreateShipmentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -37,6 +38,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentById(long id)
         {
             var response = await _shipmentService.GetShipmentByIdAsync(id);
@@ -45,6 +47,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("by-no/{shipmentNo}")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentResponse>> GetShipmentByNo(string shipmentNo)
         {
             var response = await _shipmentService.GetShipmentByNoAsync(shipmentNo);
@@ -53,18 +56,21 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
         public async Task<ActionResult<ShipmentListResponse>> GetAllShipments(
             [FromQuery] ShipmentStatus? status,
             [FromQuery] TaxTreatment? taxTreatment,
+            [FromQuery] PaymentTerm? paymentTerm,
             [FromQuery] string? search,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
-            var response = await _shipmentService.GetAllShipmentsAsync(status, taxTreatment, search, page, pageSize);
+            var response = await _shipmentService.GetAllShipmentsAsync(status, taxTreatment, paymentTerm, search, page, pageSize);
             return Ok(response);
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("consignments.create.edit", "consignments.all.edit")]
         public async Task<ActionResult<ShipmentResponse>> UpdateShipment(long id, [FromBody] UpdateShipmentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -77,6 +83,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPatch("{id:long}/status")]
+        [RequirePermission("consignments.create.edit", "consignments.all.edit")]
         public async Task<ActionResult<ShipmentResponse>> UpdateShipmentStatus(long id, [FromBody] UpdateShipmentStatusRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -89,6 +96,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("consignments.all.delete", "consignments.create.delete")]
         public async Task<IActionResult> DeleteShipment(long id)
         {
             var userId = GetCurrentUserId();
@@ -96,6 +104,28 @@ namespace KTransport.API.Controllers
             if (!success) return NotFound(new { message = "Shipment not found." });
 
             return Ok(new { success = true, message = "Shipment cancelled successfully." });
+        }
+
+        [HttpPost("settle-delivery")]
+        [RequirePermission("delivery_settlement.create", "delivery_settlement.edit")]
+        public async Task<ActionResult<SettleDeliveryResponseDto>> SettleDelivery([FromBody] SettleDeliveryRequestDto request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var userId = GetCurrentUserId();
+            var response = await _shipmentService.SettleDeliveryAsync(request, userId);
+
+            if (!response.Success) return BadRequest(response);
+            return Ok(response);
+        }
+
+        [HttpGet("delivery-settlement-summary")]
+        [RequirePermission("delivery_settlement.view")]
+        public async Task<ActionResult<DeliverySettlementSummaryResponse>> GetDeliverySettlementSummary()
+        {
+            var response = await _shipmentService.GetDeliverySettlementSummaryAsync();
+            if (!response.Success) return BadRequest(response);
+            return Ok(response);
         }
 
         private int GetCurrentUserId()

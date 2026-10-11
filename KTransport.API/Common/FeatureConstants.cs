@@ -7,6 +7,9 @@ namespace KTransport.API.Common
         public const string SHIPMENT = "SHIPMENT";
         public const string MANIFEST = "MANIFEST"; // Trip / Challan / Manifest
         public const string POD = "POD";
+        public const string DELIVERY_SETTLEMENT = "DELIVERY_SETTLEMENT";
+        public const string TRIP_SETTLEMENT = "TRIP_SETTLEMENT";
+        public const string BILL_BOOK = "BILL_BOOK";
         public const string BILLING = "BILLING";
         public const string INVOICE = "INVOICE";
         public const string MONEY_RECEIPT = "MONEY_RECEIPT";
@@ -19,6 +22,7 @@ namespace KTransport.API.Common
         public const string PARTY = "PARTY"; // Customers / Parties
         public const string VENDOR = "VENDOR"; // Transporters / Market Hire
         public const string CLAIMS = "CLAIMS"; // Damage & Claims
+        public const string QUOTATION = "QUOTATION"; // Quotations / Price Quotes
         
         // Administration & SaaS Governance
         public const string USER_MANAGEMENT = "USER_MANAGEMENT";
@@ -31,6 +35,9 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
+            TRIP_SETTLEMENT,
+            BILL_BOOK,
             BILLING,
             INVOICE,
             MONEY_RECEIPT,
@@ -41,6 +48,7 @@ namespace KTransport.API.Common
             PARTY,
             VENDOR,
             CLAIMS,
+            QUOTATION,
             USER_MANAGEMENT,
             SAAS_CONFIGURATION
         };
@@ -51,6 +59,7 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
             TRACKING,
             PARTY
         };
@@ -61,6 +70,9 @@ namespace KTransport.API.Common
             SHIPMENT,
             MANIFEST,
             POD,
+            DELIVERY_SETTLEMENT,
+            TRIP_SETTLEMENT,
+            BILL_BOOK,
             BILLING,
             INVOICE,
             MONEY_RECEIPT,
@@ -69,7 +81,8 @@ namespace KTransport.API.Common
             PARTY,
             VEHICLE,
             DRIVER,
-            VENDOR
+            VENDOR,
+            QUOTATION
         };
 
         public static readonly string[] EnterpriseFeatures = AllFeatures;
@@ -85,21 +98,25 @@ namespace KTransport.API.Common
 
             return key switch
             {
-                "GR" or "GR.LIST" or "GR.ENTRY" or "CONSIGNMENTS" or "CONSIGNMENTS.CREATE" or "CONSIGNMENTS.ALL" or "GOOD_RECEIPT" => GOOD_RECEIPT,
+                "BILTY" or "BILTIES" or "BILTY.CREATE" or "BILTY.ALL" or "BILTY.LIST" or "BILTY.VIEW" or "GR" or "GR.LIST" or "GR.ENTRY" or "CONSIGNMENTS" or "CONSIGNMENTS.CREATE" or "CONSIGNMENTS.ALL" or "GOOD_RECEIPT" => GOOD_RECEIPT,
                 "SHIPMENT" or "SHIPMENTS" => SHIPMENT,
                 "CHALLAN" or "CHALLAN.LIST" or "CHALLAN.ENTRY" or "TRIPS" or "MANIFEST" or "MANIFESTS" => MANIFEST,
                 "POD" or "DELIVERIES" => POD,
+                "DELIVERY_SETTLEMENT" or "DELIVERYSETTLEMENT" or "DELIVERY-SETTLEMENT" or "CONSIGNMENTS.DELIVERY_SETTLEMENT" => DELIVERY_SETTLEMENT,
+                "TRIP_SETTLEMENT" or "TRIPSETTLEMENT" or "TRIP-SETTLEMENT" or "TRIPS.SETTLEMENT" => TRIP_SETTLEMENT,
+                "BILL_BOOK" or "BILLBOOK" or "BILLING.BILL_BOOK" => BILL_BOOK,
                 "BILLING" or "BILLING.INVOICES" or "BILLING.RECEIPTS" or "INVOICE" or "INVOICES" => BILLING,
                 "RECEIPTS" or "MONEY_RECEIPT" or "MONEY_RECEIPTS" => MONEY_RECEIPT,
                 "TRACKING" or "GPS" => TRACKING,
                 "REPORTS" or "REPORTING" or "ANALYTICS" => REPORTING,
                 "FLEET" or "VEHICLES" or "VEHICLE" or "MASTER_DATA.FLEET" => VEHICLE,
                 "DRIVER" or "DRIVERS" => DRIVER,
-                "CUSTOMERS" or "PARTIES" or "PARTY" or "MASTER_DATA.PARTIES" or "MASTER_DATA" => PARTY,
+                "CUSTOMERS" or "PARTIES" or "PARTY" or "MASTER_DATA.PARTIES" or "MASTER_DATA" or "MASTERDATA" => PARTY,
                 "VENDORS" or "VENDOR" => VENDOR,
                 "CLAIMS" => CLAIMS,
+                "QUOTATION" or "QUOTATIONS" => QUOTATION,
                 "USERS" or "USER_MANAGEMENT" or "SUB_USERS" => USER_MANAGEMENT,
-                "SETTINGS" or "SAAS" or "SAAS_CONFIGURATION" or "SYSTEM.SETTINGS" or "CLIENTS" => SAAS_CONFIGURATION,
+                "SETTINGS" or "SAAS" or "SAAS_CONFIGURATION" or "SYSTEM.SETTINGS" or "CLIENTS" or "SYSTEM" => SAAS_CONFIGURATION,
                 _ => key
             };
         }

@@ -105,6 +105,18 @@ namespace KTransport.API.DTOs
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
 
+        // Settlement & Delivery Reconciliation
+        public bool IsSettled { get; set; }
+        public bool IsPartialPayment { get; set; }
+        public decimal? SettledReceivedAmount { get; set; }
+        public decimal? SettledDiscountAmount { get; set; }
+        public string? DiscountReason { get; set; }
+        public string? DiscountRemarks { get; set; }
+        public string? SettledPaymentMode { get; set; }
+        public string? SettlementReferenceNo { get; set; }
+        public string? DeliveredTo { get; set; }
+        public DateOnly? DeliveryDate { get; set; }
+
         // Hubs & Routing
         public long? OriginHubId { get; set; }
         public string? OriginHubName { get; set; }
@@ -257,6 +269,52 @@ namespace KTransport.API.DTOs
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
         public int TotalCount { get; set; }
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 50;
         public List<ShipmentDto> Data { get; set; } = new List<ShipmentDto>();
     }
+
+    public class SettleDeliveryRequestDto
+    {
+        public List<long> ShipmentIds { get; set; } = new List<long>();
+        public decimal? ReceivedAmount { get; set; }
+        public decimal? DiscountAmount { get; set; }
+        public string? DiscountReason { get; set; } // RoundOff, ShortageClaim, DamageDeduction, RateDifference, DeliveryDeduction, Other
+        public string? DiscountRemarks { get; set; }
+        public string PaymentMode { get; set; } = "CASH";
+        public bool IsPartialPayment { get; set; } = false;
+        public string? PaymentReference { get; set; }
+        public string? DeliveredTo { get; set; }
+        public DateOnly DeliveryDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+        public string? Remarks { get; set; }
+    }
+
+    public class SettleDeliveryResponseDto
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public int SettledCount { get; set; }
+        public decimal TotalAmountSettled { get; set; }
+        public decimal TotalDiscountGiven { get; set; }
+    }
+
+    public class DeliverySettlementSummaryDto
+    {
+        public int TotalConsignments { get; set; }
+        public decimal TotalConsignmentsAmount { get; set; }
+        public int PendingDeliveriesCount { get; set; }
+        public decimal PendingDeliveriesAmount { get; set; }
+        public int ToPayCollectiblesCount { get; set; }
+        public decimal ToPayCollectiblesAmount { get; set; }
+        public int DeliveredAndSettledCount { get; set; }
+        public decimal DeliveredAndSettledAmount { get; set; }
+    }
+
+    public class DeliverySettlementSummaryResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public DeliverySettlementSummaryDto? Data { get; set; }
+    }
 }
+

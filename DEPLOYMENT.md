@@ -1,28 +1,57 @@
 # Deployment
 
-KTransport runs as three Docker containers on a single VPS, orchestrated by
-`docker-compose.yml` living at `/opt/ktransport/docker-compose.yml` on the server:
+Two fully isolated environments run side by side on **the same VPS**
+(`129.121.132.103`): **prod** and **UAT**. They share nothing at runtime —
+separate containers, separate Docker networks, separate Postgres volumes,
+separate secrets, separate ports, separate image tags. See
+`docker-compose.uat.yml`'s header comment for exactly why each of those is
+deliberate, not incidental.
 
-| Service | Image | Port | Source |
-|---|---|---|---|
-| `api` | `ghcr.io/nitesh-singh-1/kt_backend` | `8080` | this repo |
-| `web` | `ghcr.io/nitesh-singh-1/ktfrontend` | `80` | [ktFrontend](https://github.com/Nitesh-singh-1/ktFrontend) repo |
-| `postgres` | `postgres:17.1-alpine` | `127.0.0.1:5432` (not public) | official image |
+| | Prod | UAT |
+|---|---|---|
+| Directory on VPS | `/opt/ktransport/` | `/opt/ktransport-uat/` |
+| Compose file | `docker-compose.yml` | `docker-compose.uat.yml` |
+| Trigger branch | `main` | `develop` |
+| Image tag | `:latest` | `:uat` |
+| `api` port | `8080` | `8081` |
+| `web` port | `80` | `8082` |
+| `postgres` port | `127.0.0.1:5432` | `127.0.0.1:5433` |
+| Frontend URL | `http://129.121.132.103` | `http://129.121.132.103:8082` |
+| API URL | `http://129.121.132.103:8080/api` | `http://129.121.132.103:8081/api` |
 
-**Current target:** `129.121.132.103` (plain HTTP — no domain/TLS yet).
+**Workflow:** do day-to-day work against `develop` → it auto-deploys to UAT →
+test there → when it's good, merge `develop` into `main` → that auto-deploys
+to prod. Nobody pushes straight to `main`.
 
 ## How a deploy happens
 
-Both repos are separate git repos, each with its own `.github/workflows/deploy.yml`
-that triggers **on every push to `main`**:
+Both repos are separate git repos, each with **two** deploy workflows:
 
-1. Build the Docker image for that repo's service.
-2. Push it to GHCR as `:latest` and `:<git-sha>`.
-3. SSH into the VPS and run `docker compose pull <service> && docker compose up -d <service>`.
+- `.github/workflows/deploy.yml` — triggers on push to **`main`** → builds,
+  tags `:latest` + `:<sha>`, SSHes in and runs
+  `docker compose pull <service> && docker compose up -d <service>` in
+  `/opt/ktransport`.
+- `.github/workflows/deploy-uat.yml` — triggers on push to **`develop`** →
+  builds, tags `:uat` + `:uat-<sha>`, SSHes in and runs
+  `docker compose -f docker-compose.uat.yml pull <service> && ... up -d <service>`
+  in `/opt/ktransport-uat`.
 
-Each workflow only ever touches its own service — a backend push never restarts
-`web`, and vice versa. There is no manual deploy step; merging to `main` is the
-deploy trigger.
+Each workflow only ever touches its own service in its own environment — a
+UAT deploy can never restart a prod container, and a backend push never
+restarts `web`. There is no manual deploy step; pushing to the right branch
+is the deploy trigger.
+
+### The DB/migration edge case, and why it's a non-issue
+
+Because UAT and prod are backed by **physically separate Postgres volumes**
+(not a shared database with a schema split), UAT's database can be — and
+often will be — at a different migration state or have test data prod
+doesn't. This is expected, not a bug: EF Core migrations and first-boot
+seeding already self-apply on container startup (confirmed live on this
+VPS), so each environment's database just reflects whatever code is actually
+running there. There is no code path by which a UAT-only migration or a
+piece of UAT test data can reach prod's database — they don't share a
+network, a volume, or credentials.
 
 ## One-time setup (already done for the current VPS)
 
@@ -37,6 +66,11 @@ deploy trigger.
 5. Both GHCR packages (`kt_backend`, `ktfrontend`) set to **Public** visibility
    (Settings on the package itself) so the VPS can `docker compose pull` without
    needing a registry login.
+6. `/opt/ktransport-uat/docker-compose.uat.yml` — copy of this repo's
+   `docker-compose.uat.yml`.
+7. `/opt/ktransport-uat/.env` (mode 600, never committed) — its own
+   `POSTGRES_PASSWORD` and `JWT_SECRET`, generated fresh, deliberately
+   different from prod's. See `.env.uat.example` for the full list.
 
 ## Setting up a NEW VPS from scratch
 
@@ -99,6 +133,14 @@ gunzip -c /opt/ktransport/backups/kt_<timestamp>.sql.gz | \
 
 ## Known follow-ups (not blockers for today's deploy)
 
+- **UAT gets no automated backup.** The nightly cron job only dumps
+  `kt_postgres` (prod's container name) — `kt_postgres_uat` is never
+  touched, deliberately, since UAT data is disposable test data by
+  design. If UAT starts holding anything worth keeping, copy the same
+  cron pattern with `_uat` suffixes.
+- **UAT secrets currently only exist in this session's history**, not
+  in a password manager — same caveat as prod's secrets. Rotate both
+  once there's a real secrets-management process in place.
 - **Offsite backup copy (Layer 2)** — see "Database backups" above.
 
 - **No HTTPS.** `Program.cs` calls `UseHttpsRedirection()` unconditionally, but

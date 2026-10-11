@@ -31,6 +31,7 @@ namespace KTransport.API.Services
         private readonly IAuditLogService _auditLogService;
         private readonly IVerificationCodeService _verificationCodeService;
         private readonly IEmailSender _emailSender;
+        private readonly EmailSettings _emailSettings;
 
         public AuthService(
             ILogger<AuthService> logger,
@@ -38,7 +39,8 @@ namespace KTransport.API.Services
             IOptions<JwtSettings> jwtSettings,
             IAuditLogService auditLogService,
             IVerificationCodeService verificationCodeService,
-            IEmailSender emailSender)
+            IEmailSender emailSender,
+            IOptions<EmailSettings> emailSettings)
         {
             _logger = logger;
             _context = context;
@@ -46,6 +48,7 @@ namespace KTransport.API.Services
             _auditLogService = auditLogService;
             _verificationCodeService = verificationCodeService;
             _emailSender = emailSender;
+            _emailSettings = emailSettings.Value;
         }
 
         public async Task<AuthResponse> LoginAsync(LoginRequest request)
@@ -361,11 +364,13 @@ namespace KTransport.API.Services
                 }
 
                 // No deliverable email channel (email disabled, or user has no email on file).
-                // The code was logged server-side; only return it in the response when email delivery
-                // is not enabled at all (dev convenience) — never when email is enabled but merely failed/missing.
+                // The code was logged server-side; only ever echo it back in the response when
+                // Email:ExposeOtpWhenDisabled is explicitly turned on (local dev only — see
+                // EmailSettings.ExposeOtpWhenDisabled). Email being merely unconfigured must never
+                // by itself put a live OTP into an API response reachable by the browser.
                 _logger.LogInformation("Verification code for {Username}: {Code} (valid {Minutes} min)", cleanUsername, verificationCode, ResetCodeValidMinutes);
 
-                var includeCodeInResponse = !_emailSender.IsEnabled;
+                var includeCodeInResponse = !_emailSender.IsEnabled && _emailSettings.ExposeOtpWhenDisabled;
                 return new RequestResetCodeResponse
                 {
                     Success = true,

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using KTransport.API.Common;
 using KTransport.API.Data;
@@ -16,11 +15,6 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly IFeatureAuthorizationService _authService;
         private readonly IAuditLogService _auditLogService;
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
 
         public UserService(KTransportDbContext context, IFeatureAuthorizationService authService, IAuditLogService auditLogService)
         {
@@ -36,37 +30,21 @@ namespace KTransport.API.Services
                 .OrderBy(u => u.FullName)
                 .ToListAsync();
 
-            var setting = await _context.TenantSettings
+            // TASK-044 Phase 3: assigned features now come from user_permission_overrides,
+            // keyed on userId. Fetch the whole set up-front to avoid N+1.
+            var allOverrides = await _context.UserPermissionOverrides
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+                .Where(o => o.TenantId == tenantId && o.IsGranted && o.SupersededBy == null)
+                .ToListAsync();
+            var overridesByUser = allOverrides
+                .GroupBy(o => o.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(o => o.PermissionKey).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
 
-            var userOverrides = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson))
-            {
-                try
-                {
-                    var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed != null && !string.IsNullOrWhiteSpace(parsed.UserOverridesJson))
-                    {
-                        var dict = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(parsed.UserOverridesJson, JsonOptions);
-                        if (dict != null) userOverrides = new Dictionary<string, List<string>>(dict, StringComparer.OrdinalIgnoreCase);
-                    }
-                }
-                catch { }
-            }
-
-            var subscribedFeatures = await _authService.GetSubscribedFeaturesAsync(tenantId);
             var result = new List<SubUserDetailsDto>();
 
             foreach (var u in users)
             {
-                var assigned = new List<string>();
-                var key = u.Username;
-                var idKey = u.Id.ToString();
-
-                if (userOverrides.TryGetValue(idKey, out var valById)) assigned = valById;
-                else if (userOverrides.TryGetValue(key, out var valByName)) assigned = valByName;
-
+                var assigned = overridesByUser.TryGetValue(u.Id, out var keys) ? keys : new List<string>();
                 var effective = await _authService.GetEffectiveFeaturesForUserAsync(tenantId, u.Role ?? "SUB_USER", u.Username);
 
                 result.Add(new SubUserDetailsDto
@@ -80,7 +58,7 @@ namespace KTransport.API.Services
                     Email = u.Email,
                     IsActive = u.IsActive ?? true,
                     CreatedAt = u.CreatedAt,
-                    AssignedFeatures = assigned ?? new List<string>(),
+                    AssignedFeatures = assigned,
                     EffectiveFeatures = effective.ToList()
                 });
             }
@@ -97,28 +75,11 @@ namespace KTransport.API.Services
 
             var effective = await _authService.GetEffectiveFeaturesForUserAsync(tenantId, user.Role ?? "SUB_USER", user.Username);
 
-            var setting = await _context.TenantSettings
+            var assigned = await _context.UserPermissionOverrides
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            var assigned = new List<string>();
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson))
-            {
-                try
-                {
-                    var parsed = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions);
-                    if (parsed != null && !string.IsNullOrWhiteSpace(parsed.UserOverridesJson))
-                    {
-                        var dict = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(parsed.UserOverridesJson, JsonOptions);
-                        if (dict != null)
-                        {
-                            if (dict.TryGetValue(user.Id.ToString(), out var byId)) assigned = byId;
-                            else if (dict.TryGetValue(user.Username, out var byName)) assigned = byName;
-                        }
-                    }
-                }
-                catch { }
-            }
+                .Where(o => o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null)
+                .Select(o => o.PermissionKey)
+                .ToListAsync();
 
             return new SubUserDetailsDto
             {
@@ -138,7 +99,6 @@ namespace KTransport.API.Services
 
         public async Task<(bool Success, string Message, SubUserDetailsDto? Data)> CreateSubUserAsync(Guid tenantId, CreateSubUserRequest request)
         {
-            // 1. Check if username already exists
             var existing = await _context.Users
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower());
@@ -148,7 +108,6 @@ namespace KTransport.API.Services
                 return (false, $"Username '{request.Username}' is already taken.", null);
             }
 
-            // 2. Validate assigned features against organization's active subscription
             var subscribedFeatures = await _authService.GetSubscribedFeaturesAsync(tenantId);
             var validAssigned = new List<string>();
 
@@ -157,7 +116,10 @@ namespace KTransport.API.Services
                 foreach (var feat in request.AssignedFeatures)
                 {
                     var canon = FeatureConstants.Normalize(feat);
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon))
+                    var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
+                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
+                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
                     {
                         validAssigned.Add(feat);
                     }
@@ -168,7 +130,6 @@ namespace KTransport.API.Services
                 }
             }
 
-            // 3. Create User entity
             var newUser = new User
             {
                 TenantId = tenantId,
@@ -185,8 +146,7 @@ namespace KTransport.API.Services
             _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
 
-            // 4. Save assigned feature overrides in TenantSettings
-            await SaveUserFeatureAssignmentsAsync(tenantId, newUser.Id, newUser.Username, validAssigned);
+            await SaveUserFeatureAssignmentsAsync(tenantId, newUser.Id, validAssigned, actingUserId: null);
 
             await _auditLogService.LogAsync("UserCreated", tenantId: tenantId, entityType: "User", entityId: newUser.Id.ToString(), details: $"Created sub-user '{newUser.Username}' with role '{newUser.Role}'");
 
@@ -241,7 +201,6 @@ namespace KTransport.API.Services
                 return (false, "User not found.");
             }
 
-            // Validate against organization subscription
             var subscribedFeatures = await _authService.GetSubscribedFeaturesAsync(tenantId);
             var validAssigned = new List<string>();
 
@@ -250,7 +209,10 @@ namespace KTransport.API.Services
                 foreach (var feat in request.AssignedFeatures)
                 {
                     var canon = FeatureConstants.Normalize(feat);
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon))
+                    var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
+                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
+                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
                     {
                         validAssigned.Add(feat);
                     }
@@ -261,7 +223,7 @@ namespace KTransport.API.Services
                 }
             }
 
-            await SaveUserFeatureAssignmentsAsync(tenantId, user.Id, user.Username, validAssigned);
+            await SaveUserFeatureAssignmentsAsync(tenantId, user.Id, validAssigned, actingUserId: null);
             return (true, "User permissions updated successfully.");
         }
 
@@ -285,7 +247,6 @@ namespace KTransport.API.Services
 
             if (user == null) return (false, "User not found.");
 
-            // Soft-deactivate user
             user.IsActive = false;
             await _context.SaveChangesAsync();
 
@@ -310,66 +271,72 @@ namespace KTransport.API.Services
             return (true, $"Password for user '{user.Username}' was reset successfully.");
         }
 
-        private async Task SaveUserFeatureAssignmentsAsync(Guid tenantId, int userId, string username, List<string> features)
+        /// <summary>
+        /// TASK-044 Phase 3: writes directly into user_permission_overrides. The
+        /// legacy menu_entitlements_json column was dropped.
+        /// Handles expansion of feature keys and direct action keys, and supersedes
+        /// any previously active overrides that are no longer assigned.
+        /// </summary>
+        private async Task SaveUserFeatureAssignmentsAsync(Guid tenantId, int userId, List<string> features, int? actingUserId)
         {
-            var setting = await _context.TenantSettings
+            var desiredPerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var featureKey in features)
+            {
+                if (string.IsNullOrWhiteSpace(featureKey)) continue;
+
+                var expanded = EntitlementsCatalog.ExpandFeatureKey(featureKey);
+                if (expanded.Count > 0)
+                {
+                    foreach (var k in expanded) desiredPerms.Add(k);
+                }
+                else
+                {
+                    desiredPerms.Add(featureKey.Trim());
+                }
+            }
+
+            var existingActive = await _context.UserPermissionOverrides
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+                .Where(o => o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null)
+                .ToListAsync();
 
-            TenantMenuEntitlementsDto dto;
-            if (setting != null && !string.IsNullOrWhiteSpace(setting.MenuEntitlementsJson) && setting.MenuEntitlementsJson != "{}")
+            var existingMap = existingActive.ToDictionary(o => o.PermissionKey, o => o, StringComparer.OrdinalIgnoreCase);
+
+            // Mark removed overrides as superseded
+            foreach (var kvp in existingMap)
             {
-                try
+                if (!desiredPerms.Contains(kvp.Key))
                 {
-                    dto = JsonSerializer.Deserialize<TenantMenuEntitlementsDto>(setting.MenuEntitlementsJson, JsonOptions) 
-                          ?? new TenantMenuEntitlementsDto { TenantId = tenantId };
-                }
-                catch
-                {
-                    dto = new TenantMenuEntitlementsDto { TenantId = tenantId };
+                    kvp.Value.SupersededBy = 0; // mark superseded
+                    kvp.Value.RevokeReason = "Permission removed during user configuration update.";
                 }
             }
-            else
+
+            // Add newly granted overrides
+            foreach (var permKey in desiredPerms)
             {
-                dto = new TenantMenuEntitlementsDto { TenantId = tenantId };
-            }
+                if (existingMap.ContainsKey(permKey)) continue;
 
-            var overrides = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            if (!string.IsNullOrWhiteSpace(dto.UserOverridesJson))
-            {
-                try
-                {
-                    var existing = JsonSerializer.Deserialize<Dictionary<string, List<string>>>(dto.UserOverridesJson, JsonOptions);
-                    if (existing != null) overrides = new Dictionary<string, List<string>>(existing, StringComparer.OrdinalIgnoreCase);
-                }
-                catch { }
-            }
-
-            // Save under both username and ID
-            overrides[username] = features;
-            overrides[userId.ToString()] = features;
-
-            dto.UserOverridesJson = JsonSerializer.Serialize(overrides, JsonOptions);
-
-            var json = JsonSerializer.Serialize(dto, JsonOptions);
-
-            if (setting == null)
-            {
-                setting = new TenantSetting
+                _context.UserPermissionOverrides.Add(new UserPermissionOverride
                 {
                     TenantId = tenantId,
-                    MenuEntitlementsJson = json,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.TenantSettings.Add(setting);
-            }
-            else
-            {
-                setting.MenuEntitlementsJson = json;
-                setting.UpdatedAt = DateTime.UtcNow;
+                    UserId = userId,
+                    PermissionKey = permKey,
+                    IsGranted = true,
+                    GrantedAt = DateTime.UtcNow,
+                    GrantedBy = actingUserId,
+                    SupersededBy = null
+                });
             }
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // partial unique index enforces idempotency
+            }
         }
     }
 }

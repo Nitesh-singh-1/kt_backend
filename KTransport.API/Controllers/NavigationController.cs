@@ -169,11 +169,30 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpGet("/api/configuration/tenants")]
         [Authorize]
-        [RequirePlatformAdmin]
         public async Task<IActionResult> GetAllTenants()
         {
-            var tenants = await _context.Tenants
+            if (_authService.IsPlatformAdmin(User))
+            {
+                var tenants = await _context.Tenants
+                    .IgnoreQueryFilters()
+                    .Select(t => new
+                    {
+                        t.Id,
+                        t.Name,
+                        t.Code,
+                        t.IsActive,
+                        t.CreatedAt
+                    })
+                    .OrderBy(t => t.Name)
+                    .ToListAsync();
+
+                return Ok(tenants);
+            }
+
+            var currentTenantId = _tenantContext.CurrentTenantId;
+            var currentTenant = await _context.Tenants
                 .IgnoreQueryFilters()
+                .Where(t => t.Id == currentTenantId)
                 .Select(t => new
                 {
                     t.Id,
@@ -182,10 +201,9 @@ namespace KTransport.API.Controllers
                     t.IsActive,
                     t.CreatedAt
                 })
-                .OrderBy(t => t.Name)
                 .ToListAsync();
 
-            return Ok(tenants);
+            return Ok(currentTenant);
         }
 
         /// <summary>

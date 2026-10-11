@@ -55,6 +55,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<Trip> Trips { get; set; }
     public virtual DbSet<TripShipment> TripShipments { get; set; }
     public virtual DbSet<TripExpense> TripExpenses { get; set; }
+    public virtual DbSet<TripSettlement> TripSettlements { get; set; }
     public virtual DbSet<Vendor> Vendors { get; set; }
     public virtual DbSet<LorryHireContract> LorryHireContracts { get; set; }
     public virtual DbSet<PodRecord> PodRecords { get; set; }
@@ -79,6 +80,7 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<VerificationCode> VerificationCodes { get; set; }
     public virtual DbSet<Invitation> Invitations { get; set; }
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
+    public virtual DbSet<PaymentModeMaster> PaymentModes { get; set; }
 
     public override int SaveChanges()
     {
@@ -661,6 +663,16 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.ConsignorPartyId).HasColumnName("consignor_party_id");
             entity.Property(e => e.ConsigneePartyId).HasColumnName("consignee_party_id");
             entity.Property(e => e.DueAmount).HasPrecision(14, 2).HasDefaultValue(0).HasColumnName("due_amount");
+            entity.Property(e => e.IsSettled).HasDefaultValue(false).HasColumnName("is_settled");
+            entity.Property(e => e.IsPartialPayment).HasDefaultValue(false).HasColumnName("is_partial_payment");
+            entity.Property(e => e.SettledReceivedAmount).HasPrecision(14, 2).HasColumnName("settled_received_amount");
+            entity.Property(e => e.SettledDiscountAmount).HasPrecision(14, 2).HasColumnName("settled_discount_amount");
+            entity.Property(e => e.DiscountReason).HasMaxLength(100).HasColumnName("discount_reason");
+            entity.Property(e => e.DiscountRemarks).HasMaxLength(500).HasColumnName("discount_remarks");
+            entity.Property(e => e.SettledPaymentMode).HasMaxLength(50).HasColumnName("settled_payment_mode");
+            entity.Property(e => e.SettlementReferenceNo).HasMaxLength(100).HasColumnName("settlement_reference_no");
+            entity.Property(e => e.DeliveredTo).HasMaxLength(150).HasColumnName("delivered_to");
+            entity.Property(e => e.DeliveryDate).HasColumnName("delivery_date");
 
             entity.Property(e => e.Status).HasConversion<int>().HasColumnName("status");
             entity.Property(e => e.Remarks).HasMaxLength(500).HasColumnName("remarks");
@@ -721,6 +733,24 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.UpdatedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_shipments_updated_by");
+        });
+
+        modelBuilder.Entity<PaymentModeMaster>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("payment_modes_pkey");
+            entity.ToTable("payment_modes");
+
+            entity.HasIndex(e => new { e.TenantId, e.Code }, "payment_modes_tenant_code_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.Code).HasMaxLength(50).HasColumnName("code");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+            entity.Property(e => e.Description).HasMaxLength(250).HasColumnName("description");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
         });
 
         modelBuilder.Entity<ShipmentItem>(entity =>
@@ -1135,6 +1165,54 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.TripId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_trip_expenses_trip");
+        });
+
+        // TASK-037: append-only trip settlements child table. Mirrors the Trip
+        // mapping pattern immediately above. See ADR
+        // .agent/specs/decisions/database-table-hierarchy.md.
+        modelBuilder.Entity<TripSettlement>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("trip_settlements_pkey");
+            entity.ToTable("trip_settlements");
+
+            entity.HasIndex(e => new { e.TenantId, e.TripId }, "trip_settlements_tenant_trip_idx");
+            entity.HasIndex(e => new { e.TenantId, e.SettlementNo }, "trip_settlements_tenant_settlement_no_key").IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.SettlementDate }, "trip_settlements_settlement_date_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.TripId).HasColumnName("trip_id");
+            entity.Property(e => e.SettlementNo).HasMaxLength(50).HasColumnName("settlement_no");
+            entity.Property(e => e.SettlementDate).HasColumnName("settlement_date");
+            entity.Property(e => e.EndOdometer).HasPrecision(12, 2).HasDefaultValue(0m).HasColumnName("end_odometer");
+            entity.Property(e => e.TotalKilometers).HasPrecision(12, 2).HasDefaultValue(0m).HasColumnName("total_kilometers");
+            entity.Property(e => e.DriverAdvanceCashSnapshot).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("driver_advance_cash_snapshot");
+            entity.Property(e => e.DriverAdvanceFuelSnapshot).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("driver_advance_fuel_snapshot");
+            entity.Property(e => e.CollectedToPayFreight).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("collected_to_pay_freight");
+            entity.Property(e => e.TotalDriverAccountability).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("total_driver_accountability");
+            entity.Property(e => e.TotalExpensesSnapshot).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("total_expenses_snapshot");
+            entity.Property(e => e.NetDriverBalance).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("net_driver_balance");
+            entity.Property(e => e.SettledAmount).HasPrecision(14, 2).HasDefaultValue(0m).HasColumnName("settled_amount");
+            entity.Property(e => e.PaymentMode).HasMaxLength(30).HasDefaultValue("CASH").HasColumnName("payment_mode");
+            entity.Property(e => e.PaymentReference).HasMaxLength(100).HasColumnName("payment_reference");
+            entity.Property(e => e.SettlementRemarks).HasMaxLength(1000).HasColumnName("settlement_remarks");
+            entity.Property(e => e.IsReversed).HasDefaultValue(false).HasColumnName("is_reversed");
+            entity.Property(e => e.ReversedAt).HasColumnType("timestamp without time zone").HasColumnName("reversed_at");
+            entity.Property(e => e.ReversedBy).HasColumnName("reversed_by");
+            entity.Property(e => e.ReversalReason).HasMaxLength(500).HasColumnName("reversal_reason");
+            entity.Property(e => e.SettledBy).HasColumnName("settled_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_trip_settlements_tenant");
+
+            entity.HasOne(d => d.Trip).WithMany()
+                .HasForeignKey(d => d.TripId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_trip_settlements_trip");
         });
 
         modelBuilder.Entity<Vendor>(entity =>
@@ -1690,7 +1768,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.OperationalWorkflowsJson).HasColumnType("text").HasColumnName("operational_workflows_json");
             entity.Property(e => e.FeatureFlagsJson).HasColumnType("text").HasColumnName("feature_flags_json");
             entity.Property(e => e.IntegrationsJson).HasColumnType("text").HasColumnName("integrations_json");
-            entity.Property(e => e.MenuEntitlementsJson).HasColumnType("text").HasColumnName("menu_entitlements_json");
+            // TASK-044 Phase 3: menu_entitlements_json column was dropped; mapping removed.
             entity.Property(e => e.CustomSettingsJson).HasColumnType("text").HasColumnName("custom_settings_json");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
@@ -2003,6 +2081,8 @@ public partial class KTransportDbContext : DbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
+        ConfigureMenuModel(modelBuilder);
+        ConfigureRbacModel(modelBuilder);
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

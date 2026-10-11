@@ -15,5 +15,14 @@ namespace KTransport.API.Services.Email
         public string Password { get; set; } = string.Empty;
         public string FromAddress { get; set; } = string.Empty;
         public string FromName { get; set; } = "KTransport";
+
+        /// <summary>
+        /// When true AND email delivery is unavailable, the raw OTP is included in the
+        /// forgot-password API response so the flow stays testable without a mail server.
+        /// Defaults to false and is intentionally NOT wired to any deploy-time env var — only
+        /// appsettings.Development.json turns it on, so it can never leak into prod/UAT via a
+        /// forgotten .env setting.
+        /// </summary>
+        public bool ExposeOtpWhenDisabled { get; set; } = false;
     }
 }

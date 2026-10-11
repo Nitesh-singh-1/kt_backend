@@ -100,4 +100,59 @@ namespace KTransport.API.Models
     {
         public bool IsActive { get; set; }
     }
+
+    /// <summary>
+    /// TASK-046 Phase 1: payload for the platform-admin-only onboarding endpoint
+    /// POST /api/admin/tenants. Unlike the public /api/tenant/onboard which forces
+    /// the admin user's role to 'admin', this endpoint respects
+    /// <see cref="AdminRoleCode"/> and takes explicit module enablement.
+    /// </summary>
+    public class TenantAdminOnboardRequest
+    {
+        [Required]
+        [StringLength(200, MinimumLength = 2)]
+        public string OrganizationName { get; set; } = null!;
+
+        [Required]
+        [StringLength(20, MinimumLength = 2)]
+        [RegularExpression(@"^[A-Z0-9_-]+$")]
+        public string OrganizationCode { get; set; } = null!;
+
+        [Required]
+        [StringLength(50, MinimumLength = 3)]
+        public string AdminUsername { get; set; } = null!;
+
+        [Required]
+        [StringLength(200, MinimumLength = 6)]
+        public string AdminPassword { get; set; } = null!;
+
+        [Required]
+        [StringLength(150)]
+        public string AdminFullName { get; set; } = null!;
+
+        [RegularExpression(@"^[6-9]\d{9}$")]
+        public string? AdminMobile { get; set; }
+
+        [EmailAddress]
+        [StringLength(150)]
+        public string? AdminEmail { get; set; }
+
+        /// <summary>Role code for the admin user; platform admin may pick any seeded system role or a custom role code.</summary>
+        public string AdminRoleCode { get; set; } = "admin";
+
+        public string PlanTier { get; set; } = "Starter";
+
+        /// <summary>Module codes to enable for the new tenant (writes tenant_modules rows).</summary>
+        public List<string> EnabledModuleCodes { get; set; } = new();
+
+        public List<string>? EnabledReportKeys { get; set; }
+    }
+
+    /// <summary>TASK-046 Phase 1: GET /api/admin/roles/system-templates row.</summary>
+    public class SystemRoleTemplateDto
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+    }
 }

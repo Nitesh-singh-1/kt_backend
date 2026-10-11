@@ -12,11 +12,16 @@ namespace KTransport.API.Authorization
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
     public class RequireFeatureAttribute : Attribute, IAsyncAuthorizationFilter
     {
-        private readonly string _featureCode;
+        private readonly string[] _featureCodes;
 
         public RequireFeatureAttribute(string featureCode)
         {
-            _featureCode = featureCode;
+            _featureCodes = new[] { featureCode };
+        }
+
+        public RequireFeatureAttribute(params string[] featureCodes)
+        {
+            _featureCodes = featureCodes ?? Array.Empty<string>();
         }
 
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
@@ -36,18 +41,32 @@ namespace KTransport.API.Authorization
             var authService = context.HttpContext.RequestServices.GetRequiredService<IFeatureAuthorizationService>();
 
             var tenantId = tenantContext.CurrentTenantId;
-            var result = await authService.AuthorizeFeatureAsync(user, tenantId, _featureCode);
+            if (_featureCodes.Length == 0) return;
 
-            if (!result.IsAuthorized)
+            bool anyAuthorized = false;
+            FeatureAuthorizationResult? lastResult = null;
+
+            foreach (var fc in _featureCodes)
+            {
+                var result = await authService.AuthorizeFeatureAsync(user, tenantId, fc);
+                if (result.IsAuthorized)
+                {
+                    anyAuthorized = true;
+                    break;
+                }
+                lastResult = result;
+            }
+
+            if (!anyAuthorized)
             {
                 context.Result = new ObjectResult(new
                 {
                     success = false,
-                    message = result.FailureReason ?? "Access forbidden.",
-                    requiredFeature = _featureCode
+                    message = lastResult?.FailureReason ?? "Access forbidden.",
+                    requiredFeature = string.Join(", ", _featureCodes)
                 })
                 {
-                    StatusCode = result.StatusCode
+                    StatusCode = lastResult?.StatusCode ?? 403
                 };
             }
         }

@@ -19,6 +19,7 @@ namespace KTransport.API.DTOs
         public decimal TotalWeightKg { get; set; }
 
         public decimal BaseFreight { get; set; }
+        public decimal MoneyReceiptCharge { get; set; } = 10;
         public decimal HamaliCharges { get; set; }
         public decimal DoorDeliveryCharges { get; set; }
         public decimal StationeryCharges { get; set; }

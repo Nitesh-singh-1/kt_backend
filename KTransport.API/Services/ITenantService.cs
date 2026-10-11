@@ -9,6 +9,16 @@ namespace KTransport.API.Services
     public interface ITenantService
     {
         Task<TenantOnboardingResponse> OnboardTenantAsync(TenantOnboardingRequest request);
+
+        /// <summary>
+        /// TASK-046 Phase 1: platform-admin onboarding path. Respects
+        /// <c>AdminRoleCode</c> + explicit <c>EnabledModuleCodes</c> from the
+        /// caller, and seeds the 7 system roles for the new tenant.
+        /// </summary>
+        Task<TenantOnboardingResponse> OnboardTenantByAdminAsync(TenantAdminOnboardRequest request, int? platformAdminUserId);
+
+        /// <summary>TASK-046 Phase 1: list the 7 seeded system role templates for the admin UI.</summary>
+        IReadOnlyList<SystemRoleTemplateDto> GetSystemRoleTemplates();
         Task<Tenant?> GetTenantByIdAsync(Guid tenantId);
         Task<IEnumerable<TenantAdminListItemDto>> GetAllTenantsWithDetailsAsync();
         Task<bool> UpdateTenantStatusAsync(Guid tenantId, bool isActive);

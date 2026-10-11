@@ -24,7 +24,9 @@ namespace KTransport.API.Models
 
         public string IntegrationsJson { get; set; } = "{}";
 
-        public string MenuEntitlementsJson { get; set; } = "{}";
+        // TASK-044 Phase 3: `menu_entitlements_json` column was DROPPED. Entitlements now
+        // live in `tenant_entitlement_subscriptions`, `tenant_report_entitlements`,
+        // `role_permissions`, and `user_permission_overrides`.
 
         public string CustomSettingsJson { get; set; } = "{}";
 

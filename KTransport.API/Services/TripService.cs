@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using KTransport.API.Data;
@@ -7,6 +8,7 @@ using KTransport.API.DTOs;
 using KTransport.API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace KTransport.API.Services
 {
@@ -30,6 +32,11 @@ namespace KTransport.API.Services
         {
             var query = _context.Trips
                 .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsigneeParty)
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsignorParty)
                 .Include(t => t.Expenses)
                 .AsNoTracking()
                 .Where(t => t.IsActive);
@@ -89,6 +96,11 @@ namespace KTransport.API.Services
         {
             var trip = await _context.Trips
                 .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsigneeParty)
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                        .ThenInclude(sh => sh!.ConsignorParty)
                 .Include(t => t.Expenses)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Id == id);
@@ -466,7 +478,12 @@ namespace KTransport.API.Services
                     Id = s.Id,
                     TripId = s.TripId,
                     ShipmentId = s.ShipmentId,
-                    ShipmentNo = s.ShipmentNo,
+                    ShipmentNo = s.ShipmentNo ?? s.Shipment?.ShipmentNo,
+                    ConsignorName = s.Shipment?.ConsignorName ?? s.Shipment?.ConsignorParty?.Name,
+                    ConsigneeName = s.Shipment?.ConsigneeName ?? s.Shipment?.ConsigneeParty?.Name,
+                    PaymentTerm = s.Shipment?.PaymentTerm,
+                    FromLocation = s.Shipment?.FromLocation,
+                    ToLocation = s.Shipment?.ToLocation,
                     LoadedWeight = s.LoadedWeight,
                     LoadedPackages = s.LoadedPackages,
                     FreightAmount = s.FreightAmount,
@@ -488,6 +505,300 @@ namespace KTransport.API.Services
                     CreatedAt = e.CreatedAt
                 }).ToList()
             };
+        }
+
+        public async Task<TripSettlementSummaryDto?> GetTripSettlementSummaryAsync(long tripId)
+        {
+            var trip = await _context.Trips
+                .Include(t => t.Shipments)
+                    .ThenInclude(s => s.Shipment)
+                .Include(t => t.Expenses)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == tripId && t.IsActive);
+
+            if (trip == null) return null;
+
+            // TASK-037: pull SettledAt / SettlementRemarks from the latest
+            // non-reversed TripSettlement row (if any). The old behaviour
+            // parsed trip.Remarks; that line is gone from SettleTripAsync.
+            var latestSettlement = await _context.TripSettlements
+                .AsNoTracking()
+                .Where(s => s.TripId == tripId && !s.IsReversed)
+                .OrderByDescending(s => s.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            var toPayFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.ToPay).Sum(s => s.FreightAmount);
+            var paidFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.Paid).Sum(s => s.FreightAmount);
+            var tbbFreight = trip.Shipments.Where(s => s.Shipment?.PaymentTerm == PaymentTerm.TBB).Sum(s => s.FreightAmount);
+
+            var fuelExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.Fuel).Sum(e => e.Amount);
+            var tollExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.Toll).Sum(e => e.Amount);
+            var driverExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.DriverAllowance).Sum(e => e.Amount);
+            var maintExp = trip.Expenses.Where(e => e.ExpenseType == TripExpenseType.VehicleRepair).Sum(e => e.Amount);
+            var otherExp = trip.Expenses.Where(e => e.ExpenseType != TripExpenseType.Fuel && e.ExpenseType != TripExpenseType.Toll && e.ExpenseType != TripExpenseType.DriverAllowance && e.ExpenseType != TripExpenseType.VehicleRepair).Sum(e => e.Amount);
+            var totalExp = trip.Expenses.Sum(e => e.Amount);
+
+            return new TripSettlementSummaryDto
+            {
+                TripId = trip.Id,
+                TripNo = trip.TripNo,
+                TripDate = trip.TripDate,
+                VehicleId = trip.VehicleId,
+                VehicleNo = trip.VehicleNo,
+                DriverId = trip.DriverId,
+                DriverName = trip.DriverName,
+                DriverMobile = trip.DriverMobile,
+                OriginLocationName = trip.OriginLocationName,
+                DestinationLocationName = trip.DestinationLocationName,
+                Status = trip.Status,
+                StartOdometer = trip.StartOdometer,
+                EndOdometer = trip.EndOdometer,
+                TotalShipments = trip.Shipments.Count,
+                TotalPackages = trip.TotalPackages,
+                TotalWeightTons = trip.TotalWeightTons,
+                TotalFreightRevenue = trip.TotalFreightRevenue,
+                TotalToPayFreight = toPayFreight,
+                TotalPaidFreight = paidFreight,
+                TotalTbbFreight = tbbFreight,
+                DriverAdvanceCash = trip.DriverAdvanceCash,
+                DriverAdvanceFuel = trip.DriverAdvanceFuel,
+                CollectedToPayFreight = toPayFreight, // Default accountable ToPay
+                TotalExpenses = totalExp,
+                FuelExpenses = fuelExp,
+                TollExpenses = tollExp,
+                DriverExpenses = driverExp,
+                MaintenanceExpenses = maintExp,
+                OtherExpenses = otherExp,
+                SettledAt = latestSettlement?.CreatedAt,
+                SettlementRemarks = latestSettlement?.SettlementRemarks,
+                Shipments = trip.Shipments.Select(s => new TripShipmentDto
+                {
+                    Id = s.Id,
+                    TripId = s.TripId,
+                    ShipmentId = s.ShipmentId,
+                    ShipmentNo = s.ShipmentNo ?? s.Shipment?.ShipmentNo,
+                    ConsignorName = s.Shipment?.ConsignorName,
+                    ConsigneeName = s.Shipment?.ConsigneeName,
+                    PaymentTerm = s.Shipment?.PaymentTerm,
+                    FromLocation = s.Shipment?.FromLocation,
+                    ToLocation = s.Shipment?.ToLocation,
+                    LoadedWeight = s.LoadedWeight,
+                    LoadedPackages = s.LoadedPackages,
+                    FreightAmount = s.FreightAmount,
+                    Remarks = s.Remarks
+                }).ToList(),
+                Expenses = trip.Expenses.Select(e => new TripExpenseDto
+                {
+                    Id = e.Id,
+                    TripId = e.TripId,
+                    ExpenseType = e.ExpenseType,
+                    Amount = e.Amount,
+                    ReceiptNo = e.ReceiptNo,
+                    PaymentMode = e.PaymentMode,
+                    PaidTo = e.PaidTo,
+                    Remarks = e.Remarks,
+                    ExpenseDate = e.ExpenseDate,
+                    CreatedAt = e.CreatedAt
+                }).ToList()
+            };
+        }
+
+        public async Task<TripSettlementResponseDto> SettleTripAsync(SettleTripRequestDto request, int? userId = null)
+        {
+            try
+            {
+                var trip = await _context.Trips
+                    .Include(t => t.Shipments)
+                        .ThenInclude(s => s.Shipment)
+                    .Include(t => t.Expenses)
+                    .FirstOrDefaultAsync(t => t.Id == request.TripId && t.IsActive);
+
+                if (trip == null)
+                {
+                    return new TripSettlementResponseDto
+                    {
+                        Success = false,
+                        Message = $"Trip #{request.TripId} not found."
+                    };
+                }
+
+                // Add any additional expenses supplied during settlement
+                if (request.AdditionalExpenses != null && request.AdditionalExpenses.Count > 0)
+                {
+                    foreach (var exp in request.AdditionalExpenses)
+                    {
+                        if (exp.Amount > 0)
+                        {
+                            var tripExp = new TripExpense
+                            {
+                                TripId = trip.Id,
+                                ExpenseType = exp.ExpenseType,
+                                Amount = exp.Amount,
+                                ReceiptNo = exp.ReceiptNo?.Trim(),
+                                PaymentMode = exp.PaymentMode?.Trim() ?? request.PaymentMode,
+                                PaidTo = exp.PaidTo?.Trim(),
+                                Remarks = exp.Remarks?.Trim(),
+                                ExpenseDate = exp.ExpenseDate ?? request.SettlementDate,
+                                CreatedAt = DateTime.UtcNow
+                            };
+                            _context.TripExpenses.Add(tripExp);
+                            trip.Expenses.Add(tripExp);
+                        }
+                    }
+                }
+
+                if (request.EndOdometer.HasValue && request.EndOdometer.Value > 0)
+                {
+                    trip.EndOdometer = request.EndOdometer.Value;
+                }
+
+                trip.TotalExpenses = trip.Expenses.Sum(e => e.Amount);
+                trip.Status = TripStatus.Completed;
+                trip.ArrivalTime ??= DateTime.UtcNow;
+                trip.UpdatedAt = DateTime.UtcNow;
+                trip.UpdatedBy = userId;
+
+                // TASK-037: persist the full settlement snapshot as a NEW row in
+                // trip_settlements instead of appending a free-text summary to
+                // trip.Remarks. Append-only: each settle call creates a fresh row.
+                var totalExpensesSnapshot = trip.Expenses.Sum(e => e.Amount);
+                var totalKm = trip.EndOdometer > trip.StartOdometer ? trip.EndOdometer - trip.StartOdometer : 0m;
+                var totalAccountability = trip.DriverAdvanceCash + trip.DriverAdvanceFuel + request.CollectedToPayFreight;
+                var netDriverBalance = totalAccountability - totalExpensesSnapshot;
+
+                var settlement = new TripSettlement
+                {
+                    TenantId = trip.TenantId,
+                    TripId = trip.Id,
+                    SettlementNo = string.Empty, // generator fills this per retry attempt
+                    SettlementDate = request.SettlementDate,
+                    EndOdometer = trip.EndOdometer,
+                    TotalKilometers = totalKm,
+                    DriverAdvanceCashSnapshot = trip.DriverAdvanceCash,
+                    DriverAdvanceFuelSnapshot = trip.DriverAdvanceFuel,
+                    CollectedToPayFreight = request.CollectedToPayFreight,
+                    TotalDriverAccountability = totalAccountability,
+                    TotalExpensesSnapshot = totalExpensesSnapshot,
+                    NetDriverBalance = netDriverBalance,
+                    SettledAmount = request.SettledAmount,
+                    PaymentMode = string.IsNullOrWhiteSpace(request.PaymentMode) ? "CASH" : request.PaymentMode.Trim(),
+                    SettlementRemarks = request.SettlementRemarks,
+                    SettledBy = userId,
+                    CreatedAt = DateTime.UtcNow,
+                };
+
+                await PersistSettlementWithUniqueNoAsync(trip.TenantId, settlement);
+
+                var settlementDto = await GetTripSettlementSummaryAsync(trip.Id);
+
+                return new TripSettlementResponseDto
+                {
+                    Success = true,
+                    Message = $"Trip #{trip.TripNo} settled and marked as Completed successfully.",
+                    Data = settlementDto
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error settling trip #{TripId}", request.TripId);
+                return new TripSettlementResponseDto
+                {
+                    Success = false,
+                    Message = $"Settlement failed: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<List<TripSettlementDto>> GetTripSettlementsAsync(long tripId)
+        {
+            var rows = await _context.TripSettlements
+                .AsNoTracking()
+                .Where(s => s.TripId == tripId)
+                .OrderBy(s => s.CreatedAt)
+                .ToListAsync();
+
+            return rows.Select(MapSettlementToDto).ToList();
+        }
+
+        private static TripSettlementDto MapSettlementToDto(TripSettlement s) => new TripSettlementDto
+        {
+            Id = s.Id,
+            TripId = s.TripId,
+            SettlementNo = s.SettlementNo,
+            SettlementDate = s.SettlementDate,
+            EndOdometer = s.EndOdometer,
+            TotalKilometers = s.TotalKilometers,
+            DriverAdvanceCashSnapshot = s.DriverAdvanceCashSnapshot,
+            DriverAdvanceFuelSnapshot = s.DriverAdvanceFuelSnapshot,
+            CollectedToPayFreight = s.CollectedToPayFreight,
+            TotalDriverAccountability = s.TotalDriverAccountability,
+            TotalExpensesSnapshot = s.TotalExpensesSnapshot,
+            NetDriverBalance = s.NetDriverBalance,
+            SettledAmount = s.SettledAmount,
+            PaymentMode = s.PaymentMode,
+            PaymentReference = s.PaymentReference,
+            SettlementRemarks = s.SettlementRemarks,
+            IsReversed = s.IsReversed,
+            ReversedAt = s.ReversedAt,
+            ReversalReason = s.ReversalReason,
+            SettledBy = s.SettledBy,
+            CreatedAt = s.CreatedAt,
+        };
+
+        /// <summary>
+        /// Attempts to insert <paramref name="settlement"/> with a freshly computed
+        /// SettlementNo. Relies on the DB unique index
+        /// <c>trip_settlements_tenant_settlement_no_key</c> to catch concurrent
+        /// duplicates. Retries once on PostgreSQL unique-violation (SQLSTATE 23505).
+        /// </summary>
+        private async Task PersistSettlementWithUniqueNoAsync(Guid tenantId, TripSettlement settlement)
+        {
+            const int maxAttempts = 2;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                settlement.SettlementNo = await GenerateSettlementNoAsync(tenantId, settlement.SettlementDate);
+                _context.TripSettlements.Add(settlement);
+                try
+                {
+                    await _context.SaveChangesAsync();
+                    return;
+                }
+                catch (DbUpdateException ex) when (attempt < maxAttempts
+                    && ex.InnerException is PostgresException pg
+                    && pg.SqlState == "23505")
+                {
+                    _logger.LogWarning(ex, "SettlementNo collision for tenant {TenantId}, retrying once", tenantId);
+                    _context.TripSettlements.Remove(settlement);
+                    settlement.Id = 0; // reset identity so EF re-inserts on retry
+                }
+            }
+        }
+
+        private async Task<string> GenerateSettlementNoAsync(Guid tenantId, DateOnly settlementDate)
+        {
+            var year = settlementDate.Year;
+            var prefix = $"TRIP-SET-{year}-";
+
+            // Pull candidate SettlementNos for this tenant/year, parse the trailing
+            // integer, increment. Materialise before the Max because we can't
+            // reliably parse inside the SQL translator.
+            var existing = await _context.TripSettlements
+                .IgnoreQueryFilters() // scope by TenantId explicitly below
+                .Where(s => s.TenantId == tenantId && s.SettlementNo.StartsWith(prefix))
+                .Select(s => s.SettlementNo)
+                .ToListAsync();
+
+            int maxSeq = 0;
+            foreach (var no in existing)
+            {
+                var tail = no.Substring(prefix.Length);
+                if (int.TryParse(tail, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n > maxSeq)
+                {
+                    maxSeq = n;
+                }
+            }
+
+            return $"{prefix}{(maxSeq + 1).ToString("D4", CultureInfo.InvariantCulture)}";
         }
     }
 }
