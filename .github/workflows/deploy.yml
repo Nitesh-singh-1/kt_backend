@@ -70,6 +70,10 @@ jobs:
           script: |
             set -e
             cd /opt/ktransport
+            if [ -f "/opt/ktransport/scripts/backup-db.sh" ]; then
+              echo "Creating automated pre-deployment database backup..."
+              bash /opt/ktransport/scripts/backup-db.sh || true
+            fi
             docker compose pull api
             docker compose up -d api
             docker image prune -f
