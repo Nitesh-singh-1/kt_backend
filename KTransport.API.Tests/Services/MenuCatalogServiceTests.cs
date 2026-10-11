@@ -138,9 +138,9 @@ public class MenuCatalogServiceTests
         using var ctx = NewContext();
         var first = ApplyMenuSeed(ctx);
         var second = ApplyMenuSeed(ctx);
-        Assert.Equal(36, first);
+        Assert.Equal(37, first);
         Assert.Equal(0, second);
-        Assert.Equal(36, ctx.MenuItems.Count());
+        Assert.Equal(37, ctx.MenuItems.Count());
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class MenuCatalogServiceTests
 
         var svc = NewService(ctx);
         var all = await svc.GetAllAsync();
-        Assert.Equal(36, all.Count);
+        Assert.Equal(37, all.Count);
         Assert.Contains(all, m => m.Key == "reports" && m.VisibilityRule == "report_entitlement");
     }
 
