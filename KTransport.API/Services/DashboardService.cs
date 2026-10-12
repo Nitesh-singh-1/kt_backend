@@ -24,42 +24,114 @@ namespace KTransport.API.Services
                 _logger.LogInformation("Retrieving dashboard statistics");
 
                 var today = DateTime.Today;
+                var todayDateOnly = DateOnly.FromDateTime(today);
                 var startOfMonth = new DateTime(today.Year, today.Month, 1);
+                var startOfMonthDateOnly = DateOnly.FromDateTime(startOfMonth);
 
-                // Get all active GST bills
+                // Primary source: Modern multi-tenant Shipments
+                var shipments = await _context.Shipments
+                    .AsNoTracking()
+                    .Where(s => s.IsActive && s.Status != ShipmentStatus.Cancelled)
+                    .ToListAsync();
+
+                if (shipments.Count > 0)
+                {
+                    var totalGrEntries = shipments.Count;
+                    var pendingDeliveries = shipments.Count(s => s.Status != ShipmentStatus.Delivered);
+                    var completedDeliveries = shipments.Count(s => s.Status == ShipmentStatus.Delivered);
+                    var totalRevenue = shipments.Sum(s => s.GrandTotal);
+
+                    var todayEntries = shipments.Count(s => s.ShipmentDate == todayDateOnly || s.CreatedAt.Date == today);
+                    var thisMonthEntries = shipments.Count(s => s.ShipmentDate >= startOfMonthDateOnly || s.CreatedAt.Date >= startOfMonth);
+
+                    var pendingAmount = shipments.Sum(s => s.DueAmount);
+                    var collectedAmount = shipments.Sum(s => s.PaidAmount);
+
+                    var recentBills = shipments
+                        .OrderByDescending(s => s.CreatedAt)
+                        .ThenByDescending(s => s.Id)
+                        .Take(10)
+                        .Select(s => new RecentBillDto
+                        {
+                            Id = s.Id,
+                            GrNo = s.ShipmentNo,
+                            ConsigneeName = s.ConsigneeName ?? "—",
+                            FromLocation = s.FromLocation ?? "—",
+                            ToLocation = s.ToLocation ?? "—",
+                            DeliveryStatus = s.Status == ShipmentStatus.InTransit ? "In Transit" :
+                                             s.Status == ShipmentStatus.OutForDelivery ? "Out For Delivery" :
+                                             s.Status.ToString(),
+                            TotalAmount = s.GrandTotal,
+                            CreatedAt = s.CreatedAt
+                        })
+                        .ToList();
+
+                    var statusBreakdown = shipments
+                        .GroupBy(s => s.Status.ToString())
+                        .Select(g => new DeliveryStatusCount
+                        {
+                            Status = g.Key,
+                            Count = g.Count()
+                        })
+                        .OrderByDescending(x => x.Count)
+                        .ToList();
+
+                    var dashboardStats = new DashboardStats
+                    {
+                        TotalGrEntries = totalGrEntries,
+                        PendingDeliveries = pendingDeliveries,
+                        CompletedDeliveries = completedDeliveries,
+                        TotalRevenue = totalRevenue,
+                        TodayEntries = todayEntries,
+                        ThisMonthEntries = thisMonthEntries,
+                        PendingAmount = pendingAmount,
+                        CollectedAmount = collectedAmount,
+                        RecentBills = recentBills,
+                        DeliveryStatusBreakdown = statusBreakdown
+                    };
+
+                    return new DashboardResponse
+                    {
+                        Success = true,
+                        Message = "Dashboard statistics retrieved successfully",
+                        Data = dashboardStats
+                    };
+                }
+
+                // Fallback to legacy GST bills if no modern shipments exist
                 var allBills = await _context.GstBills
+                    .AsNoTracking()
                     .Where(b => b.IsActive == true)
                     .ToListAsync();
 
                 // 1. Total GR Entries
-                var totalGrEntries = allBills.Count;
+                var legacyGrEntries = allBills.Count;
 
                 // 2. Pending Deliveries (status != "Delivered" or "Completed")
-                var pendingDeliveries = allBills
+                var legacyPendingDeliveries = allBills
                     .Count(b => b.DeliveryStatus != null && 
                            !b.DeliveryStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
                            !b.DeliveryStatus.Equals("Completed", StringComparison.OrdinalIgnoreCase));
 
                 // 3. Completed Deliveries (status = "Delivered" or "Completed")
-                var completedDeliveries = allBills
+                var legacyCompletedDeliveries = allBills
                     .Count(b => b.DeliveryStatus != null && 
                            (b.DeliveryStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) ||
                             b.DeliveryStatus.Equals("Completed", StringComparison.OrdinalIgnoreCase)));
 
                 // 4. Total Revenue (sum of all total amounts)
-                var totalRevenue = allBills.Sum(b => b.TotalAmount ?? 0);
+                var legacyTotalRevenue = allBills.Sum(b => b.TotalAmount ?? 0);
 
                 // Additional stats
-                var todayEntries = allBills.Count(b => b.CreatedAt.HasValue && b.CreatedAt.Value.Date == today);
-                var thisMonthEntries = allBills.Count(b => b.CreatedAt.HasValue && b.CreatedAt.Value >= startOfMonth);
+                var legacyTodayEntries = allBills.Count(b => b.CreatedAt.HasValue && b.CreatedAt.Value.Date == today);
+                var legacyThisMonthEntries = allBills.Count(b => b.CreatedAt.HasValue && b.CreatedAt.Value >= startOfMonth);
 
                 // Pending and collected amounts
-                var pendingAmount = allBills.Sum(b => b.ToPay ?? 0);
-                var collectedAmount = allBills.Sum(b => b.Paid ?? 0);
+                var legacyPendingAmount = allBills.Sum(b => b.ToPay ?? 0);
+                var legacyCollectedAmount = allBills.Sum(b => b.Paid ?? 0);
 
                 // Recent bills (last 10)
-                var recentBills = await _context.GstBills
-                    .Where(b => b.IsActive == true)
+                var legacyRecentBills = allBills
                     .OrderByDescending(b => b.CreatedAt)
                     .Take(10)
                     .Select(b => new RecentBillDto
@@ -73,10 +145,10 @@ namespace KTransport.API.Services
                         TotalAmount = b.TotalAmount,
                         CreatedAt = b.CreatedAt
                     })
-                    .ToListAsync();
+                    .ToList();
 
                 // Delivery status breakdown
-                var statusBreakdown = allBills
+                var legacyStatusBreakdown = allBills
                     .GroupBy(b => b.DeliveryStatus ?? "Unknown")
                     .Select(g => new DeliveryStatusCount
                     {
@@ -86,25 +158,25 @@ namespace KTransport.API.Services
                     .OrderByDescending(x => x.Count)
                     .ToList();
 
-                var dashboardStats = new DashboardStats
+                var legacyDashboardStats = new DashboardStats
                 {
-                    TotalGrEntries = totalGrEntries,
-                    PendingDeliveries = pendingDeliveries,
-                    CompletedDeliveries = completedDeliveries,
-                    TotalRevenue = totalRevenue,
-                    TodayEntries = todayEntries,
-                    ThisMonthEntries = thisMonthEntries,
-                    PendingAmount = pendingAmount,
-                    CollectedAmount = collectedAmount,
-                    RecentBills = recentBills,
-                    DeliveryStatusBreakdown = statusBreakdown
+                    TotalGrEntries = legacyGrEntries,
+                    PendingDeliveries = legacyPendingDeliveries,
+                    CompletedDeliveries = legacyCompletedDeliveries,
+                    TotalRevenue = legacyTotalRevenue,
+                    TodayEntries = legacyTodayEntries,
+                    ThisMonthEntries = legacyThisMonthEntries,
+                    PendingAmount = legacyPendingAmount,
+                    CollectedAmount = legacyCollectedAmount,
+                    RecentBills = legacyRecentBills,
+                    DeliveryStatusBreakdown = legacyStatusBreakdown
                 };
 
                 return new DashboardResponse
                 {
                     Success = true,
                     Message = "Dashboard statistics retrieved successfully",
-                    Data = dashboardStats
+                    Data = legacyDashboardStats
                 };
             }
             catch (Exception ex)
@@ -125,44 +197,99 @@ namespace KTransport.API.Services
                 _logger.LogInformation("Retrieving revenue statistics");
 
                 var today = DateTime.Today;
+                var todayDateOnly = DateOnly.FromDateTime(today);
                 var startOfMonth = new DateTime(today.Year, today.Month, 1);
+                var startOfMonthDateOnly = DateOnly.FromDateTime(startOfMonth);
                 var startOfYear = new DateTime(today.Year, 1, 1);
+                var startOfYearDateOnly = DateOnly.FromDateTime(startOfYear);
+
+                var shipments = await _context.Shipments
+                    .AsNoTracking()
+                    .Where(s => s.IsActive && s.Status != ShipmentStatus.Cancelled)
+                    .ToListAsync();
+
+                if (shipments.Count > 0)
+                {
+                    var totalRevenue = shipments.Sum(s => s.GrandTotal);
+                    var todayRevenue = shipments
+                        .Where(s => s.ShipmentDate == todayDateOnly || s.CreatedAt.Date == today)
+                        .Sum(s => s.GrandTotal);
+                    var thisMonthRevenue = shipments
+                        .Where(s => s.ShipmentDate >= startOfMonthDateOnly || s.CreatedAt.Date >= startOfMonth)
+                        .Sum(s => s.GrandTotal);
+                    var thisYearRevenue = shipments
+                        .Where(s => s.ShipmentDate >= startOfYearDateOnly || s.CreatedAt.Date >= startOfYear)
+                        .Sum(s => s.GrandTotal);
+
+                    var paidAmount = shipments
+                        .Where(s => s.PaymentTerm == PaymentTerm.Paid)
+                        .Sum(s => s.GrandTotal);
+                    var toPayAmount = shipments
+                        .Where(s => s.PaymentTerm == PaymentTerm.ToPay)
+                        .Sum(s => s.GrandTotal);
+                    var tbbAmount = shipments
+                        .Where(s => s.PaymentTerm == PaymentTerm.TBB)
+                        .Sum(s => s.GrandTotal);
+
+                    var revenueStats = new RevenueStats
+                    {
+                        TotalRevenue = totalRevenue,
+                        TodayRevenue = todayRevenue,
+                        ThisMonthRevenue = thisMonthRevenue,
+                        ThisYearRevenue = thisYearRevenue,
+                        PaidAmount = paidAmount,
+                        ToPayAmount = toPayAmount,
+                        TbbAmount = tbbAmount,
+                        PaymentReceived = shipments.Sum(s => s.PaidAmount),
+                        OutstandingDue = shipments.Sum(s => s.DueAmount)
+                    };
+
+                    return new RevenueResponse
+                    {
+                        Success = true,
+                        Message = "Revenue statistics retrieved successfully",
+                        Data = revenueStats
+                    };
+                }
 
                 var allBills = await _context.GstBills
+                    .AsNoTracking()
                     .Where(b => b.IsActive == true)
                     .ToListAsync();
 
-                var totalRevenue = allBills.Sum(b => b.TotalAmount ?? 0);
-                var todayRevenue = allBills
+                var legacyTotalRevenue = allBills.Sum(b => b.TotalAmount ?? 0);
+                var legacyTodayRevenue = allBills
                     .Where(b => b.CreatedAt.HasValue && b.CreatedAt.Value.Date == today)
                     .Sum(b => b.TotalAmount ?? 0);
-                var thisMonthRevenue = allBills
+                var legacyThisMonthRevenue = allBills
                     .Where(b => b.CreatedAt.HasValue && b.CreatedAt.Value >= startOfMonth)
                     .Sum(b => b.TotalAmount ?? 0);
-                var thisYearRevenue = allBills
+                var legacyThisYearRevenue = allBills
                     .Where(b => b.CreatedAt.HasValue && b.CreatedAt.Value >= startOfYear)
                     .Sum(b => b.TotalAmount ?? 0);
 
-                var paidAmount = allBills.Sum(b => b.Paid ?? 0);
-                var toPayAmount = allBills.Sum(b => b.ToPay ?? 0);
-                var tbbAmount = allBills.Sum(b => b.Tbb ?? 0);
+                var legacyPaidAmount = allBills.Sum(b => b.Paid ?? 0);
+                var legacyToPayAmount = allBills.Sum(b => b.ToPay ?? 0);
+                var legacyTbbAmount = allBills.Sum(b => b.Tbb ?? 0);
 
-                var revenueStats = new RevenueStats
+                var legacyRevenueStats = new RevenueStats
                 {
-                    TotalRevenue = totalRevenue,
-                    TodayRevenue = todayRevenue,
-                    ThisMonthRevenue = thisMonthRevenue,
-                    ThisYearRevenue = thisYearRevenue,
-                    PaidAmount = paidAmount,
-                    ToPayAmount = toPayAmount,
-                    TbbAmount = tbbAmount
+                    TotalRevenue = legacyTotalRevenue,
+                    TodayRevenue = legacyTodayRevenue,
+                    ThisMonthRevenue = legacyThisMonthRevenue,
+                    ThisYearRevenue = legacyThisYearRevenue,
+                    PaidAmount = legacyPaidAmount,
+                    ToPayAmount = legacyToPayAmount,
+                    TbbAmount = legacyTbbAmount,
+                    PaymentReceived = legacyPaidAmount,
+                    OutstandingDue = legacyToPayAmount
                 };
 
                 return new RevenueResponse
                 {
                     Success = true,
                     Message = "Revenue statistics retrieved successfully",
-                    Data = revenueStats
+                    Data = legacyRevenueStats
                 };
             }
             catch (Exception ex)
@@ -369,30 +496,101 @@ namespace KTransport.API.Services
             {
                 _logger.LogInformation("Retrieving dashboard statistics for date range: {StartDate} to {EndDate}", startDate, endDate);
 
+                var start = DateOnly.FromDateTime(startDate.Date);
+                var end = DateOnly.FromDateTime(endDate.Date);
+
+                var shipmentsInRange = await _context.Shipments
+                    .AsNoTracking()
+                    .Where(s => s.IsActive && s.Status != ShipmentStatus.Cancelled &&
+                        ((s.ShipmentDate >= start && s.ShipmentDate <= end) ||
+                         (s.CreatedAt.Date >= startDate.Date && s.CreatedAt.Date <= endDate.Date)))
+                    .ToListAsync();
+
+                if (shipmentsInRange.Count > 0)
+                {
+                    var totalGrEntries = shipmentsInRange.Count;
+                    var pendingDeliveries = shipmentsInRange.Count(s => s.Status != ShipmentStatus.Delivered);
+                    var completedDeliveries = shipmentsInRange.Count(s => s.Status == ShipmentStatus.Delivered);
+                    var totalRevenue = shipmentsInRange.Sum(s => s.GrandTotal);
+                    var pendingAmount = shipmentsInRange.Sum(s => s.DueAmount);
+                    var collectedAmount = shipmentsInRange.Sum(s => s.PaidAmount);
+
+                    var recentBills = shipmentsInRange
+                        .OrderByDescending(s => s.CreatedAt)
+                        .ThenByDescending(s => s.Id)
+                        .Take(10)
+                        .Select(s => new RecentBillDto
+                        {
+                            Id = s.Id,
+                            GrNo = s.ShipmentNo,
+                            ConsigneeName = s.ConsigneeName ?? "—",
+                            FromLocation = s.FromLocation ?? "—",
+                            ToLocation = s.ToLocation ?? "—",
+                            DeliveryStatus = s.Status == ShipmentStatus.InTransit ? "In Transit" :
+                                             s.Status == ShipmentStatus.OutForDelivery ? "Out For Delivery" :
+                                             s.Status.ToString(),
+                            TotalAmount = s.GrandTotal,
+                            CreatedAt = s.CreatedAt
+                        })
+                        .ToList();
+
+                    var statusBreakdown = shipmentsInRange
+                        .GroupBy(s => s.Status.ToString())
+                        .Select(g => new DeliveryStatusCount
+                        {
+                            Status = g.Key,
+                            Count = g.Count()
+                        })
+                        .OrderByDescending(x => x.Count)
+                        .ToList();
+
+                    var dashboardStats = new DashboardStats
+                    {
+                        TotalGrEntries = totalGrEntries,
+                        PendingDeliveries = pendingDeliveries,
+                        CompletedDeliveries = completedDeliveries,
+                        TotalRevenue = totalRevenue,
+                        TodayEntries = 0,
+                        ThisMonthEntries = 0,
+                        PendingAmount = pendingAmount,
+                        CollectedAmount = collectedAmount,
+                        RecentBills = recentBills,
+                        DeliveryStatusBreakdown = statusBreakdown
+                    };
+
+                    return new DashboardResponse
+                    {
+                        Success = true,
+                        Message = $"Dashboard statistics for {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd} retrieved successfully",
+                        Data = dashboardStats
+                    };
+                }
+
                 var billsInRange = await _context.GstBills
+                    .AsNoTracking()
                     .Where(b => b.IsActive == true && 
                            b.CreatedAt.HasValue && 
                            b.CreatedAt.Value.Date >= startDate.Date && 
                            b.CreatedAt.Value.Date <= endDate.Date)
                     .ToListAsync();
 
-                var totalGrEntries = billsInRange.Count;
+                var legacyGrEntries = billsInRange.Count;
 
-                var pendingDeliveries = billsInRange
+                var legacyPendingDeliveries = billsInRange
                     .Count(b => b.DeliveryStatus != null && 
                            !b.DeliveryStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
                            !b.DeliveryStatus.Equals("Completed", StringComparison.OrdinalIgnoreCase));
 
-                var completedDeliveries = billsInRange
+                var legacyCompletedDeliveries = billsInRange
                     .Count(b => b.DeliveryStatus != null && 
                            (b.DeliveryStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) ||
                             b.DeliveryStatus.Equals("Completed", StringComparison.OrdinalIgnoreCase)));
 
-                var totalRevenue = billsInRange.Sum(b => b.TotalAmount ?? 0);
-                var pendingAmount = billsInRange.Sum(b => b.ToPay ?? 0);
-                var collectedAmount = billsInRange.Sum(b => b.Paid ?? 0);
+                var legacyTotalRevenue = billsInRange.Sum(b => b.TotalAmount ?? 0);
+                var legacyPendingAmount = billsInRange.Sum(b => b.ToPay ?? 0);
+                var legacyCollectedAmount = billsInRange.Sum(b => b.Paid ?? 0);
 
-                var recentBills = billsInRange
+                var legacyRecentBills = billsInRange
                     .OrderByDescending(b => b.CreatedAt)
                     .Take(10)
                     .Select(b => new RecentBillDto
@@ -408,7 +606,7 @@ namespace KTransport.API.Services
                     })
                     .ToList();
 
-                var statusBreakdown = billsInRange
+                var legacyStatusBreakdown = billsInRange
                     .GroupBy(b => b.DeliveryStatus ?? "Unknown")
                     .Select(g => new DeliveryStatusCount
                     {
@@ -418,25 +616,25 @@ namespace KTransport.API.Services
                     .OrderByDescending(x => x.Count)
                     .ToList();
 
-                var dashboardStats = new DashboardStats
+                var legacyDashboardStats = new DashboardStats
                 {
-                    TotalGrEntries = totalGrEntries,
-                    PendingDeliveries = pendingDeliveries,
-                    CompletedDeliveries = completedDeliveries,
-                    TotalRevenue = totalRevenue,
+                    TotalGrEntries = legacyGrEntries,
+                    PendingDeliveries = legacyPendingDeliveries,
+                    CompletedDeliveries = legacyCompletedDeliveries,
+                    TotalRevenue = legacyTotalRevenue,
                     TodayEntries = 0,
                     ThisMonthEntries = 0,
-                    PendingAmount = pendingAmount,
-                    CollectedAmount = collectedAmount,
-                    RecentBills = recentBills,
-                    DeliveryStatusBreakdown = statusBreakdown
+                    PendingAmount = legacyPendingAmount,
+                    CollectedAmount = legacyCollectedAmount,
+                    RecentBills = legacyRecentBills,
+                    DeliveryStatusBreakdown = legacyStatusBreakdown
                 };
 
                 return new DashboardResponse
                 {
                     Success = true,
                     Message = $"Dashboard statistics for {startDate:yyyy-MM-dd} to {endDate:yyyy-MM-dd} retrieved successfully",
-                    Data = dashboardStats
+                    Data = legacyDashboardStats
                 };
             }
             catch (Exception ex)
