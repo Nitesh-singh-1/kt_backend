@@ -33,6 +33,9 @@ namespace KTransport.API.DTOs
         public string? CollectedBy { get; set; }
         public string? Remarks { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool IsCollected { get; set; } = true;
+        public decimal PaidAmount { get; set; }
+        public decimal DueAmount { get; set; }
     }
 
     public class MoneyReceiptFilterRequest
@@ -41,5 +44,15 @@ namespace KTransport.API.DTOs
         public DateOnly? EndDate { get; set; }
         public string? Search { get; set; }
         public string? PaymentMode { get; set; }
+        public string? Status { get; set; } // "ALL", "COLLECTED", "PENDING"
+    }
+
+    public class CollectMoneyReceiptRequest
+    {
+        public DateOnly PaymentDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+        public string PaymentMode { get; set; } = "Cash";
+        public string? ReferenceNo { get; set; }
+        public decimal? ReceivedAmount { get; set; }
+        public string? Remarks { get; set; }
     }
 }

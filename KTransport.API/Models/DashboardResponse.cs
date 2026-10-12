@@ -23,7 +23,7 @@ namespace KTransport.API.Models
 
     public class RecentBillDto
     {
-        public int Id { get; set; }
+        public long Id { get; set; }
         public string? GrNo { get; set; }
         public string? ConsigneeName { get; set; }
         public string? FromLocation { get; set; }
@@ -55,5 +55,7 @@ namespace KTransport.API.Models
         public decimal PaidAmount { get; set; }
         public decimal ToPayAmount { get; set; }
         public decimal TbbAmount { get; set; }
+        public decimal PaymentReceived { get; set; }
+        public decimal OutstandingDue { get; set; }
     }
 }

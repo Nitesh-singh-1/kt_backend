@@ -28,14 +28,16 @@ namespace KTransport.API.Controllers
             [FromQuery] DateOnly? startDate = null,
             [FromQuery] DateOnly? endDate = null,
             [FromQuery] string? search = null,
-            [FromQuery] string? paymentMode = null)
+            [FromQuery] string? paymentMode = null,
+            [FromQuery] string? status = null)
         {
             var filter = new MoneyReceiptFilterRequest
             {
                 StartDate = startDate,
                 EndDate = endDate,
                 Search = search,
-                PaymentMode = paymentMode
+                PaymentMode = paymentMode,
+                Status = status
             };
 
             var receipts = await _receiptService.GetReceiptsAsync(filter);
@@ -60,6 +62,17 @@ namespace KTransport.API.Controllers
             if (receipt == null)
             {
                 return NotFound(new { message = $"Money Receipt for Bilty {shipmentId} not found or Bilty is not Paid." });
+            }
+            return Ok(receipt);
+        }
+
+        [HttpPost("collect/{shipmentId:long}")]
+        public async Task<ActionResult<MoneyReceiptDto>> CollectPayment(long shipmentId, [FromBody] CollectMoneyReceiptRequest request)
+        {
+            var receipt = await _receiptService.CollectPaymentAsync(shipmentId, request);
+            if (receipt == null)
+            {
+                return NotFound(new { message = $"Paid Bilty with ID {shipmentId} not found." });
             }
             return Ok(receipt);
         }

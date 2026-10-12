@@ -9,5 +9,6 @@ namespace KTransport.API.Services
         Task<List<MoneyReceiptDto>> GetReceiptsAsync(MoneyReceiptFilterRequest filter);
         Task<MoneyReceiptDto?> GetReceiptByIdAsync(long id);
         Task<MoneyReceiptDto?> GetReceiptByShipmentIdAsync(long shipmentId);
+        Task<MoneyReceiptDto?> CollectPaymentAsync(long shipmentId, CollectMoneyReceiptRequest request);
     }
 }
