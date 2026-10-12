@@ -211,6 +211,10 @@ namespace KTransport.API.Services
                     GrandTotal = grandTotal,
                     PaidAmount = paid,
                     DueAmount = due,
+                    SettledPaymentMode = request.SettledPaymentMode,
+                    SettlementReferenceNo = request.SettlementReferenceNo,
+                    IsSettled = request.IsSettled ?? (request.PaymentTerm == PaymentTerm.Paid && paid >= grandTotal && grandTotal > 0),
+                    DeliveryDate = request.DeliveryDate,
                     Status = ShipmentStatus.Booked,
                     Remarks = request.Remarks,
                     BookingClerk = request.BookingClerk,
@@ -485,6 +489,11 @@ namespace KTransport.API.Services
                 shipment.GrandTotal = grandTotal;
                 shipment.PaidAmount = paid;
                 shipment.DueAmount = due;
+                if (request.SettledPaymentMode != null) shipment.SettledPaymentMode = request.SettledPaymentMode;
+                if (request.SettlementReferenceNo != null) shipment.SettlementReferenceNo = request.SettlementReferenceNo;
+                if (request.IsSettled.HasValue) shipment.IsSettled = request.IsSettled.Value;
+                else if (request.PaymentTerm == PaymentTerm.Paid) shipment.IsSettled = paid >= grandTotal && grandTotal > 0;
+                if (request.DeliveryDate.HasValue) shipment.DeliveryDate = request.DeliveryDate.Value;
                 shipment.Remarks = request.Remarks;
                 shipment.BookingClerk = request.BookingClerk;
                 shipment.OriginHubId = request.OriginHubId;

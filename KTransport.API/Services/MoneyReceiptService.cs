@@ -20,20 +20,39 @@ namespace KTransport.API.Services
 
         public async Task<List<MoneyReceiptDto>> GetReceiptsAsync(MoneyReceiptFilterRequest filter)
         {
-            // Money receipts are only generated for PAID bilties
+            // Money receipts are generated for PAID bilties (both collected on spot and pending collection)
             var query = _context.Shipments
                 .Include(s => s.ChargeItems)
                 .Include(s => s.Items)
-                .Where(s => s.IsActive && s.PaymentTerm == PaymentTerm.Paid && s.PaidAmount > 0);
+                .Where(s => s.IsActive && s.PaymentTerm == PaymentTerm.Paid);
+
+            if (!string.IsNullOrWhiteSpace(filter.Status))
+            {
+                var st = filter.Status.Trim().ToUpper();
+                if (st == "PENDING")
+                {
+                    query = query.Where(s => s.DueAmount > 0 || !s.IsSettled || s.PaidAmount == 0);
+                }
+                else if (st == "COLLECTED")
+                {
+                    query = query.Where(s => s.PaidAmount > 0 && s.IsSettled);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.PaymentMode) && filter.PaymentMode != "ALL")
+            {
+                var pm = filter.PaymentMode.Trim().ToLower();
+                query = query.Where(s => (s.SettledPaymentMode ?? "cash").ToLower().Contains(pm));
+            }
 
             if (filter.StartDate.HasValue)
             {
-                query = query.Where(s => s.ShipmentDate >= filter.StartDate.Value);
+                query = query.Where(s => (s.DeliveryDate ?? s.ShipmentDate) >= filter.StartDate.Value);
             }
 
             if (filter.EndDate.HasValue)
             {
-                query = query.Where(s => s.ShipmentDate <= filter.EndDate.Value);
+                query = query.Where(s => (s.DeliveryDate ?? s.ShipmentDate) <= filter.EndDate.Value);
             }
 
             if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -47,7 +66,7 @@ namespace KTransport.API.Services
             }
 
             var shipments = await query
-                .OrderByDescending(s => s.ShipmentDate)
+                .OrderByDescending(s => s.DeliveryDate ?? s.ShipmentDate)
                 .ThenByDescending(s => s.Id)
                 .ToListAsync();
 
@@ -72,6 +91,38 @@ namespace KTransport.API.Services
                 .FirstOrDefaultAsync(s => s.Id == shipmentId && s.IsActive && s.PaymentTerm == PaymentTerm.Paid);
 
             return shipment == null ? null : MapToReceiptDto(shipment);
+        }
+
+        public async Task<MoneyReceiptDto?> CollectPaymentAsync(long shipmentId, CollectMoneyReceiptRequest request)
+        {
+            var shipment = await _context.Shipments
+                .Include(s => s.ChargeItems)
+                .Include(s => s.Items)
+                .FirstOrDefaultAsync(s => s.Id == shipmentId && s.IsActive && s.PaymentTerm == PaymentTerm.Paid);
+
+            if (shipment == null) return null;
+
+            decimal grandTotal = shipment.GrandTotal > 0 ? shipment.GrandTotal : shipment.TotalFreight;
+            decimal amt = request.ReceivedAmount.HasValue && request.ReceivedAmount.Value > 0
+                ? request.ReceivedAmount.Value
+                : (shipment.DueAmount > 0 ? shipment.DueAmount : grandTotal);
+
+            shipment.PaidAmount = Math.Min(grandTotal, shipment.PaidAmount + amt);
+            shipment.DueAmount = Math.Max(0, grandTotal - shipment.PaidAmount);
+            shipment.SettledReceivedAmount = shipment.PaidAmount;
+            shipment.SettledPaymentMode = request.PaymentMode;
+            shipment.SettlementReferenceNo = request.ReferenceNo;
+            shipment.DeliveryDate = request.PaymentDate;
+            shipment.IsSettled = shipment.DueAmount == 0;
+            if (!string.IsNullOrWhiteSpace(request.Remarks))
+            {
+                shipment.Remarks = string.IsNullOrWhiteSpace(shipment.Remarks)
+                    ? request.Remarks
+                    : $"{shipment.Remarks} | MR Collection: {request.Remarks}";
+            }
+
+            await _context.SaveChangesAsync();
+            return MapToReceiptDto(shipment);
         }
 
         private static MoneyReceiptDto MapToReceiptDto(Shipment s)
@@ -114,12 +165,13 @@ namespace KTransport.API.Services
             decimal biltyGrandTotal = s.GrandTotal > 0 ? s.GrandTotal : (s.PaidAmount > 0 ? s.PaidAmount : s.TotalFreight);
             decimal mrCharge = 10m; // 10 rupee fixed
             decimal totalWithMrCharge = biltyGrandTotal + mrCharge;
+            bool isCollected = s.IsSettled || (s.PaidAmount >= biltyGrandTotal && biltyGrandTotal > 0);
 
             return new MoneyReceiptDto
             {
                 Id = s.Id,
                 ReceiptNo = $"MR-{s.ShipmentNo}",
-                ReceiptDate = s.ShipmentDate,
+                ReceiptDate = s.DeliveryDate ?? s.ShipmentDate,
                 ShipmentId = s.Id,
                 ShipmentNo = s.ShipmentNo,
                 PayerName = s.ConsignorName ?? "Cash Customer",
@@ -138,10 +190,14 @@ namespace KTransport.API.Services
                 OtherCharges = other,
                 GstAmount = s.TotalTaxAmount,
                 TotalAmount = totalWithMrCharge,
-                PaymentMode = "Cash",
+                PaymentMode = !string.IsNullOrWhiteSpace(s.SettledPaymentMode) ? s.SettledPaymentMode : "Cash",
+                TransactionRef = s.SettlementReferenceNo,
                 CollectedBy = s.BookingClerk ?? "Counter Cashier",
                 Remarks = s.Remarks,
-                CreatedAt = s.CreatedAt
+                CreatedAt = s.CreatedAt,
+                IsCollected = isCollected,
+                PaidAmount = s.PaidAmount,
+                DueAmount = s.DueAmount
             };
         }
     }

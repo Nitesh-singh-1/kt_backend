@@ -183,6 +183,10 @@ namespace KTransport.API.DTOs
         public decimal TotalFreight { get; set; }
         public decimal TotalTaxAmount { get; set; }
         public decimal PaidAmount { get; set; }
+        public string? SettledPaymentMode { get; set; }
+        public string? SettlementReferenceNo { get; set; }
+        public bool? IsSettled { get; set; }
+        public DateOnly? DeliveryDate { get; set; }
         public string? Remarks { get; set; }
         public string? BookingClerk { get; set; }
 
@@ -236,6 +240,10 @@ namespace KTransport.API.DTOs
         public decimal TotalFreight { get; set; }
         public decimal TotalTaxAmount { get; set; }
         public decimal PaidAmount { get; set; }
+        public string? SettledPaymentMode { get; set; }
+        public string? SettlementReferenceNo { get; set; }
+        public bool? IsSettled { get; set; }
+        public DateOnly? DeliveryDate { get; set; }
         public string? Remarks { get; set; }
         public string? BookingClerk { get; set; }
 
