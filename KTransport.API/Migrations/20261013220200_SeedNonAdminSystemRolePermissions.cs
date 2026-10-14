@@ -39,6 +39,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
      OR p.key LIKE 'reports.booking_register%'
      OR p.key IN ('dashboard.view', 'reports.view', 'vendors.view')
    )
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
+   )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- 2. supervisor
@@ -53,6 +60,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
        (p.key LIKE 'consignments.%' OR p.key LIKE 'trips.%' OR p.key LIKE 'pod.%')
        AND (p.action IN ('Create', 'Edit') OR p.key LIKE '%.create' OR p.key LIKE '%.edit')
      )
+   )
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
    )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
@@ -70,6 +84,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
      OR (p.key LIKE 'pod.%' AND (p.action IN ('View', 'Edit') OR p.key IN ('pod.view', 'pod.edit')))
      OR p.key IN ('dashboard.view', 'master_data.parties.view', 'master_data.fleet.view')
    )
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
+   )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- 4. billing_executive
@@ -82,6 +103,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
      p.key LIKE 'billing.%'
      OR p.key LIKE 'reports.booking_register%'
      OR p.key IN ('consignments.all.view', 'consignments.view', 'reports.view', 'dashboard.view')
+   )
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
    )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
@@ -97,6 +125,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
      OR p.key LIKE 'master_data.driver_ledger.%'
      OR p.key IN ('master_data.loans.view', 'dashboard.view')
    )
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
+   )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- 6. viewer
@@ -106,6 +141,13 @@ SELECT r.tenant_id, r.code, r.id, p.key, p.id, CURRENT_TIMESTAMP
   CROSS JOIN permissions p
  WHERE r.code = 'viewer'
    AND (p.key LIKE '%.view' OR p.action = 'View')
+   AND NOT EXISTS (
+     SELECT 1 FROM role_permissions rp
+      WHERE rp.tenant_id = r.tenant_id
+        AND rp.role_name = r.code
+        AND rp.permission_key = p.key
+        AND rp.revoked_at IS NULL
+   )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 ");
         }

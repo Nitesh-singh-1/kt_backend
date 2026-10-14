@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -21,6 +22,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("master_data.vehicle_claims.view")]
         public async Task<ActionResult<List<VehicleInsuranceClaimDto>>> GetAll(
             [FromQuery] string? search = null,
             [FromQuery] VehicleClaimStatus? status = null)
@@ -29,6 +31,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("master_data.vehicle_claims.view")]
         public async Task<ActionResult<VehicleInsuranceClaimDto>> GetById(long id)
         {
             var result = await _service.GetByIdAsync(id);
@@ -37,6 +40,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("master_data.vehicle_claims.create")]
         public async Task<ActionResult<VehicleInsuranceClaimDto>> Create([FromBody] CreateVehicleInsuranceClaimRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -45,6 +49,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("master_data.vehicle_claims.edit")]
         public async Task<ActionResult<VehicleInsuranceClaimDto>> Update(long id, [FromBody] UpdateVehicleInsuranceClaimRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -54,6 +59,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("master_data.vehicle_claims.delete")]
         public async Task<ActionResult> Delete(long id)
         {
             var success = await _service.DeleteAsync(id);

@@ -1,3 +1,4 @@
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.Models;
 using KTransport.API.Services.Email;
@@ -16,14 +17,9 @@ namespace KTransport.API.Services
         private const string PasswordResetPurpose = "PasswordReset";
         private const int ResetCodeValidMinutes = 10;
 
-        private static readonly HashSet<string> AdminRoleValues = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "admin", "superadmin", "tenantadmin", "super_user", "tenant_owner"
-        };
-
         // Platform operator = admin-class role AND membership in the default/platform tenant.
         private static bool ComputeIsPlatformAdmin(User user) =>
-            AdminRoleValues.Contains(user.Role ?? "") && user.TenantId == TenantContext.DefaultTenantId;
+            RbacRoles.IsAdminRole(user.Role) && user.TenantId == TenantContext.DefaultTenantId;
 
         private readonly ILogger<AuthService> _logger;
         private readonly KTransportDbContext _context;

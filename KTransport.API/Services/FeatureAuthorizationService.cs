@@ -29,11 +29,7 @@ namespace KTransport.API.Services
                        ?? user.FindFirst("role")?.Value
                        ?? string.Empty;
 
-            return string.Equals(role, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(role, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(role, "superadmin", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(role, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+            return RbacRoles.IsAdminRole(role);
         }
 
         public bool IsPlatformAdmin(ClaimsPrincipal user)
@@ -111,11 +107,7 @@ namespace KTransport.API.Services
         public async Task<HashSet<string>> GetEffectiveFeaturesForUserAsync(Guid tenantId, string userRole, string userIdOrName)
         {
             var subscribedFeatures = await GetSubscribedFeaturesAsync(tenantId);
-            bool isSuper = string.Equals(userRole, "SUPER_USER", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "admin", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "tenantadmin", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "superadmin", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(userRole, "TENANT_OWNER", StringComparison.OrdinalIgnoreCase);
+            bool isSuper = RbacRoles.IsAdminRole(userRole);
 
             if (isSuper)
             {

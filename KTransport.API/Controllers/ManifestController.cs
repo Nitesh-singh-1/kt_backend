@@ -25,6 +25,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("trips.create")]
         public async Task<ActionResult<ManifestResponse>> CreateManifest([FromBody] CreateManifestRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -38,6 +39,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ManifestResponse>> GetManifestById(long id)
         {
             var response = await _manifestService.GetManifestByIdAsync(id);
@@ -46,6 +48,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("by-no/{manifestNo}")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ManifestResponse>> GetManifestByNo(string manifestNo)
         {
             var response = await _manifestService.GetManifestByNoAsync(manifestNo);
@@ -54,6 +57,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ManifestListResponse>> GetManifests([FromQuery] ManifestFilterRequest filter)
         {
             var response = await _manifestService.GetManifestsAsync(filter);
@@ -61,6 +65,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<ManifestResponse>> UpdateManifest(long id, [FromBody] UpdateManifestRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -73,6 +78,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/assign-trip")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<ManifestResponse>> AssignTrip(long id, [FromBody] AssignTripToManifestRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -85,6 +91,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/dispatch")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<ManifestResponse>> DispatchManifest(long id)
         {
             var userId = GetCurrentUserId();
@@ -95,6 +102,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/unload")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<ManifestResponse>> UnloadManifest(long id, [FromBody] UnloadManifestRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -107,6 +115,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("trips.delete")]
         public async Task<IActionResult> DeleteManifest(long id)
         {
             var userId = GetCurrentUserId();
@@ -117,6 +126,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("available-shipments")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<List<ShipmentDto>>> GetAvailableShipments(
             [FromQuery] long? originHubId, 
             [FromQuery] long? destinationHubId)

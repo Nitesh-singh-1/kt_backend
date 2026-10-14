@@ -98,7 +98,17 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-builder.Services.AddAuthorization();
+// Fail-closed default: every endpoint requires an authenticated user unless it
+// explicitly opts out with [AllowAnonymous]. This is a safety net so a newly
+// added controller/action that forgets [Authorize] is not silently anonymous.
+// Per-action RBAC is still enforced by [RequirePermission]/[RequireFeature];
+// this only guarantees "authenticated" as the floor.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 // Register Services
 builder.Services.AddScoped<ITenantService, TenantService>();
@@ -139,6 +149,7 @@ builder.Services.AddScoped<IMenuCatalogService, MenuCatalogService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IVerificationCodeService, VerificationCodeService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
@@ -285,11 +296,11 @@ app.MapControllers();
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = _ => false, // exclude all named checks — pure "am I up?" liveness
-});
+}).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-});
+}).AllowAnonymous();
 
 // Automatically apply pending database migrations and seed data on startup with retry resilience.
 // TASK-010: replaced a hand-rolled for-loop-with-Thread.Sleep with a Polly async retry

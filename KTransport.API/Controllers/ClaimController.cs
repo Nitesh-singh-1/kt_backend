@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("claims.view")]
         public async Task<ActionResult<List<CargoClaimDto>>> GetClaims(
             [FromQuery] ClaimStatus? status = null,
             [FromQuery] string? search = null)
@@ -33,6 +34,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("claims.view")]
         public async Task<ActionResult<CargoClaimDto>> GetClaimById(long id)
         {
             var claim = await _claimService.GetClaimByIdAsync(id);
@@ -41,6 +43,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("claims.create")]
         public async Task<ActionResult<CargoClaimDto>> CreateClaim([FromBody] CreateClaimRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -50,6 +53,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/settle")]
+        [RequirePermission("claims.approve")]
         public async Task<ActionResult<CargoClaimDto>> SettleClaim(long id, [FromBody] SettleClaimRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -60,6 +64,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("claims.edit")]
         public async Task<ActionResult> DeleteClaim(long id)
         {
             var success = await _claimService.DeleteClaimAsync(id);

@@ -115,6 +115,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("billing.bill_book.edit")]
         public async Task<ActionResult<InvoiceDto>> UpdateInvoice(long id, [FromBody] UpdateInvoiceRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -126,6 +127,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/payments")]
+        [RequirePermission("billing.bill_book.edit")]
         public async Task<ActionResult<InvoiceDto>> RecordPayment(long id, [FromBody] RecordPaymentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -137,6 +139,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("billing.bill_book.delete")]
         public async Task<ActionResult> VoidInvoice(long id)
         {
             int? userId = GetCurrentUserId();

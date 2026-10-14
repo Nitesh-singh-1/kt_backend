@@ -11,6 +11,7 @@ using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services.Email;
+using KTransport.API.Services.Rbac;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -389,8 +390,6 @@ namespace KTransport.API.Services
             return true;
         }
 
-        private static readonly string[] AdminRoleValues = { "admin", "superadmin", "tenantadmin", "super_user", "tenant_owner" };
-
         public async Task<IEnumerable<TenantUserDto>> GetTenantUsersAsync(Guid tenantId)
         {
             var users = await _context.Users
@@ -408,7 +407,7 @@ namespace KTransport.API.Services
                 Mobile = u.Mobile,
                 Email = u.Email,
                 IsActive = u.IsActive ?? true,
-                IsAdmin = AdminRoleValues.Contains((u.Role ?? "").ToLowerInvariant())
+                IsAdmin = RbacRoles.IsAdminRole(u.Role)
             });
         }
 
@@ -761,8 +760,23 @@ namespace KTransport.API.Services
         }
 
         /// <summary>
+        /// Public entry point for re-syncing an EXISTING tenant's system
+        /// roles against <see cref="SystemRolePermissionMatrix"/> — e.g. a
+        /// tenant that was onboarded before a role template or a new
+        /// catalog permission existed. Additive/idempotent: never revokes.
+        /// </summary>
+        public async Task ReconcileSystemRolePermissionsForTenantAsync(Guid tenantId, int? actingUserId)
+            => await SeedSystemRolesForTenantAsync(tenantId, new List<string>(), actingUserId);
+
+        /// <summary>
         /// TASK-046 Phase 1 — insert 7 system roles for a tenant with
-        /// seed_grants scoped to the modules the tenant has enabled.
+        /// seed_grants scoped to the modules the tenant has enabled, driven
+        /// entirely by <see cref="SystemRolePermissionMatrix"/> (the single
+        /// authoritative role→permission rule set — do not re-encode these
+        /// rules anywhere else). "admin" is the one exception: it always
+        /// gets every catalog permission regardless of enabled modules, so
+        /// a tenant admin never loses settings/management access just
+        /// because a module toggle happens to be off.
         /// Idempotent via the unique indexes on roles / role_permissions.
         /// Caller must SaveChangesAsync after this returns.
         /// </summary>
@@ -833,12 +847,16 @@ namespace KTransport.API.Services
             foreach (var perm in catalog)
             {
                 var moduleCode = ResolveModuleCodeFromFeatureKey(perm.FeatureKey);
-                if (moduleCode == null || !enabledModules.Contains(moduleCode)) continue;
 
-                foreach (var (code, _, _) in SystemRoleTemplates)
+                foreach (var code in SystemRolePermissionMatrix.SystemRoleCodes)
                 {
-                    if (!PermissionFitsRoleSeedGrant(code, moduleCode, perm.Action)) continue;
+                    // admin: unconditional — never gated by enabled modules.
+                    // everyone else: must be a module the tenant has enabled.
+                    var isAdmin = string.Equals(code, "admin", StringComparison.OrdinalIgnoreCase);
+                    if (!isAdmin && (moduleCode == null || !enabledModules.Contains(moduleCode))) continue;
+                    if (!SystemRolePermissionMatrix.Grants(code, perm)) continue;
                     if (!roleIdByCode.TryGetValue(code, out var roleId)) continue;
+
                     var sig = $"{code}|{perm.Key}";
                     if (granted.Contains(sig)) continue;
                     _context.RolePermissions.Add(new RolePermission
@@ -847,6 +865,7 @@ namespace KTransport.API.Services
                         RoleName = code,       // §Y dual-write — stays forever.
                         RoleId = roleId,
                         PermissionKey = perm.Key,
+                        PermissionId = perm.Id, // TASK-049: new inserts set this unconditionally.
                         GrantedAt = DateTime.UtcNow,
                         GrantedBy = actingUserId
                     });
@@ -881,44 +900,6 @@ namespace KTransport.API.Services
             if (fk.StartsWith("system")) return "system";
             if (fk == "clients") return "system";
             return null;
-        }
-
-        private static bool PermissionFitsRoleSeedGrant(string roleCode, string moduleCode, string action)
-        {
-            // Matches the SQL rules in BackfillRolesAndUserRoles.
-            switch (roleCode.ToLowerInvariant())
-            {
-                case "admin":
-                    return true;
-                case "operations_manager":
-                    if (moduleCode is "bilty" or "trips" or "pod" or "trip_settlement" or "delivery_settlement" or "dashboard") return true;
-                    if (moduleCode == "reports" && (action == "View" || action == "Export")) return true;
-                    return false;
-                case "supervisor":
-                    if (moduleCode == "bilty" && action is "View" or "Edit" or "Approve") return true;
-                    if (moduleCode == "pod" && action is "View" or "Edit" or "Approve") return true;
-                    if (moduleCode == "dashboard" && action == "View") return true;
-                    return false;
-                case "operator":
-                    if (moduleCode == "bilty" && action is "View" or "Create") return true;
-                    if (moduleCode == "pod" && action is "View" or "Create") return true;
-                    if (moduleCode == "dashboard" && action == "View") return true;
-                    return false;
-                case "billing_executive":
-                    if (moduleCode == "billing") return true;
-                    if (moduleCode == "bilty" && action == "View") return true;
-                    if (moduleCode == "dashboard" && action == "View") return true;
-                    return false;
-                case "accountant":
-                    if (moduleCode == "reports") return true;
-                    if (moduleCode is "bilty" or "trips" or "billing" && action == "View") return true;
-                    if (moduleCode == "dashboard" && action == "View") return true;
-                    return false;
-                case "viewer":
-                    return action == "View";
-                default:
-                    return false;
-            }
         }
 
         /// <summary>

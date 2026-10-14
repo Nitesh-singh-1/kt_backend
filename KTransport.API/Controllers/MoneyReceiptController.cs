@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("billing.receipts.view")]
         public async Task<ActionResult<List<MoneyReceiptDto>>> GetReceipts(
             [FromQuery] DateOnly? startDate = null,
             [FromQuery] DateOnly? endDate = null,
@@ -45,6 +46,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("billing.receipts.view")]
         public async Task<ActionResult<MoneyReceiptDto>> GetReceiptById(long id)
         {
             var receipt = await _receiptService.GetReceiptByIdAsync(id);
@@ -56,6 +58,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("shipment/{shipmentId:long}")]
+        [RequirePermission("billing.receipts.view")]
         public async Task<ActionResult<MoneyReceiptDto>> GetReceiptByShipmentId(long shipmentId)
         {
             var receipt = await _receiptService.GetReceiptByShipmentIdAsync(shipmentId);
@@ -67,6 +70,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("collect/{shipmentId:long}")]
+        [RequirePermission("billing.receipts.create")]
         public async Task<ActionResult<MoneyReceiptDto>> CollectPayment(long shipmentId, [FromBody] CollectMoneyReceiptRequest request)
         {
             var receipt = await _receiptService.CollectPaymentAsync(shipmentId, request);

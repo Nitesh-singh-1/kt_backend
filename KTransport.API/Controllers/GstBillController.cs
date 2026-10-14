@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("billing.invoices.create")]
         public async Task<ActionResult<GstBillResponse>> CreateGstBill([FromBody] CreateGstBillRequest request)
         {
             if (!ModelState.IsValid)
@@ -43,6 +44,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id}")]
+        [RequirePermission("billing.invoices.edit")]
         public async Task<ActionResult<GstBillResponse>> UpdateGstBill(int id, [FromBody] UpdateGstBillRequest request)
         {
             if (!ModelState.IsValid)
@@ -62,6 +64,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [RequirePermission("billing.invoices.view")]
         public async Task<ActionResult<GstBillResponse>> GetGstBillById(int id)
         {
             var response = await _gstBillService.GetGstBillByIdAsync(id);
@@ -75,6 +78,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("grno/{grNo}")]
+        [RequirePermission("billing.invoices.view")]
         public async Task<ActionResult<GstBillResponse>> GetGstBillByGrNo(string grNo)
         {
             var response = await _gstBillService.GetGstBillByGrNoAsync(grNo);
@@ -88,6 +92,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("billing.invoices.view")]
         public async Task<ActionResult<GstBillListResponse>> GetAllGstBills([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
             var response = await _gstBillService.GetAllGstBillsAsync(page, pageSize);
@@ -101,6 +106,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [RequirePermission("billing.invoices.delete")]
         public async Task<ActionResult<GstBillResponse>> DeleteGstBill(int id)
         {
             var userId = GetCurrentUserId();

@@ -19,6 +19,17 @@ namespace KTransport.API.Services
 
         /// <summary>TASK-046 Phase 1: list the 7 seeded system role templates for the admin UI.</summary>
         IReadOnlyList<SystemRoleTemplateDto> GetSystemRoleTemplates();
+
+        /// <summary>
+        /// Re-syncs an EXISTING tenant's system-role permissions against the
+        /// single authoritative matrix (<see cref="KTransport.API.Services.Rbac.SystemRolePermissionMatrix"/>).
+        /// Idempotent and additive only (never revokes). This is the
+        /// supported way to fix a tenant whose roles drifted (e.g. seeded
+        /// before a role template existed, or before a new permission was
+        /// added to the catalog) — call this instead of writing a one-off
+        /// SQL migration.
+        /// </summary>
+        Task ReconcileSystemRolePermissionsForTenantAsync(Guid tenantId, int? actingUserId);
         Task<Tenant?> GetTenantByIdAsync(Guid tenantId);
         Task<IEnumerable<TenantAdminListItemDto>> GetAllTenantsWithDetailsAsync();
         Task<bool> UpdateTenantStatusAsync(Guid tenantId, bool isActive);

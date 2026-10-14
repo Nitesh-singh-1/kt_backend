@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -20,12 +21,14 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("empty_trips.view")]
         public async Task<ActionResult<List<EmptyTripLogDto>>> GetAll([FromQuery] string? search = null)
         {
             return Ok(await _service.GetAllAsync(search));
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("empty_trips.view")]
         public async Task<ActionResult<EmptyTripLogDto>> GetById(long id)
         {
             var result = await _service.GetByIdAsync(id);
@@ -34,6 +37,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("empty_trips.create")]
         public async Task<ActionResult<EmptyTripLogDto>> Create([FromBody] CreateEmptyTripLogRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -42,6 +46,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("empty_trips.edit")]
         public async Task<ActionResult<EmptyTripLogDto>> Update(long id, [FromBody] UpdateEmptyTripLogRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -51,6 +56,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("empty_trips.delete")]
         public async Task<ActionResult> Delete(long id)
         {
             var success = await _service.DeleteAsync(id);

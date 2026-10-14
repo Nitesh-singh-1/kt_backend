@@ -125,11 +125,11 @@ public class MenuCatalogServiceTests
     [Fact]
     public void SeedMigration_Produces36RowsExactly()
     {
-        Assert.Equal(37, MenuCatalogSeedData.Rows.Length);
+        Assert.Equal(38, MenuCatalogSeedData.Rows.Length);
 
         using var ctx = NewContext();
         ApplyMenuSeed(ctx);
-        Assert.Equal(37, ctx.MenuItems.Count());
+        Assert.Equal(38, ctx.MenuItems.Count());
     }
 
     [Fact]
@@ -138,9 +138,9 @@ public class MenuCatalogServiceTests
         using var ctx = NewContext();
         var first = ApplyMenuSeed(ctx);
         var second = ApplyMenuSeed(ctx);
-        Assert.Equal(37, first);
+        Assert.Equal(38, first);
         Assert.Equal(0, second);
-        Assert.Equal(37, ctx.MenuItems.Count());
+        Assert.Equal(38, ctx.MenuItems.Count());
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class MenuCatalogServiceTests
 
         var svc = NewService(ctx);
         var all = await svc.GetAllAsync();
-        Assert.Equal(37, all.Count);
+        Assert.Equal(38, all.Count);
         Assert.Contains(all, m => m.Key == "reports" && m.VisibilityRule == "report_entitlement");
     }
 

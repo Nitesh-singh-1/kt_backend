@@ -24,7 +24,7 @@ namespace KTransport.API.Common
         {
             // ---- Top-level items (parent_key = NULL) ----
             new("dashboard",     null, "Dashboard",                   "/dashboard",  "home",     "dashboard.view",      null,     0, null),
-            new("analytics",     null, "Business Analytics",          "/analytics",  "barChart", "dashboard.view",      null,     1, null),
+            new("analytics",     null, "Business Analytics",          "/analytics",  "barChart", "analytics.view",      null,     1, null),
             new("consignments",  null, "Bilty / GR Booking",          null,          "package",  "consignments.module", null,     2, null),
             new("quotations",    null, "Quotations & Enquiries",      "/quotations", "fileText", "quotations.view",     null,     3, null),
             new("trips",         null, "Manifest & Dispatch",         "/trips",      "truck",    "trips.view",          null,     4, null),
@@ -67,9 +67,10 @@ namespace KTransport.API.Common
 
             // ---- system children ----
             new("system.users",           "system", "Manage Users & Access", "/users",           "users",    "users.manage",        null, 0, null),
-            new("system.settings",        "system", "SaaS Configuration",    "/settings",        "settings", "settings.manage",     null, 1, null),
-            new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 2, null),
-            new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 3, null),
+            new("system.roles",           "system", "Roles & Permissions",   "/roles",           "shield",   "system.users.view",   null, 1, null),
+            new("system.settings",        "system", "SaaS Configuration",    "/settings",        "settings", "settings.manage",     null, 2, null),
+            new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 3, null),
+            new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 4, null),
         };
     }
 }

@@ -214,15 +214,37 @@ public class InvoiceControllerAccessControlTests
     [Fact]
     public void InvoiceController_ReadEndpoints_DoNotCarryRequirePermissionAttribute()
     {
-        // GetInvoices, GetInvoiceById, UpdateInvoice, VoidInvoice, RecordPayment stay
-        // at the module gate only. Users with Billing module (no Bill Book) can still
-        // view / edit existing invoices, per the contract's acceptance list.
-        foreach (var name in new[] { nameof(InvoiceController.GetInvoices), nameof(InvoiceController.GetInvoiceById), nameof(InvoiceController.GetInvoiceLookup), nameof(InvoiceController.UpdateInvoice), nameof(InvoiceController.RecordPayment), nameof(InvoiceController.VoidInvoice) })
+        // READS stay at the module gate only: a user with the Billing module
+        // (even without the Bill Book sub-feature) can still LIST / VIEW invoices,
+        // per TASK-042's acceptance list.
+        //
+        // NOTE: the mutating endpoints (UpdateInvoice, RecordPayment, VoidInvoice)
+        // were removed from this list by the RBAC-hardening work — see
+        // InvoiceController_Mutations_RequireBillBookPermission below. Leaving a
+        // void/payment/edit reachable by any billing-module user (including a
+        // viewer) is exactly the action-level hole that work closed.
+        foreach (var name in new[] { nameof(InvoiceController.GetInvoices), nameof(InvoiceController.GetInvoiceById), nameof(InvoiceController.GetInvoiceLookup) })
         {
             var mi = typeof(InvoiceController).GetMethod(name, BindingFlags.Instance | BindingFlags.Public);
             Assert.NotNull(mi);
             var hasAttr = mi!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true).Any();
             Assert.False(hasAttr, $"{name} must NOT carry [RequirePermission] — it stays at the module gate only.");
+        }
+    }
+
+    [Fact]
+    public void InvoiceController_Mutations_RequireBillBookPermission()
+    {
+        // RBAC-hardening: state-changing invoice endpoints must carry a granular
+        // permission so a role without bill-book write access cannot edit/void
+        // invoices or record payments. Supersedes the TASK-042 "module gate only"
+        // allowance for these three (reads are unaffected, see above).
+        foreach (var name in new[] { nameof(InvoiceController.UpdateInvoice), nameof(InvoiceController.RecordPayment), nameof(InvoiceController.VoidInvoice) })
+        {
+            var mi = typeof(InvoiceController).GetMethod(name, BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(mi);
+            var hasAttr = mi!.GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true).Any();
+            Assert.True(hasAttr, $"{name} must carry [RequirePermission] — a mutation cannot be module-gate-only.");
         }
     }
 }

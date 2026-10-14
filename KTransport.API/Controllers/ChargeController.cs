@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using KTransport.API.Authorization;
 using KTransport.API.Services;
 using KTransport.API.DTOs;
 
@@ -20,6 +21,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("consignments.create.create")]
         public async Task<ActionResult<ChargeResponse>> CreateCharge([FromBody] CreateChargeRequest request)
         {
             if (!ModelState.IsValid)
@@ -38,6 +40,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id}")]
+        [RequirePermission("consignments.create.edit")]
         public async Task<ActionResult<ChargeResponse>> UpdateCharge(int id, [FromBody] UpdateChargeRequest request)
         {
             if (!ModelState.IsValid)
@@ -56,6 +59,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [RequirePermission("consignments.create.view")]
         public async Task<ActionResult<ChargeResponse>> GetChargeById(int id)
         {
             var response = await _chargeService.GetChargeByIdAsync(id);
@@ -69,6 +73,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("bill/{billId}")]
+        [RequirePermission("consignments.create.view")]
         public async Task<ActionResult<ChargeResponse>> GetChargeByBillId(int billId)
         {
             var response = await _chargeService.GetChargeByBillIdAsync(billId);
@@ -82,6 +87,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [RequirePermission("consignments.create.delete")]
         public async Task<ActionResult<ChargeResponse>> DeleteCharge(int id)
         {
             var response = await _chargeService.DeleteChargeAsync(id);

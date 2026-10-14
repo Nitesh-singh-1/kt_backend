@@ -431,7 +431,7 @@ namespace KTransport.API.Services
 
             var adminUsers = await _db.Users
                 .IgnoreQueryFilters()
-                .Where(u => u.TenantId == tenantId && (u.Role == "admin" || u.Role == "tenantadmin" || u.Role == "superadmin"))
+                .Where(u => u.TenantId == tenantId && u.Role != null && RbacRoles.AdminRoleCodeList.Contains(u.Role))
                 .ToListAsync();
 
             var existingUserRoles = await _db.UserRoles
