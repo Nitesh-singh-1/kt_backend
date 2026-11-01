@@ -25,6 +25,16 @@ namespace KTransport.API.Services
                 return false;
             }
 
+            // R+0 (RBAC legacy cutover ADR): prefer the authoritative `is_super_user`
+            // claim, which AuthService resolves from DB role grants at token issue.
+            // Fall back to the legacy role string only for tokens minted before R+0
+            // (no claim present) so in-flight sessions keep working.
+            var flag = user.FindFirst("is_super_user")?.Value;
+            if (!string.IsNullOrEmpty(flag))
+            {
+                return string.Equals(flag, "true", StringComparison.OrdinalIgnoreCase);
+            }
+
             var role = user.FindFirst(ClaimTypes.Role)?.Value
                        ?? user.FindFirst("role")?.Value
                        ?? string.Empty;

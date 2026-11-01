@@ -25,6 +25,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost]
         [RequirePermission("consignments.create.create")]
+        [EnforceUsageLimit(UsageResource.MonthlyShipments)]
         public async Task<ActionResult<ShipmentResponse>> CreateShipment([FromBody] CreateShipmentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);

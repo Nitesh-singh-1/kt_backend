@@ -54,6 +54,7 @@ namespace KTransport.API.Controllers
 
         [HttpPost("vehicles")]
         [RequirePermission("master_data.fleet.create")]
+        [EnforceUsageLimit(UsageResource.Vehicles)]
         public async Task<ActionResult<VehicleDto>> CreateVehicle([FromBody] CreateVehicleRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);

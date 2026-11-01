@@ -28,7 +28,8 @@ namespace KTransport.API.Services
                 var httpContext = _httpContextAccessor.HttpContext;
                 if (httpContext != null)
                 {
-                    // 1. Try to get tenant_id from JWT claims
+                    // 1. Try to get tenant_id from JWT claims — the ONLY trusted source
+                    //    for an authenticated caller (AUTHORIZATION.md Rule 3).
                     var tenantClaim = httpContext.User?.FindFirst("tenant_id")?.Value
                                       ?? httpContext.User?.FindFirst("TenantId")?.Value;
 
@@ -37,8 +38,13 @@ namespace KTransport.API.Services
                         return claimTenantId;
                     }
 
-                    // 2. Try to get X-Tenant-ID header
-                    if (httpContext.Request.Headers.TryGetValue("X-Tenant-ID", out var headerTenant) 
+                    // 2. X-Tenant-ID header fallback — honoured ONLY for an
+                    //    unauthenticated request. An authenticated caller is pinned to
+                    //    their JWT tenant above and can never override it via a header,
+                    //    so a request-supplied tenant id is not a cross-tenant vector.
+                    var isAuthenticated = httpContext.User?.Identity?.IsAuthenticated == true;
+                    if (!isAuthenticated
+                        && httpContext.Request.Headers.TryGetValue("X-Tenant-ID", out var headerTenant)
                         && Guid.TryParse(headerTenant.ToString(), out var headerTenantId))
                     {
                         return headerTenantId;

@@ -327,6 +327,56 @@ public class NavigationServiceTests
         Assert.Contains("delivery_settlement", permissions, StringComparer.OrdinalIgnoreCase);
     }
 
+    // ---- 2026-11-01 regression: "Organization Settings" missing for admins ----
+    // The system.settings menu item (permission_key=settings.manage) is a
+    // menu-only gating key with no catalog permission row. The TASK-049
+    // structural compute therefore can never produce it, and GetDynamicMenuAsync
+    // was blanket-removing it for every non-SUPER_USER caller — so tenant admins
+    // lost "Organization Settings" from the sidebar. A tenant admin must keep it;
+    // a regular sub-user must not get it.
+
+    [Fact]
+    public async Task OrganizationSettings_VisibleToTenantAdmin()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+        SeedTenantEntitlements(ctx, new List<string> { "dashboard" });
+
+        var ent = new EntitlementsService(ctx, NullLogger<EntitlementsService>.Instance);
+        var service = new NavigationService(ctx, ent, null);
+
+        var menu = await service.GetDynamicMenuAsync(TestTenantId, RbacRoles.TenantAdmin, "1");
+        var permissions = await service.GetUserPermissionsAsync(TestTenantId, RbacRoles.TenantAdmin, "1");
+
+        var system = FindMenu(menu, "system");
+        Assert.NotNull(system);
+        Assert.NotNull(system!.Children);
+        Assert.Contains(system.Children, c => c.Id == "system.settings");
+        Assert.Contains("settings.manage", permissions, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task OrganizationSettings_HiddenFromRegularSubUser()
+    {
+        await using var ctx = NewContext();
+        ApplyMenuSeed(ctx);
+        SeedTenantEntitlements(ctx, new List<string> { "dashboard" });
+
+        var ent = new EntitlementsService(ctx, NullLogger<EntitlementsService>.Instance);
+        var service = new NavigationService(ctx, ent, null);
+
+        // "accountant" is a non-admin role.
+        var menu = await service.GetDynamicMenuAsync(TestTenantId, "accountant", "2");
+        var permissions = await service.GetUserPermissionsAsync(TestTenantId, "accountant", "2");
+
+        var system = FindMenu(menu, "system");
+        if (system?.Children != null)
+        {
+            Assert.DoesNotContain(system.Children, c => c.Id == "system.settings");
+        }
+        Assert.DoesNotContain("settings.manage", permissions, StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task NavigationService_DeliverySettlement_NotEmitted_WhenModuleMissing()
     {

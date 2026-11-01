@@ -2,8 +2,8 @@ namespace KTransport.API.Common
 {
     /// <summary>
     /// TASK-041 Phase 1 seed, reconciled to canonical form by TASK-043 Phase 2.
-    /// 36 rows (down from 37: trips.all collapsed into the clickable trips
-    /// parent). Row keys and permission_key values match the permissions
+    /// 39 rows (37 after trips.all collapsed into the clickable trips parent;
+    /// +1 system.roles; +1 system.audit_logs). Row keys and permission_key values match the permissions
     /// catalog (SeedPermissionsCatalog). Tests reference this list so they
     /// stay in sync with the live DB after both seed + reconcile migrations.
     /// </summary>
@@ -71,6 +71,7 @@ namespace KTransport.API.Common
             new("system.settings",        "system", "SaaS Configuration",    "/settings",        "settings", "settings.manage",     null, 2, null),
             new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 3, null),
             new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 4, null),
+            new("system.audit_logs",      "system", "Audit Log",             "/audit-logs",      "shield",   "system.users.view",   null, 5, null),
         };
     }
 }

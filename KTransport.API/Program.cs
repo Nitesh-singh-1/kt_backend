@@ -73,9 +73,16 @@ if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 
+// Field-level audit trail: writes one audit_logs row per changed business entity
+// (old -> new column diffs) on every SaveChanges. Registered as a singleton and
+// attached to the DbContext below.
+builder.Services.AddSingleton<KTransport.API.Interceptors.AuditSaveChangesInterceptor>();
+
 // Add DbContext
-builder.Services.AddDbContext<KTransportDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbContext<KTransportDbContext>((sp, options) =>
+    options
+        .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+        .AddInterceptors(sp.GetRequiredService<KTransport.API.Interceptors.AuditSaveChangesInterceptor>()));
 
 // Add Authentication
 builder.Services.AddAuthentication(options =>
@@ -141,6 +148,7 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
 builder.Services.AddScoped<ITenantConfigurationService, TenantConfigurationService>();
+builder.Services.AddScoped<IUsageLimitService, UsageLimitService>();
 builder.Services.AddScoped<INavigationService, NavigationService>();
 // TASK-044 Phase 3: entitlements normalized tables are sole source of truth.
 builder.Services.AddScoped<IEntitlementsService, EntitlementsService>();
@@ -259,17 +267,38 @@ app.UseMiddleware<KTransport.API.Middleware.CorrelationIdMiddleware>();
 // Consistent JSON error envelope for any unhandled exception (must wrap everything past this point).
 app.UseMiddleware<KTransport.API.Middleware.ExceptionHandlingMiddleware>();
 
+// Baseline security response headers on every response. The indexer assignment overwrites
+// rather than appends, so these are safe to set unconditionally. Swagger UI (dev-only) serves
+// HTML/JS/CSS and is exempted from the strict CSP so the docs page still renders.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    if (!context.Request.Path.StartsWithSegments("/swagger"))
+    {
+        headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+    }
+    await next();
+});
+
 // One structured log line per request (method, path, status, elapsed ms + CorrelationId).
 // Health-check hits are excluded via the filter set up in the host config above.
 app.UseSerilogRequestLogging();
 
-// Configure the HTTP request pipeline.
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// Configure the HTTP request pipeline. Swagger exposes the full API surface, so it is
+// restricted to non-production environments and must never be served in production.
+if (app.Environment.IsDevelopment())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "KTransport API v1");
-    c.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "KTransport API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
 
 if (!app.Environment.IsDevelopment())
 {

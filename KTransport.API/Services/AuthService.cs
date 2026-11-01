@@ -17,9 +17,12 @@ namespace KTransport.API.Services
         private const string PasswordResetPurpose = "PasswordReset";
         private const int ResetCodeValidMinutes = 10;
 
-        // Platform operator = admin-class role AND membership in the default/platform tenant.
-        private static bool ComputeIsPlatformAdmin(User user) =>
-            RbacRoles.IsAdminRole(user.Role) && user.TenantId == TenantContext.DefaultTenantId;
+        // Per-account brute-force lockout. Complements the per-IP rate limiter: after
+        // MaxFailedLoginAttempts failed logins inside LockoutWindowMinutes (counting only
+        // failures since the account's last successful login), further attempts are rejected
+        // until the oldest counted failure ages out of the window.
+        private const int MaxFailedLoginAttempts = 5;
+        private const int LockoutWindowMinutes = 15;
 
         private readonly ILogger<AuthService> _logger;
         private readonly KTransportDbContext _context;
@@ -68,6 +71,19 @@ namespace KTransport.API.Services
                     };
                 }
 
+                // Per-account lockout: reject before checking the password so a locked account
+                // can't be brute-forced further, even from rotating IPs.
+                var (locked, minutesRemaining) = await IsAccountLockedAsync(user.Id);
+                if (locked)
+                {
+                    await _auditLogService.LogAsync("LoginLocked", success: false, tenantId: user.TenantId, userId: user.Id, username: user.Username, details: $"Locked for ~{minutesRemaining} more minute(s)");
+                    return new AuthResponse
+                    {
+                        Success = false,
+                        Message = $"Too many failed login attempts. This account is temporarily locked — try again in about {minutesRemaining} minute(s), or reset your password."
+                    };
+                }
+
                 // Verify password (supports BCrypt hashed passwords and transparently upgrades legacy plaintext passwords)
                 bool passwordValid = false;
                 bool isHashed = user.Password.StartsWith("$2a$") || 
@@ -110,7 +126,8 @@ namespace KTransport.API.Services
                 }
 
                 // Generate JWT token
-                var token = GenerateJwtToken(user);
+                var isSuperUser = await ResolveSuperUserAsync(user);
+                var token = GenerateJwtToken(user, isSuperUser);
                 var refreshToken = await CreateRefreshTokenAsync(user.Id);
 
                 await _auditLogService.LogAsync("Login", tenantId: user.TenantId, userId: user.Id, username: user.Username);
@@ -129,7 +146,7 @@ namespace KTransport.API.Services
                         Role = user.Role ?? "User",
                         Mobile = user.Mobile,
                         Email = user.Email,
-                        IsPlatformAdmin = ComputeIsPlatformAdmin(user)
+                        IsPlatformAdmin = isSuperUser && user.TenantId == TenantContext.DefaultTenantId
                     }
                 };
             }
@@ -186,7 +203,7 @@ namespace KTransport.API.Services
                 await _context.SaveChangesAsync();
 
                 // Generate JWT token
-                var token = GenerateJwtToken(newUser);
+                var token = GenerateJwtToken(newUser, await ResolveSuperUserAsync(newUser));
                 var refreshToken = await CreateRefreshTokenAsync(newUser.Id);
 
                 return new AuthResponse
@@ -466,79 +483,6 @@ namespace KTransport.API.Services
             }
         }
 
-        public async Task<ResetPasswordResponse> ResetPasswordAsync(ForgotPasswordRequest request)
-        {
-            try
-            {
-                _logger.LogInformation("Password reset attempt for username: {Username}", request.Username);
-
-                if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.NewPassword))
-                {
-                    return new ResetPasswordResponse
-                    {
-                        Success = false,
-                        Message = "Username and new password are required."
-                    };
-                }
-
-                var cleanUsername = request.Username.Trim().ToLower();
-                var user = await _context.Users
-                    .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername && u.IsActive == true);
-
-                if (user == null)
-                {
-                    return new ResetPasswordResponse
-                    {
-                        Success = false,
-                        Message = "User not found or inactive."
-                    };
-                }
-
-                // Verify mobile if provided
-                if (!string.IsNullOrWhiteSpace(request.Mobile) && !string.IsNullOrWhiteSpace(user.Mobile))
-                {
-                    var reqMobile = new string(request.Mobile.Where(char.IsDigit).ToArray());
-                    var userMobile = new string(user.Mobile.Where(char.IsDigit).ToArray());
-
-                    if (!string.IsNullOrEmpty(userMobile) && !string.IsNullOrEmpty(reqMobile))
-                    {
-                        if (!userMobile.EndsWith(reqMobile) && !reqMobile.EndsWith(userMobile))
-                        {
-                            return new ResetPasswordResponse
-                            {
-                                Success = false,
-                                Message = "Mobile number does not match registered user details."
-                            };
-                        }
-                    }
-                }
-
-                // Hash and update password
-                user.Password = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Password reset successfully for user: {Username}", user.Username);
-
-                await _auditLogService.LogAsync("PasswordReset", tenantId: user.TenantId, userId: user.Id, username: user.Username, details: "Via mobile verification");
-
-                return new ResetPasswordResponse
-                {
-                    Success = true,
-                    Message = "Password has been reset successfully. You can now log in with your new password."
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during password reset for username: {Username}", request.Username);
-                return new ResetPasswordResponse
-                {
-                    Success = false,
-                    Message = "An error occurred while resetting the password."
-                };
-            }
-        }
-
         public async Task<ResetPasswordResponse> ChangePasswordAsync(int userId, ChangePasswordRequest request)
         {
             try
@@ -693,11 +637,12 @@ namespace KTransport.API.Services
             stored.ReplacedByHash = HashToken(newRefresh);
             await _context.SaveChangesAsync();
 
+            var isSuperUser = await ResolveSuperUserAsync(user);
             return new AuthResponse
             {
                 Success = true,
                 Message = "Token refreshed.",
-                Token = GenerateJwtToken(user),
+                Token = GenerateJwtToken(user, isSuperUser),
                 RefreshToken = newRefresh,
                 User = new UserDto
                 {
@@ -707,7 +652,7 @@ namespace KTransport.API.Services
                     Role = user.Role ?? "SUB_USER",
                     Mobile = user.Mobile,
                     Email = user.Email,
-                    IsPlatformAdmin = ComputeIsPlatformAdmin(user)
+                    IsPlatformAdmin = isSuperUser && user.TenantId == TenantContext.DefaultTenantId
                 }
             };
         }
@@ -758,6 +703,45 @@ namespace KTransport.API.Services
             return (true, !taken, null);
         }
 
+        /// <summary>
+        /// Account lockout check driven by the audit log (no extra schema). Counts failed logins
+        /// for this user inside the rolling window, ignoring anything at or before the account's
+        /// most recent successful login so a good login clears the counter. Returns the whole-minute
+        /// wait until the oldest counted failure falls out of the window.
+        /// </summary>
+        private async Task<(bool Locked, int MinutesRemaining)> IsAccountLockedAsync(int userId)
+        {
+            var now = DateTime.UtcNow;
+            var windowStart = now.AddMinutes(-LockoutWindowMinutes);
+
+            // Query the raw audit log across tenants — login happens before any tenant context exists.
+            var recent = await _context.AuditLogs
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(a => a.UserId == userId
+                            && a.CreatedAt >= windowStart
+                            && (a.Action == "LoginFailed" || a.Action == "Login"))
+                .OrderByDescending(a => a.CreatedAt)
+                .Select(a => new { a.Action, a.CreatedAt })
+                .ToListAsync();
+
+            var lastSuccess = recent.FirstOrDefault(a => a.Action == "Login")?.CreatedAt;
+            var failures = recent
+                .Where(a => a.Action == "LoginFailed" && (lastSuccess == null || a.CreatedAt > lastSuccess))
+                .Select(a => a.CreatedAt)
+                .ToList();
+
+            if (failures.Count < MaxFailedLoginAttempts)
+            {
+                return (false, 0);
+            }
+
+            var oldestFailure = failures.Min();
+            var unlockAt = oldestFailure.AddMinutes(LockoutWindowMinutes);
+            var minutesRemaining = (int)Math.Ceiling((unlockAt - now).TotalMinutes);
+            return (true, minutesRemaining < 1 ? 1 : minutesRemaining);
+        }
+
         private async Task<string> CreateRefreshTokenAsync(int userId)
         {
             var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
@@ -780,7 +764,35 @@ namespace KTransport.API.Services
             return Convert.ToHexString(bytes).ToLowerInvariant();
         }
 
-        private string GenerateJwtToken(User user)
+        /// <summary>
+        /// R+0 of the RBAC legacy-column cutover ADR: resolve super-user status
+        /// from DB role grants (<c>user_roles</c> → <c>roles.code</c> ∈ the admin
+        /// set) instead of the mutable JWT role string. Fail-safe during the
+        /// transition — it ALSO honours the legacy role string, so (a) an existing
+        /// admin whose <c>user_roles</c> row is missing is never demoted, and (b) a
+        /// user granted admin via <c>user_roles</c> but whose string says otherwise
+        /// is correctly recognised. The resolved value is baked into the token as
+        /// the <c>is_super_user</c> claim and read back by
+        /// <see cref="FeatureAuthorizationService.IsSuperUser"/>.
+        /// </summary>
+        private async Task<bool> ResolveSuperUserAsync(User user)
+        {
+            // Legacy string path — keeps every current admin working.
+            if (RbacRoles.IsAdminRole(user.Role))
+                return true;
+
+            // DB-grant path — the authoritative source going forward.
+            return await (from ur in _context.UserRoles.IgnoreQueryFilters()
+                          join r in _context.Roles.IgnoreQueryFilters() on ur.RoleId equals r.Id
+                          where ur.TenantId == user.TenantId
+                                && ur.UserId == user.Id
+                                && ur.RevokedAt == null
+                                && r.IsActive
+                                && RbacRoles.AdminRoleCodeList.Contains(r.Code.ToLower())
+                          select ur.Id).AnyAsync();
+        }
+
+        private string GenerateJwtToken(User user, bool isSuperUser)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.UTF8.GetBytes(_jwtSettings.Secret);
@@ -791,7 +803,9 @@ namespace KTransport.API.Services
                 new Claim(ClaimTypes.Name, user.Username),
                 new Claim(ClaimTypes.Role, user.Role ?? "User"),
                 new Claim("FullName", user.FullName ?? string.Empty),
-                new Claim("tenant_id", user.TenantId.ToString())
+                new Claim("tenant_id", user.TenantId.ToString()),
+                // R+0: authoritative super-user flag, resolved from DB grants at issue time.
+                new Claim("is_super_user", isSuperUser ? "true" : "false")
             };
 
             var tokenDescriptor = new SecurityTokenDescriptor

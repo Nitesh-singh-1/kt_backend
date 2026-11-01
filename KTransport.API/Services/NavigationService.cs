@@ -139,8 +139,26 @@ namespace KTransport.API.Services
                 effectiveKeys.Add("dashboard");
                 effectiveKeys.Add("dashboard.view");
 
-                // Sub-users NEVER receive SaaS configuration or superadmin screens
-                effectiveKeys.Remove("system.settings");
+                // A tenant admin manages their own organization, so they must keep
+                // the "Organization Settings" (system.settings) screen plus the
+                // user/role administration screens. `settings.manage` / `users.manage`
+                // are menu-gating keys with NO catalog permission row, so the
+                // structural compute above can never produce them — inject them here
+                // for admin-class roles only. Regular sub-users still never receive
+                // the SaaS-configuration / super-admin screens.
+                if (RbacRoles.IsAdminRole(userRole))
+                {
+                    effectiveKeys.Add("system");
+                    effectiveKeys.Add("system.settings");
+                    effectiveKeys.Add("settings.manage");
+                    effectiveKeys.Add("users.manage");
+                }
+                else
+                {
+                    effectiveKeys.Remove("system.settings");
+                    effectiveKeys.Remove("settings.manage");
+                    effectiveKeys.Remove("users.manage");
+                }
                 effectiveKeys.Remove("system.onboard");
                 effectiveKeys.Remove("clients");
                 effectiveKeys.Remove("saas");
@@ -196,6 +214,17 @@ namespace KTransport.API.Services
                     if (lastDot > 0) result.Add(k.Substring(0, lastDot));
                     var firstDot = k.IndexOf('.');
                     if (firstDot > 0 && firstDot < lastDot) result.Add(k.Substring(0, firstDot));
+                }
+                // A tenant admin keeps org-settings + user/role management access.
+                // These are menu-gating keys with no catalog permission row, so
+                // they are injected here (mirrors GetDynamicMenuAsync) — otherwise
+                // the client-side `hasPermission("settings.manage")` filter hides
+                // the "Organization Settings" sidebar item for admins.
+                if (RbacRoles.IsAdminRole(userRole))
+                {
+                    result.Add("settings.manage");
+                    result.Add("users.manage");
+                    result.Add("system.settings");
                 }
                 result.Add("dashboard");
                 result.Add("dashboard.view");
