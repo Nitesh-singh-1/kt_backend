@@ -81,6 +81,49 @@ namespace KTransport.API.DTOs
         public DateOnly? EndDate { get; set; }
     }
 
+    // ---------------- Opening balances ----------------
+
+    public class OpeningBalanceLineInput
+    {
+        [Required] public long AccountId { get; set; }
+        [Required] public DrCr DrCr { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Opening amount cannot be negative.")]
+        public decimal Amount { get; set; }
+    }
+
+    /// <summary>
+    /// Full-replace of a financial year's opening figures. The set must balance (ΣDR = ΣCR);
+    /// a line with Amount 0 is treated as "no opening" and dropped. Posting into a Closed year
+    /// is rejected.
+    /// </summary>
+    public class SetOpeningBalancesRequest
+    {
+        [Required] public long PeriodId { get; set; }
+        public List<OpeningBalanceLineInput> Lines { get; set; } = new();
+    }
+
+    public class OpeningBalanceRowDto
+    {
+        public long AccountId { get; set; }
+        public string AccountCode { get; set; } = null!;
+        public string AccountName { get; set; } = null!;
+        public string AccountType { get; set; } = null!;
+        public string DrCr { get; set; } = null!;
+        public decimal Amount { get; set; }
+    }
+
+    public class OpeningBalanceSetDto
+    {
+        public long PeriodId { get; set; }
+        public string FyLabel { get; set; } = null!;
+        public string PeriodStatus { get; set; } = null!;
+        public List<OpeningBalanceRowDto> Rows { get; set; } = new();
+        public decimal TotalDebit { get; set; }
+        public decimal TotalCredit { get; set; }
+        public bool Balanced { get; set; }
+    }
+
     // ---------------- Vouchers ----------------
 
     public class VoucherLineInput

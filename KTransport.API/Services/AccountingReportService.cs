@@ -25,6 +25,35 @@ namespace KTransport.API.Services
 
         private static decimal Signed(DrCr side, decimal amount) => side == DrCr.DR ? amount : -amount;
 
+        /// <summary>
+        /// Per-account opening "cutoff": the opening row(s) of the latest financial period whose
+        /// StartDate is on/before <paramref name="boundary"/>. Returns that period's StartDate (so
+        /// callers only count postings from the cutoff forward — postings before it are already
+        /// baked into the opening figure) and the signed opening amount. Accounts with no qualifying
+        /// opening row are absent (treat as cutoff MinValue / opening 0 = count all postings).
+        /// This is the fix for review H2: summing every FY's opening rows double-counted
+        /// carried-forward balances.
+        /// </summary>
+        private async Task<Dictionary<long, (DateOnly CutoffStart, decimal OpeningSigned)>> ComputeOpeningCutoffsAsync(
+            DateOnly boundary, long? accountId)
+        {
+            var q = _context.OpeningBalances.AsNoTracking().Where(o => o.Period!.StartDate <= boundary);
+            if (accountId.HasValue) q = q.Where(o => o.AccountId == accountId.Value);
+
+            var rows = await q
+                .Select(o => new { o.AccountId, Start = o.Period!.StartDate, o.DrCr, o.Amount })
+                .ToListAsync();
+
+            var result = new Dictionary<long, (DateOnly, decimal)>();
+            foreach (var g in rows.GroupBy(r => r.AccountId))
+            {
+                var cutoffStart = g.Max(r => r.Start);
+                var openingSigned = g.Where(r => r.Start == cutoffStart).Sum(r => Signed(r.DrCr, r.Amount));
+                result[g.Key] = (cutoffStart, openingSigned);
+            }
+            return result;
+        }
+
         public async Task<List<DayBookEntryDto>> GetDayBookAsync(DateOnly from, DateOnly to)
         {
             var rows = await BookLines
@@ -51,14 +80,15 @@ namespace KTransport.API.Services
             var account = await _context.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId);
             if (account == null) return null;
 
-            // Opening = recorded opening balance(s) + net of postings strictly before `from`.
-            var openingBase = await _context.OpeningBalances.AsNoTracking()
-                .Where(o => o.AccountId == accountId)
-                .Select(o => new { o.DrCr, o.Amount }).ToListAsync();
-            var openingSigned = openingBase.Sum(o => Signed(o.DrCr, o.Amount));
+            // Opening as of `from` = the opening row from the latest FY whose start is on/before
+            // `from` (NOT every FY's rows — that double-counted; review H2), plus the net of
+            // postings from that cutoff's start up to (but excluding) `from`.
+            var cutoffs = await ComputeOpeningCutoffsAsync(from, accountId);
+            var (cutoffStart, openingSigned) = cutoffs.TryGetValue(accountId, out var cut)
+                ? cut : (DateOnly.MinValue, 0m);
 
             var priorSigned = await BookLines
-                .Where(l => l.AccountId == accountId && l.Voucher!.Date < from)
+                .Where(l => l.AccountId == accountId && l.Voucher!.Date >= cutoffStart && l.Voucher.Date < from)
                 .Select(l => new { l.DrCr, l.Amount }).ToListAsync();
             openingSigned += priorSigned.Sum(l => Signed(l.DrCr, l.Amount));
 
@@ -107,18 +137,23 @@ namespace KTransport.API.Services
 
         public async Task<TrialBalanceDto> GetTrialBalanceAsync(DateOnly asOf)
         {
-            // Net signed balance per account = opening + postings up to asOf.
-            var opening = await _context.OpeningBalances.AsNoTracking()
-                .Select(o => new { o.AccountId, o.DrCr, o.Amount }).ToListAsync();
+            // Net signed balance per account = the single applicable opening (latest FY whose start
+            // is on/before asOf) + postings on/after that cutoff up to asOf. Summing every FY's
+            // opening rows double-counted carried-forward figures (review H2).
+            var cutoffs = await ComputeOpeningCutoffsAsync(asOf, null);
             var postings = await BookLines
                 .Where(l => l.Voucher!.Date <= asOf)
-                .Select(l => new { l.AccountId, l.DrCr, l.Amount }).ToListAsync();
+                .Select(l => new { l.AccountId, Date = l.Voucher!.Date, l.DrCr, l.Amount }).ToListAsync();
 
             var net = new Dictionary<long, decimal>();
-            foreach (var o in opening)
-                net[o.AccountId] = net.GetValueOrDefault(o.AccountId) + Signed(o.DrCr, o.Amount);
+            foreach (var kv in cutoffs)
+                net[kv.Key] = net.GetValueOrDefault(kv.Key) + kv.Value.OpeningSigned;
             foreach (var p in postings)
-                net[p.AccountId] = net.GetValueOrDefault(p.AccountId) + Signed(p.DrCr, p.Amount);
+            {
+                var cutoffStart = cutoffs.TryGetValue(p.AccountId, out var c) ? c.CutoffStart : DateOnly.MinValue;
+                if (p.Date >= cutoffStart)
+                    net[p.AccountId] = net.GetValueOrDefault(p.AccountId) + Signed(p.DrCr, p.Amount);
+            }
 
             var accountIds = net.Keys.ToList();
             var accounts = await _context.Accounts.AsNoTracking()

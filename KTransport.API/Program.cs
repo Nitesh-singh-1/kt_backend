@@ -147,6 +147,7 @@ builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IFinancialPeriodService, FinancialPeriodService>();
 builder.Services.AddScoped<IVoucherService, VoucherService>();
 builder.Services.AddScoped<IAccountingReportService, AccountingReportService>();
+builder.Services.AddScoped<IOpeningBalanceService, OpeningBalanceService>();
 builder.Services.AddScoped<IVehicleInsuranceClaimService, VehicleInsuranceClaimService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();

@@ -247,4 +247,185 @@ public class AccountingServiceTests
         Assert.Equal(1180m, tb.TotalDebit);
         Assert.DoesNotContain(tb.Rows, r => r.AccountId == debtor);
     }
+
+    // ---------------- Opening balances (review B3) ----------------
+
+    private static OpeningBalanceService NewOpening(KTransportDbContext ctx) => new(ctx);
+
+    [Fact]
+    public async Task OpeningBalances_Set_Balanced_Persists_And_Reads_Back()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var cap = await LedgerUnderAsync(accounts, ctx, "4000", "Opening Equity");
+        var periods = new FinancialPeriodService(ctx);
+        var p = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        var opening = NewOpening(ctx);
+
+        var set = await opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = cash, DrCr = DrCr.DR, Amount = 1000m },
+                new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 1000m },
+            }
+        });
+
+        Assert.NotNull(set);
+        Assert.True(set!.Balanced);
+        Assert.Equal(1000m, set.TotalDebit);
+        Assert.Equal(2, set.Rows.Count);
+
+        var read = await opening.GetAsync(p.Id);
+        Assert.Equal(1000m, read!.TotalCredit);
+    }
+
+    [Fact]
+    public async Task OpeningBalances_Set_Is_Full_Replace()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var cap = await LedgerUnderAsync(accounts, ctx, "4000", "Opening Equity");
+        var periods = new FinancialPeriodService(ctx);
+        var p = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        var opening = NewOpening(ctx);
+
+        await opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = cash, DrCr = DrCr.DR, Amount = 1000m },
+                new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 1000m },
+            }
+        });
+        // Replace with a smaller balanced set.
+        var set = await opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = cash, DrCr = DrCr.DR, Amount = 250m },
+                new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 250m },
+            }
+        });
+
+        Assert.Equal(250m, set!.TotalDebit);
+        Assert.Equal(2, await ctx.OpeningBalances.CountAsync(o => o.PeriodId == p.Id));
+    }
+
+    [Fact]
+    public async Task OpeningBalances_Unbalanced_Throws_422()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var cap = await LedgerUnderAsync(accounts, ctx, "4000", "Opening Equity");
+        var periods = new FinancialPeriodService(ctx);
+        var p = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        var opening = NewOpening(ctx);
+
+        var ex = await Assert.ThrowsAsync<AccountingException>(() => opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = cash, DrCr = DrCr.DR, Amount = 1000m },
+                new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 400m },
+            }
+        }));
+        Assert.Equal(422, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpeningBalances_Rejects_Group_Account()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var group = await ctx.Accounts.FirstAsync(a => a.Code == "1120"); // a seeded system group
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var periods = new FinancialPeriodService(ctx);
+        var p = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        var opening = NewOpening(ctx);
+
+        var ex = await Assert.ThrowsAsync<AccountingException>(() => opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = group.Id, DrCr = DrCr.DR, Amount = 1000m },
+                new() { AccountId = cash,     DrCr = DrCr.CR, Amount = 1000m },
+            }
+        }));
+        Assert.Equal(422, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpeningBalances_In_Closed_Year_Rejected_409()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var cap = await LedgerUnderAsync(accounts, ctx, "4000", "Opening Equity");
+        var periods = new FinancialPeriodService(ctx);
+        var p = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        await periods.CloseAsync(p.Id);
+        var opening = NewOpening(ctx);
+
+        var ex = await Assert.ThrowsAsync<AccountingException>(() => opening.SetAsync(new SetOpeningBalancesRequest
+        {
+            PeriodId = p.Id,
+            Lines = new List<OpeningBalanceLineInput>
+            {
+                new() { AccountId = cash, DrCr = DrCr.DR, Amount = 1000m },
+                new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 1000m },
+            }
+        }));
+        Assert.Equal(409, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task TrialBalance_And_Ledger_Do_Not_Double_Count_Opening_Across_Years()
+    {
+        using var ctx = NewContext();
+        var accounts = NewAccounts(ctx);
+        await accounts.EnsureSeededAsync();
+        var cash = await LedgerUnderAsync(accounts, ctx, "1120", "Cash");
+        var cap = await LedgerUnderAsync(accounts, ctx, "4000", "Opening Equity");
+        var periods = new FinancialPeriodService(ctx);
+        var p1 = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2025-26" });
+        var p2 = await periods.CreateAsync(new CreatePeriodRequest { FyLabel = "2026-27" });
+        var opening = NewOpening(ctx);
+
+        // The SAME 1000 Dr carried into BOTH years (a realistic carry-forward). The old code
+        // summed both rows and reported 2000; the fix must use only the latest applicable year.
+        foreach (var pid in new[] { p1.Id, p2.Id })
+            await opening.SetAsync(new SetOpeningBalancesRequest
+            {
+                PeriodId = pid,
+                Lines = new List<OpeningBalanceLineInput>
+                {
+                    new() { AccountId = cash, DrCr = DrCr.DR, Amount = 1000m },
+                    new() { AccountId = cap,  DrCr = DrCr.CR, Amount = 1000m },
+                }
+            });
+
+        var reports = new AccountingReportService(ctx);
+        var tb = await reports.GetTrialBalanceAsync(new DateOnly(2026, 5, 31));
+
+        var cashRow = tb.Rows.Single(r => r.AccountId == cash);
+        Assert.Equal(1000m, cashRow.Debit);   // NOT 2000
+        Assert.True(tb.Balanced);
+
+        var led = await reports.GetLedgerAsync(cash, new DateOnly(2026, 4, 1), new DateOnly(2027, 3, 31));
+        Assert.Equal(1000m, led!.OpeningDr);   // NOT 2000
+    }
 }

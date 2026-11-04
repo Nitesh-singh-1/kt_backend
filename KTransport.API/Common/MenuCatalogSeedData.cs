@@ -81,6 +81,7 @@ namespace KTransport.API.Common
             new("accounting.ledger",           "accounting", "Account Ledger",       "/accounting/ledger",            "fileText",   "accounting.reports.view",  null, 3,  null),
             new("accounting.trial_balance",    "accounting", "Trial Balance",        "/accounting/trial-balance",     "barChart",   "accounting.reports.view",  null, 4,  null),
             new("accounting.periods",          "accounting", "Financial Years",      "/accounting/periods",           "calendar",   "accounting.periods.view",  null, 5,  null),
+            new("accounting.opening_balances", "accounting", "Opening Balances",     "/accounting/opening-balances",  "wallet",     "accounting.accounts.view", null, 6,  null),
         };
     }
 }

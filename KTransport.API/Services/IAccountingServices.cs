@@ -41,6 +41,18 @@ namespace KTransport.API.Services
         Task<VoucherDto?> ReverseAsync(long id, ReverseVoucherRequest request, int? userId);
     }
 
+    /// <summary>Per-financial-year opening balances (the migration entry point for existing tenants).</summary>
+    public interface IOpeningBalanceService
+    {
+        /// <summary>The recorded opening rows for a period, or null if the period does not exist.</summary>
+        Task<OpeningBalanceSetDto?> GetAsync(long periodId);
+
+        /// <summary>Full-replace the period's opening rows. Validates balanced + postable accounts.
+        /// Returns null if the period does not exist; throws <see cref="Common.AccountingException"/>
+        /// (422/409) on a business-rule violation.</summary>
+        Task<OpeningBalanceSetDto?> SetAsync(SetOpeningBalancesRequest request);
+    }
+
     /// <summary>Read models derived from the ledger: Day Book, Account Ledger, Trial Balance.</summary>
     public interface IAccountingReportService
     {

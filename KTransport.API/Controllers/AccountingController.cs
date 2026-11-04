@@ -26,17 +26,20 @@ namespace KTransport.API.Controllers
         private readonly IFinancialPeriodService _periods;
         private readonly IVoucherService _vouchers;
         private readonly IAccountingReportService _reports;
+        private readonly IOpeningBalanceService _openingBalances;
 
         public AccountingController(
             IAccountService accounts,
             IFinancialPeriodService periods,
             IVoucherService vouchers,
-            IAccountingReportService reports)
+            IAccountingReportService reports,
+            IOpeningBalanceService openingBalances)
         {
             _accounts = accounts;
             _periods = periods;
             _vouchers = vouchers;
             _reports = reports;
+            _openingBalances = openingBalances;
         }
 
         private int? GetCurrentUserId()
@@ -133,6 +136,29 @@ namespace KTransport.API.Controllers
         {
             var p = await _periods.ReopenAsync(id);
             return p == null ? NotFound() : Ok(p);
+        }
+
+        // ---------------- Opening balances ----------------
+
+        [HttpGet("opening-balances")]
+        [RequirePermission("accounting.accounts.view")]
+        public async Task<ActionResult<OpeningBalanceSetDto>> GetOpeningBalances([FromQuery] long periodId)
+        {
+            var set = await _openingBalances.GetAsync(periodId);
+            return set == null ? NotFound() : Ok(set);
+        }
+
+        [HttpPut("opening-balances")]
+        [RequirePermission("accounting.accounts.edit")]
+        public async Task<ActionResult<OpeningBalanceSetDto>> SetOpeningBalances([FromBody] SetOpeningBalancesRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            try
+            {
+                var set = await _openingBalances.SetAsync(request);
+                return set == null ? NotFound() : Ok(set);
+            }
+            catch (AccountingException ex) { return Problem(ex); }
         }
 
         // ---------------- Vouchers ----------------
