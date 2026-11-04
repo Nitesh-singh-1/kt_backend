@@ -72,6 +72,15 @@ namespace KTransport.API.Common
             new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 3, null),
             new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 4, null),
             new("system.audit_logs",      "system", "Audit Log",             "/audit-logs",      "shield",   "system.users.view",   null, 5, null),
+
+            // ---- accounting (paid add-on module; hidden until enabled in tenant_modules) ----
+            new("accounting",                  null,         "Accounting & Finance", null,                            "dollarSign", "accounting.view",          null, 14, null),
+            new("accounting.chart_of_accounts","accounting", "Chart of Accounts",    "/accounting/chart-of-accounts", "book",       "accounting.accounts.view", null, 0,  null),
+            new("accounting.vouchers",         "accounting", "Vouchers",             "/accounting/vouchers",          "fileText",   "accounting.vouchers.view", null, 1,  null),
+            new("accounting.day_book",         "accounting", "Day Book",             "/accounting/day-book",          "calendar",   "accounting.reports.view",  null, 2,  null),
+            new("accounting.ledger",           "accounting", "Account Ledger",       "/accounting/ledger",            "fileText",   "accounting.reports.view",  null, 3,  null),
+            new("accounting.trial_balance",    "accounting", "Trial Balance",        "/accounting/trial-balance",     "barChart",   "accounting.reports.view",  null, 4,  null),
+            new("accounting.periods",          "accounting", "Financial Years",      "/accounting/periods",           "calendar",   "accounting.periods.view",  null, 5,  null),
         };
     }
 }

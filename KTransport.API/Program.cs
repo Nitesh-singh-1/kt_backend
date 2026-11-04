@@ -141,6 +141,12 @@ builder.Services.AddScoped<ISparePartService, SparePartService>();
 builder.Services.AddScoped<IVehicleLoanService, VehicleLoanService>();
 builder.Services.AddScoped<IEmptyTripLogService, EmptyTripLogService>();
 builder.Services.AddScoped<IDriverLedgerService, DriverLedgerService>();
+
+// Accounting & Finance (TASK-016 Phase 1)
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IFinancialPeriodService, FinancialPeriodService>();
+builder.Services.AddScoped<IVoucherService, VoucherService>();
+builder.Services.AddScoped<IAccountingReportService, AccountingReportService>();
 builder.Services.AddScoped<IVehicleInsuranceClaimService, VehicleInsuranceClaimService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();

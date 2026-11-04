@@ -15,7 +15,8 @@ namespace KTransport.API.Common
         public const string MONEY_RECEIPT = "MONEY_RECEIPT";
         public const string TRACKING = "TRACKING";
         public const string REPORTING = "REPORTING";
-        
+        public const string ACCOUNTING = "ACCOUNTING"; // paid add-on: double-entry ledger (TASK-016)
+
         // Master Data & Operations
         public const string VEHICLE = "VEHICLE"; // Fleet & Stations
         public const string DRIVER = "DRIVER";
@@ -28,7 +29,11 @@ namespace KTransport.API.Common
         public const string USER_MANAGEMENT = "USER_MANAGEMENT";
         public const string SAAS_CONFIGURATION = "SAAS_CONFIGURATION";
 
-        // Standard Default Subscribed Features for starter / pro plans
+        // Standard Default Subscribed Features for starter / pro plans.
+        // NOTE: ACCOUNTING is deliberately NOT here. It is a paid add-on gated solely through
+        // tenant_modules (ADR accounting-ledger-architecture decision #4). AllFeatures doubles as
+        // the no-subscription fallback in FeatureAuthorizationService, so listing it here would
+        // hand the add-on to every unconfigured tenant for free.
         public static readonly string[] AllFeatures = new[]
         {
             GOOD_RECEIPT,
@@ -115,6 +120,7 @@ namespace KTransport.API.Common
                 "VENDORS" or "VENDOR" => VENDOR,
                 "CLAIMS" => CLAIMS,
                 "QUOTATION" or "QUOTATIONS" => QUOTATION,
+                "ACCOUNTING" or "ACCOUNTS" or "LEDGER" or "FINANCE" => ACCOUNTING,
                 "USERS" or "USER_MANAGEMENT" or "SUB_USERS" => USER_MANAGEMENT,
                 "SETTINGS" or "SAAS" or "SAAS_CONFIGURATION" or "SYSTEM.SETTINGS" or "CLIENTS" or "SYSTEM" => SAAS_CONFIGURATION,
                 _ => key
