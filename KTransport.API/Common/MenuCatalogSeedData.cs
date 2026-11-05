@@ -82,6 +82,10 @@ namespace KTransport.API.Common
             new("accounting.trial_balance",    "accounting", "Trial Balance",        "/accounting/trial-balance",     "barChart",   "accounting.reports.view",  null, 4,  null),
             new("accounting.periods",          "accounting", "Financial Years",      "/accounting/periods",           "calendar",   "accounting.periods.view",  null, 5,  null),
             new("accounting.opening_balances", "accounting", "Opening Balances",     "/accounting/opening-balances",  "wallet",     "accounting.accounts.view", null, 6,  null),
+
+            // ---- accounting Phase 2 (auto-posting) ----
+            new("accounting.auto_posting",     "accounting", "Auto-Posting",         "/accounting/auto-posting",      "zap",        "accounting.autoposting.view", null, 7, null),
+            new("accounting.reconciliation",   "accounting", "Reconciliation",       "/accounting/reconciliation",    "checkCircle","accounting.reports.view",     null, 8, null),
         };
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using KTransport.API.DTOs;
+using KTransport.API.Models;
 
 namespace KTransport.API.Services
 {
@@ -39,6 +40,15 @@ namespace KTransport.API.Services
         Task<VoucherDto?> GetByIdAsync(long id);
         Task<VoucherDto> CreateAsync(CreateVoucherRequest request, int? userId);
         Task<VoucherDto?> ReverseAsync(long id, ReverseVoucherRequest request, int? userId);
+
+        /// <summary>
+        /// Phase 2 auto-posting entry point: persists a balanced, Posted voucher that carries
+        /// <paramref name="sourceType"/>/<paramref name="sourceId"/> (the public <see cref="CreateAsync"/>
+        /// never sets a source). Same validation as CreateAsync (≥2 lines, each &gt; 0, ΣDR = ΣCR,
+        /// accounts active + postable, open period). The caller is responsible for idempotency.
+        /// </summary>
+        Task<VoucherDto> CreateFromSourceAsync(VoucherType type, DateOnly date, string? narration,
+            IReadOnlyList<DTOs.VoucherLineInput> lines, string sourceType, long sourceId, int? userId);
     }
 
     /// <summary>Per-financial-year opening balances (the migration entry point for existing tenants).</summary>

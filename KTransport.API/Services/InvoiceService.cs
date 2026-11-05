@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -15,15 +16,18 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly INumberingSequenceService _numberingService;
         private readonly ILogger<InvoiceService> _logger;
+        private readonly IAutoPostingService? _autoPosting;
 
         public InvoiceService(
             KTransportDbContext context,
             INumberingSequenceService numberingService,
-            ILogger<InvoiceService> logger)
+            ILogger<InvoiceService> logger,
+            IAutoPostingService? autoPosting = null)
         {
             _context = context;
             _numberingService = numberingService;
             _logger = logger;
+            _autoPosting = autoPosting;
         }
 
         public async Task<List<InvoiceDto>> GetInvoicesAsync(string? search = null, InvoicePaymentStatus? paymentStatus = null, long? partyId = null)
@@ -109,7 +113,11 @@ namespace KTransport.API.Services
                 .AsNoTracking()
                 .FirstOrDefaultAsync(i => i.Id == id);
 
-            return invoice == null ? null : MapToDto(invoice);
+            if (invoice == null) return null;
+            var dto = MapToDto(invoice);
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.Invoice, invoice.Id);
+            return dto;
         }
 
         public async Task<InvoiceDto> CreateInvoiceAsync(CreateInvoiceRequest request, int? userId = null)
@@ -226,6 +234,10 @@ namespace KTransport.API.Services
                 }
                 await _context.SaveChangesAsync();
             }
+
+            // Phase 2 auto-posting hook (guarded; never breaks the operational write).
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Invoice, invoice.Id, AutoPostOperation.Post);
 
             _logger.LogInformation("Created invoice {InvoiceNo} (ID: {Id})", invoice.InvoiceNo, invoice.Id);
             return MapToDto(invoice);
@@ -456,6 +468,11 @@ namespace KTransport.API.Services
             }
 
             await _context.SaveChangesAsync();
+
+            // Phase 2 auto-posting hook (guarded).
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Invoice, invoice.Id, AutoPostOperation.Post);
+
             _logger.LogInformation("Generated Bill Book Freight Invoice {InvoiceNo} with {Count} bilties", invoice.InvoiceNo, shipments.Count);
 
             var invoiceDto = MapToDto(invoice);
@@ -663,6 +680,11 @@ namespace KTransport.API.Services
             }
 
             await _context.SaveChangesAsync();
+
+            // Phase 2: an invoice edit re-posts (reverse live + post fresh). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Invoice, invoice.Id, AutoPostOperation.Repost);
+
             _logger.LogInformation("Updated invoice ID: {Id}", invoice.Id);
             return MapToDto(invoice);
         }
@@ -697,6 +719,11 @@ namespace KTransport.API.Services
             invoice.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            // Phase 2: cumulative invoice payment -> Receipt (reverse+repost on the cumulative figure). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.InvoicePayment, invoice.Id, AutoPostOperation.Repost);
+
             _logger.LogInformation("Recorded payment of {Amount} against invoice {InvoiceNo}", request.PaymentAmount, invoice.InvoiceNo);
             return MapToDto(invoice);
         }
@@ -712,6 +739,11 @@ namespace KTransport.API.Services
             invoice.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            // Phase 2: a void reverses the live Sales voucher (no repost). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Invoice, id, AutoPostOperation.Reverse);
+
             _logger.LogInformation("Voided invoice ID: {Id}", id);
             return true;
         }

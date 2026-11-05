@@ -148,6 +148,14 @@ builder.Services.AddScoped<IFinancialPeriodService, FinancialPeriodService>();
 builder.Services.AddScoped<IVoucherService, VoucherService>();
 builder.Services.AddScoped<IAccountingReportService, AccountingReportService>();
 builder.Services.AddScoped<IOpeningBalanceService, OpeningBalanceService>();
+
+// Accounting & Finance Phase 2 — auto-posting (accounting-phase2-autoposting).
+// GST leg via the seam; flat impl on this branch (TaxCalculation-backed split is a later drop-in).
+builder.Services.AddScoped<IGstPostingResolver, FlatGstPostingResolver>();
+builder.Services.AddScoped<IAutoPostingService, AutoPostingService>();
+builder.Services.AddScoped<IAutoPostingManagementService, AutoPostingManagementService>();
+// Transactional-outbox dispatcher: drains auto_posting_queue after commit (never blocks ops).
+builder.Services.AddHostedService<AutoPostingDispatcher>();
 builder.Services.AddScoped<IVehicleInsuranceClaimService, VehicleInsuranceClaimService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();

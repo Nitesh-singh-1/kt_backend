@@ -32,6 +32,9 @@ namespace KTransport.API.DTOs
         public DateTime? UpdatedAt { get; set; }
         public List<InvoiceItemDto> Items { get; set; } = new();
         public List<string> LinkedShipmentNos { get; set; } = new();
+
+        /// <summary>Phase 2 additive read-only: the live Sales voucher auto-posted from this invoice (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class InvoiceItemDto

@@ -88,9 +88,18 @@ namespace KTransport.API.Services
             return v == null ? null : MapDetail(v);
         }
 
-        public async Task<VoucherDto> CreateAsync(CreateVoucherRequest request, int? userId)
+        public Task<VoucherDto> CreateAsync(CreateVoucherRequest request, int? userId)
+            => PersistAsync(request.VoucherType, request.Date, request.Narration, request.Lines ?? new List<VoucherLineInput>(),
+                sourceType: null, sourceId: null, userId);
+
+        public Task<VoucherDto> CreateFromSourceAsync(VoucherType type, DateOnly date, string? narration,
+            IReadOnlyList<VoucherLineInput> lines, string sourceType, long sourceId, int? userId)
+            => PersistAsync(type, date, narration, lines, sourceType, sourceId, userId);
+
+        private async Task<VoucherDto> PersistAsync(VoucherType voucherType, DateOnly date, string? narration,
+            IReadOnlyList<VoucherLineInput> linesInput, string? sourceType, long? sourceId, int? userId)
         {
-            var lines = request.Lines ?? new List<VoucherLineInput>();
+            var lines = linesInput ?? new List<VoucherLineInput>();
             if (lines.Count < 2)
                 throw AccountingException.Unprocessable("A voucher needs at least two lines.");
             if (lines.Any(l => l.Amount <= 0))
@@ -116,17 +125,19 @@ namespace KTransport.API.Services
                     throw AccountingException.Unprocessable($"Account '{acc.Name}' is inactive.");
             }
 
-            var periodId = await _periods.ResolvePostablePeriodIdAsync(request.Date);
-            var voucherNo = await GenerateVoucherNoAsync(request.VoucherType, request.Date);
+            var periodId = await _periods.ResolvePostablePeriodIdAsync(date);
+            var voucherNo = await GenerateVoucherNoAsync(voucherType, date);
 
             var voucher = new Voucher
             {
-                VoucherType = request.VoucherType,
+                VoucherType = voucherType,
                 VoucherNo = voucherNo,
-                Date = request.Date,
+                Date = date,
                 PeriodId = periodId,
-                Narration = request.Narration?.Trim(),
+                Narration = narration?.Trim(),
                 Status = VoucherStatus.Posted,
+                SourceType = sourceType,
+                SourceId = sourceId,
                 CreatedBy = userId,
                 CreatedAt = DateTime.UtcNow,
                 Lines = lines.Select(l => new VoucherLine

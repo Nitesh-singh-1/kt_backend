@@ -17,6 +17,9 @@ namespace KTransport.API.DTOs
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>Phase 2 additive read-only: the live Payment/Receipt voucher auto-posted from this entry (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class CreateDriverLedgerEntryRequest

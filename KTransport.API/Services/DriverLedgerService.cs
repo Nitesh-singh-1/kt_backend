@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -14,11 +15,13 @@ namespace KTransport.API.Services
     {
         private readonly KTransportDbContext _context;
         private readonly ILogger<DriverLedgerService> _logger;
+        private readonly IAutoPostingService? _autoPosting;
 
-        public DriverLedgerService(KTransportDbContext context, ILogger<DriverLedgerService> logger)
+        public DriverLedgerService(KTransportDbContext context, ILogger<DriverLedgerService> logger, IAutoPostingService? autoPosting = null)
         {
             _context = context;
             _logger = logger;
+            _autoPosting = autoPosting;
         }
 
         public async Task<List<DriverLedgerEntryDto>> GetEntriesAsync(string? search = null, string? driverName = null)
@@ -87,8 +90,15 @@ namespace KTransport.API.Services
             _context.DriverLedgerEntries.Add(entry);
             await _context.SaveChangesAsync();
 
+            // Phase 2: driver advance/recovery -> Payment/Receipt voucher. Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.DriverLedgerEntry, entry.Id, AutoPostOperation.Post);
+
             _logger.LogInformation("Driver ledger entry for {Driver}: {Type} {Amount}", entry.DriverName, entry.IsAdvance ? "advance" : "recovery", entry.Amount);
-            return Map(entry);
+            var dto = Map(entry);
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.DriverLedgerEntry, entry.Id);
+            return dto;
         }
 
         public async Task<DriverLedgerEntryDto?> UpdateAsync(long id, UpdateDriverLedgerEntryRequest request)
@@ -107,7 +117,17 @@ namespace KTransport.API.Services
 
             e.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
-            return Map(e);
+
+            // Phase 2: an edited entry re-posts (reverse live + post fresh). A deactivation (IsActive=false)
+            // reverses only, because the builder treats an inactive entry as nothing to post. Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.DriverLedgerEntry, e.Id,
+                    e.IsActive ? AutoPostOperation.Repost : AutoPostOperation.Reverse);
+
+            var dto = Map(e);
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.DriverLedgerEntry, e.Id);
+            return dto;
         }
 
         public async Task<bool> DeleteAsync(long id)
@@ -118,6 +138,11 @@ namespace KTransport.API.Services
             e.IsActive = false;
             e.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            // Phase 2: a deleted entry reverses its voucher (no repost). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.DriverLedgerEntry, id, AutoPostOperation.Reverse);
+
             return true;
         }
 

@@ -26,6 +26,10 @@ public partial class KTransportDbContext
     public virtual DbSet<VoucherLine> VoucherLines { get; set; } = null!;
     public virtual DbSet<OpeningBalance> OpeningBalances { get; set; } = null!;
 
+    // Phase 2 auto-posting.
+    public virtual DbSet<AutoPostingQueueRow> AutoPostingQueue { get; set; } = null!;
+    public virtual DbSet<AccountingSettings> AccountingSettings { get; set; } = null!;
+
     private void ConfigureAccountingModel(ModelBuilder modelBuilder)
     {
         // ---------------- accounts (chart of accounts, self-referencing tree) ----------------
@@ -95,7 +99,13 @@ public partial class KTransportDbContext
 
             entity.HasIndex(e => new { e.TenantId, e.VoucherType, e.VoucherNo }, "vouchers_tenant_type_no_uq").IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.Date }, "vouchers_tenant_date_idx");
-            entity.HasIndex(e => new { e.TenantId, e.SourceType, e.SourceId }, "vouchers_tenant_source_idx");
+            // Phase 2 (ADR Q4): PARTIAL UNIQUE — at most one LIVE (non-reversed, source-bearing)
+            // voucher per (tenant, source_type, source_id). Excludes reversal vouchers
+            // (reversal_of_id IS NOT NULL) and lets a fresh voucher post after the prior one is
+            // Reversed (so reverse+repost works). Replaces the Phase 1 non-unique source index.
+            entity.HasIndex(e => new { e.TenantId, e.SourceType, e.SourceId }, "vouchers_tenant_source_live_uq")
+                .IsUnique()
+                .HasFilter("source_id IS NOT NULL AND reversal_of_id IS NULL AND status <> 'Reversed'");
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
@@ -187,6 +197,55 @@ public partial class KTransportDbContext
                 .HasForeignKey(d => d.PeriodId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_opening_balances_period");
+        });
+
+        // ---------------- auto_posting_queue (Phase 2 transactional outbox / work queue) ----------------
+        modelBuilder.Entity<AutoPostingQueueRow>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("auto_posting_queue_pkey");
+            entity.ToTable("auto_posting_queue");
+
+            entity.HasIndex(e => new { e.TenantId, e.Status }, "auto_posting_queue_tenant_status_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.SourceType).HasMaxLength(40).HasColumnName("source_type");
+            entity.Property(e => e.SourceId).HasColumnName("source_id");
+            entity.Property(e => e.Operation).HasConversion<string>().HasMaxLength(10).HasColumnName("operation");
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(10).HasDefaultValue(AutoPostStatus.Pending).HasColumnName("status");
+            entity.Property(e => e.Attempts).HasDefaultValue(0).HasColumnName("attempts");
+            entity.Property(e => e.LastError).HasMaxLength(1000).HasColumnName("last_error");
+            entity.Property(e => e.EnqueuedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("enqueued_at");
+            entity.Property(e => e.ProcessedAt).HasColumnType("timestamp without time zone").HasColumnName("processed_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+        });
+
+        // ---------------- accounting_settings (Phase 2 per-tenant 1:1 extension; DATABASE.md rule 2) ----------------
+        modelBuilder.Entity<AccountingSettings>(entity =>
+        {
+            entity.HasKey(e => e.TenantId).HasName("accounting_settings_pkey");
+            entity.ToTable("accounting_settings");
+
+            entity.Property(e => e.TenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.AutoPostingEnabled).HasDefaultValue(false).HasColumnName("auto_posting_enabled");
+            entity.Property(e => e.DefaultBankAccountId).HasColumnName("default_bank_account_id");
+            entity.Property(e => e.EnabledAt).HasColumnType("timestamp without time zone").HasColumnName("enabled_at");
+            entity.Property(e => e.EnabledBy).HasColumnName("enabled_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne<Tenant>().WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_accounting_settings_tenant");
+
+            entity.HasOne<Account>().WithMany()
+                .HasForeignKey(e => e.DefaultBankAccountId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_accounting_settings_default_bank");
         });
     }
 }

@@ -111,6 +111,48 @@ namespace KTransport.API.Migrations
                     b.ToTable("accounts", (string)null);
                 });
 
+            modelBuilder.Entity("KTransport.API.Models.AccountingSettings", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<bool>("AutoPostingEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("auto_posting_enabled");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<long?>("DefaultBankAccountId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("default_bank_account_id");
+
+                    b.Property<DateTime?>("EnabledAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("enabled_at");
+
+                    b.Property<int?>("EnabledBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("enabled_by");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId")
+                        .HasName("accounting_settings_pkey");
+
+                    b.HasIndex("DefaultBankAccountId");
+
+                    b.ToTable("accounting_settings", (string)null);
+                });
+
             modelBuilder.Entity("KTransport.API.Models.AuditLog", b =>
                 {
                     b.Property<long>("Id")
@@ -181,6 +223,74 @@ namespace KTransport.API.Migrations
                     b.HasIndex(new[] { "TenantId", "CreatedAt" }, "audit_logs_tenant_created_at_idx");
 
                     b.ToTable("audit_logs", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.AutoPostingQueueRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTime>("EnqueuedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("enqueued_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("operation");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<long>("SourceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("source_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("source_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("Pending")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("auto_posting_queue_pkey");
+
+                    b.HasIndex(new[] { "TenantId", "Status" }, "auto_posting_queue_tenant_status_idx");
+
+                    b.ToTable("auto_posting_queue", (string)null);
                 });
 
             modelBuilder.Entity("KTransport.API.Models.BillType", b =>
@@ -5760,7 +5870,9 @@ namespace KTransport.API.Migrations
 
                     b.HasIndex(new[] { "TenantId", "Date" }, "vouchers_tenant_date_idx");
 
-                    b.HasIndex(new[] { "TenantId", "SourceType", "SourceId" }, "vouchers_tenant_source_idx");
+                    b.HasIndex(new[] { "TenantId", "SourceType", "SourceId" }, "vouchers_tenant_source_live_uq")
+                        .IsUnique()
+                        .HasFilter("source_id IS NOT NULL AND reversal_of_id IS NULL AND status <> 'Reversed'");
 
                     b.HasIndex(new[] { "TenantId", "VoucherType", "VoucherNo" }, "vouchers_tenant_type_no_uq")
                         .IsUnique();
@@ -5990,6 +6102,22 @@ namespace KTransport.API.Migrations
                     b.Navigation("Parent");
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.AccountingSettings", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultBankAccountId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_accounting_settings_default_bank");
+
+                    b.HasOne("KTransport.API.Models.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_settings_tenant");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.AuditLog", b =>

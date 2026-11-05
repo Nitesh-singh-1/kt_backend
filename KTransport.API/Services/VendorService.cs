@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -15,15 +16,18 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly INumberingSequenceService _numberingService;
         private readonly ILogger<VendorService> _logger;
+        private readonly IAutoPostingService? _autoPosting;
 
         public VendorService(
             KTransportDbContext context,
             INumberingSequenceService numberingService,
-            ILogger<VendorService> logger)
+            ILogger<VendorService> logger,
+            IAutoPostingService? autoPosting = null)
         {
             _context = context;
             _numberingService = numberingService;
             _logger = logger;
+            _autoPosting = autoPosting;
         }
 
         // Vendors
@@ -252,7 +256,7 @@ namespace KTransport.API.Services
             var c = await _context.LorryHireContracts.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
             if (c == null) return null;
 
-            return new LorryHireContractDto
+            var dto = new LorryHireContractDto
             {
                 Id = c.Id,
                 TenantId = c.TenantId,
@@ -279,6 +283,9 @@ namespace KTransport.API.Services
                 IsActive = c.IsActive,
                 CreatedAt = c.CreatedAt
             };
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.LorryHireContract, c.Id);
+            return dto;
         }
 
         public async Task<LorryHireContractDto> CreateLorryHireContractAsync(CreateLorryHireRequest request, int? userId = null)
@@ -335,6 +342,10 @@ namespace KTransport.API.Services
             _context.LorryHireContracts.Add(contract);
             await _context.SaveChangesAsync();
 
+            // Phase 2: lorry-hire memo -> Purchase voucher. Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.LorryHireContract, contract.Id, AutoPostOperation.Post);
+
             _logger.LogInformation("Created Lorry Hire Memo {ContractNo}", contract.ContractNo);
             return (await GetLorryHireContractByIdAsync(contract.Id))!;
         }
@@ -359,6 +370,11 @@ namespace KTransport.API.Services
             c.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            // Phase 2: cumulative balance payment -> Payment (reverse+repost on cumulative figure). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.LorryHirePayment, c.Id, AutoPostOperation.Repost);
+
             return (await GetLorryHireContractByIdAsync(c.Id))!;
         }
 
@@ -370,6 +386,11 @@ namespace KTransport.API.Services
             c.IsActive = false;
             c.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            // Phase 2: a deleted hire memo reverses its Purchase voucher (no repost). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.LorryHireContract, id, AutoPostOperation.Reverse);
+
             return true;
         }
     }

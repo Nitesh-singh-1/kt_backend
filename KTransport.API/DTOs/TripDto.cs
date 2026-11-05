@@ -74,6 +74,9 @@ namespace KTransport.API.DTOs
         public string? Remarks { get; set; }
         public DateOnly ExpenseDate { get; set; }
         public DateTime CreatedAt { get; set; }
+
+        /// <summary>Phase 2 additive read-only: the live Payment voucher auto-posted from this expense (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class CreateTripRequest
