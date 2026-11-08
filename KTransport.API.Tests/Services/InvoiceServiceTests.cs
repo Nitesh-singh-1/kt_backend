@@ -78,7 +78,8 @@ public class InvoiceServiceTests
         List<ShipmentItem>? items = null,
         List<ShipmentChargeItem>? charges = null,
         string toLocation = "MUMBAI",
-        DateOnly? deliveryDate = null)
+        DateOnly? deliveryDate = null,
+        PaymentTerm paymentTerm = PaymentTerm.TBB)
     {
         var shipment = new Shipment
         {
@@ -94,7 +95,7 @@ public class InvoiceServiceTests
             GrandTotal = grandTotal,
             Status = ShipmentStatus.InTransit,
             IsActive = true,
-            PaymentTerm = PaymentTerm.ToPay,
+            PaymentTerm = paymentTerm,
             DeliveryDate = deliveryDate,
             CreatedAt = DateTime.UtcNow,
             Items = items ?? new List<ShipmentItem>(),
@@ -295,5 +296,151 @@ public class InvoiceServiceTests
         Assert.Equal(2, row.ChargeItems!.Count);
         Assert.Contains(row.ChargeItems, c => c.ChargeName == "Hamali" && c.Amount == 75m);
         Assert.Contains(row.ChargeItems, c => c.ChargeName == "DoorDelivery" && c.Amount == 50m);
+    }
+
+    // ---------- 8. Bill Book loads ONLY "To Be Billed" (TBB) consignments ----------
+    [Fact]
+    public async Task GetUnbilled_ReturnsOnlyTbbBilties()
+    {
+        await using var ctx = NewContext();
+        SeedShipment(ctx, "GR-TBB-01", totalFreight: 100m, grandTotal: 100m, paymentTerm: PaymentTerm.TBB);
+        SeedShipment(ctx, "GR-PAID-01", totalFreight: 200m, grandTotal: 200m, paymentTerm: PaymentTerm.Paid);
+        SeedShipment(ctx, "GR-TOPAY-01", totalFreight: 300m, grandTotal: 300m, paymentTerm: PaymentTerm.ToPay);
+
+        var service = NewService(ctx);
+
+        // Per-party list: only the TBB bilty, not Paid / ToPay.
+        var byParty = await service.GetUnbilledShipmentsByPartyAsync(partyName: "Acme Traders");
+        var tbbRow = Assert.Single(byParty);
+        Assert.Equal("GR-TBB-01", tbbRow.ShipmentNo);
+
+        // Parties summary count must agree with the list (exactly 1).
+        var summary = await service.GetUnbilledPartiesSummaryAsync();
+        var acme = Assert.Single(summary);
+        Assert.Equal(1, acme.UnbilledCount);
+    }
+
+    // ---------- 9. UpdateBillShipments: removing a bilty returns it to the pool ----------
+    [Fact]
+    public async Task UpdateBillShipments_RemovesBilty_ReturnsItToUnbilledPool()
+    {
+        await using var ctx = NewContext();
+        var a = SeedShipment(ctx, "GR-A", totalFreight: 100m, grandTotal: 100m);
+        var b = SeedShipment(ctx, "GR-B", totalFreight: 200m, grandTotal: 200m);
+        var service = NewService(ctx);
+
+        var create = await service.CreateBillBookInvoiceAsync(new CreateBillBookRequestDto
+        {
+            PartyName = "Acme Traders",
+            InvoiceDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ShipmentIds = new List<long> { a.Id, b.Id }
+        });
+        Assert.True(create.Success);
+        var invoiceId = create.Data!.Id;
+
+        // Keep only B.
+        var update = await service.UpdateBillShipmentsAsync(invoiceId, new UpdateBillShipmentsRequest
+        {
+            ShipmentIds = new List<long> { b.Id }
+        });
+
+        Assert.True(update.Success);
+        var item = Assert.Single(update.Data!.Items);
+        Assert.Equal("GR-B", item.ShipmentNo);
+        Assert.Equal(200m, update.Data!.GrandTotal);
+
+        // A is back in the unbilled pool.
+        var unbilled = await service.GetUnbilledShipmentsByPartyAsync(partyName: "Acme Traders");
+        Assert.Contains(unbilled, s => s.ShipmentNo == "GR-A");
+        Assert.DoesNotContain(unbilled, s => s.ShipmentNo == "GR-B");
+    }
+
+    // ---------- 10. UpdateBillShipments: adding an eligible bilty grows the bill ----------
+    [Fact]
+    public async Task UpdateBillShipments_AddsBilty_GrowsTotal()
+    {
+        await using var ctx = NewContext();
+        var a = SeedShipment(ctx, "GR-A", totalFreight: 100m, grandTotal: 100m);
+        var b = SeedShipment(ctx, "GR-B", totalFreight: 250m, grandTotal: 250m);
+        var service = NewService(ctx);
+
+        var create = await service.CreateBillBookInvoiceAsync(new CreateBillBookRequestDto
+        {
+            PartyName = "Acme Traders",
+            InvoiceDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ShipmentIds = new List<long> { a.Id }
+        });
+        Assert.True(create.Success);
+
+        var update = await service.UpdateBillShipmentsAsync(create.Data!.Id, new UpdateBillShipmentsRequest
+        {
+            ShipmentIds = new List<long> { a.Id, b.Id }
+        });
+
+        Assert.True(update.Success);
+        Assert.Equal(2, update.Data!.Items.Count);
+        Assert.Equal(350m, update.Data!.GrandTotal);
+    }
+
+    // ---------- 11. UpdateBillShipments: cannot drop total below amount already received ----------
+    [Fact]
+    public async Task UpdateBillShipments_BlocksDropBelowPaidAmount()
+    {
+        await using var ctx = NewContext();
+        var a = SeedShipment(ctx, "GR-A", totalFreight: 100m, grandTotal: 100m);
+        var b = SeedShipment(ctx, "GR-B", totalFreight: 200m, grandTotal: 200m);
+        var service = NewService(ctx);
+
+        var create = await service.CreateBillBookInvoiceAsync(new CreateBillBookRequestDto
+        {
+            PartyName = "Acme Traders",
+            InvoiceDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ShipmentIds = new List<long> { a.Id, b.Id } // total 300
+        });
+        Assert.True(create.Success);
+        var invoiceId = create.Data!.Id;
+
+        // Receive 150 (partial).
+        await service.RecordPaymentAsync(invoiceId, new RecordPaymentRequest { PaymentAmount = 150m });
+
+        // Keeping only A (100) would drop the bill below the 150 already received -> blocked.
+        var update = await service.UpdateBillShipmentsAsync(invoiceId, new UpdateBillShipmentsRequest
+        {
+            ShipmentIds = new List<long> { a.Id }
+        });
+
+        Assert.False(update.Success);
+
+        // Composition unchanged: both bilties still on the bill.
+        var fetched = await service.GetInvoiceByIdAsync(invoiceId);
+        Assert.Equal(2, fetched!.Items.Count);
+        Assert.Equal(300m, fetched.GrandTotal);
+    }
+
+    // ---------- 12. UpdateBillShipments: cannot add a different client's bilty ----------
+    [Fact]
+    public async Task UpdateBillShipments_BlocksCrossClientBilty()
+    {
+        await using var ctx = NewContext();
+        var a = SeedShipment(ctx, "GR-A", totalFreight: 100m, grandTotal: 100m);
+        var other = SeedShipment(ctx, "GR-OTHER", totalFreight: 500m, grandTotal: 500m);
+        other.ConsignorName = "Other Co"; // belongs to a different client
+        ctx.SaveChanges();
+        var service = NewService(ctx);
+
+        var create = await service.CreateBillBookInvoiceAsync(new CreateBillBookRequestDto
+        {
+            PartyName = "Acme Traders",
+            InvoiceDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            ShipmentIds = new List<long> { a.Id }
+        });
+        Assert.True(create.Success);
+
+        var update = await service.UpdateBillShipmentsAsync(create.Data!.Id, new UpdateBillShipmentsRequest
+        {
+            ShipmentIds = new List<long> { a.Id, other.Id }
+        });
+
+        Assert.False(update.Success);
     }
 }

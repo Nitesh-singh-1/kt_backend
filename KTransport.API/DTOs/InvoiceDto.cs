@@ -137,4 +137,14 @@ namespace KTransport.API.DTOs
         public string? ReferenceNo { get; set; }
         public string? Remarks { get; set; }
     }
+
+    /// <summary>
+    /// Replaces the full bilty set on an existing (editable) Bill Book invoice.
+    /// ShipmentIds is the complete desired set AFTER the edit; the service diffs
+    /// it against the invoice's current bilties to add/remove and re-link.
+    /// </summary>
+    public class UpdateBillShipmentsRequest
+    {
+        public List<long> ShipmentIds { get; set; } = new();
+    }
 }

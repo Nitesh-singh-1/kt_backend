@@ -272,6 +272,7 @@ namespace KTransport.API.Services
         {
             var query = _context.Shipments.AsNoTracking()
                 .Where(s => s.IsActive && s.InvoiceId == null
+                    && s.PaymentTerm == PaymentTerm.TBB // Bill Book consolidates only "To Be Billed" credit consignments
                     && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
 
             if (!string.IsNullOrWhiteSpace(search))
@@ -313,18 +314,26 @@ namespace KTransport.API.Services
                 .Include(s => s.InvoiceReferences)
                 .AsNoTracking()
                 .Where(s => s.IsActive && s.InvoiceId == null
+                    && s.PaymentTerm == PaymentTerm.TBB // Bill Book consolidates only "To Be Billed" credit consignments
                     && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft);
 
+            // Bill Book is consignor-based billing: a client's bill consolidates the
+            // bilties where that client is the CONSIGNOR (the billing/sending party),
+            // and the generated invoice carries the consignor's GSTIN/address.
+            // Matching must therefore mirror GetUnbilledPartiesSummaryAsync, which
+            // groups/counts by consignor only. Previously this also matched the
+            // consignee, so a client who was merely the receiver on another bilty
+            // saw that bilty pulled into their list — the summary count (consignor
+            // only) and the loaded list disagreed, and billing it would have charged
+            // the receiver as if they were the sender.
             if (partyId.HasValue && partyId.Value > 0)
             {
-                query = query.Where(s => s.ConsignorPartyId == partyId.Value || s.ConsigneePartyId == partyId.Value);
+                query = query.Where(s => s.ConsignorPartyId == partyId.Value);
             }
             else if (!string.IsNullOrWhiteSpace(partyName))
             {
                 var p = partyName.Trim().ToLower();
-                query = query.Where(s =>
-                    (s.ConsignorName != null && s.ConsignorName.ToLower() == p) ||
-                    (s.ConsigneeName != null && s.ConsigneeName.ToLower() == p));
+                query = query.Where(s => s.ConsignorName != null && s.ConsignorName.ToLower() == p);
             }
 
             var list = await query.OrderByDescending(s => s.ShipmentDate).ThenByDescending(s => s.Id).ToListAsync();
@@ -481,6 +490,170 @@ namespace KTransport.API.Services
                 Success = true,
                 Message = $"Freight Bill {invoice.InvoiceNo} created successfully with {shipments.Count} bilty consignment(s).",
                 Data = invoiceDto
+            };
+        }
+
+        /// <summary>
+        /// Adds / removes bilties on an existing editable Bill Book invoice.
+        /// Editable = not fully Paid and not Cancelled. A change may not drop the
+        /// Grand Total below the amount already received. Removed bilties return to
+        /// the unbilled pool (InvoiceId = null); added bilties must be unbilled and
+        /// belong to the same consignor as the bill. Totals, due amount, payment
+        /// status and the Sales auto-posting are all recomputed/reposted.
+        /// </summary>
+        public async Task<BillBookInvoiceResponseDto> UpdateBillShipmentsAsync(long id, UpdateBillShipmentsRequest request, int? userId = null)
+        {
+            BillBookInvoiceResponseDto Fail(string msg) => new() { Success = false, Message = msg };
+
+            var invoice = await _context.Invoices
+                .Include(i => i.Items)
+                .Include(i => i.Shipments)
+                .FirstOrDefaultAsync(i => i.Id == id);
+
+            if (invoice == null) return Fail($"Invoice with ID {id} not found.");
+
+            if (!invoice.IsActive || invoice.PaymentStatus == InvoicePaymentStatus.Cancelled)
+                return Fail("This bill has been cancelled and can no longer be edited.");
+
+            if (invoice.PaymentStatus == InvoicePaymentStatus.Paid)
+                return Fail("This bill is fully paid — its bilties are locked. Void and recreate it if a correction is needed.");
+
+            var desiredIds = (request.ShipmentIds ?? new List<long>()).Distinct().ToList();
+            if (desiredIds.Count == 0)
+                return Fail("A bill must keep at least one bilty. Void the bill instead if it should be removed entirely.");
+
+            // Current bilties linked to this invoice.
+            var currentShipments = await _context.Shipments
+                .Include(s => s.Items)
+                .Include(s => s.ChargeItems)
+                .Where(s => s.InvoiceId == id)
+                .ToListAsync();
+            var currentIds = currentShipments.Select(s => s.Id).ToHashSet();
+
+            var toAddIds = desiredIds.Where(x => !currentIds.Contains(x)).ToList();
+            var removeIds = currentIds.Where(x => !desiredIds.Contains(x)).ToHashSet();
+
+            // Validate & load the bilties to add: still unbilled, active, not cancelled/draft.
+            // Tenant scope is enforced by the global query filter; the consignor check below
+            // guards against pulling another client's bilty onto this bill.
+            var toAdd = new List<Shipment>();
+            if (toAddIds.Count > 0)
+            {
+                toAdd = await _context.Shipments
+                    .Include(s => s.Items)
+                    .Include(s => s.ChargeItems)
+                    .Where(s => toAddIds.Contains(s.Id) && s.IsActive && s.InvoiceId == null
+                        && s.Status != ShipmentStatus.Cancelled && s.Status != ShipmentStatus.Draft)
+                    .ToListAsync();
+
+                if (toAdd.Count != toAddIds.Count)
+                    return Fail("One or more selected bilties are already billed or no longer eligible. Refresh and try again.");
+
+                var partyKey = invoice.PartyName?.Trim().ToLower();
+                if (!string.IsNullOrWhiteSpace(partyKey) &&
+                    toAdd.Any(s => (s.ConsignorName ?? "").Trim().ToLower() != partyKey))
+                {
+                    return Fail($"Cannot add bilties that belong to a different client than this bill ({invoice.PartyName}).");
+                }
+            }
+
+            // Resulting set = (current - removed) + added.
+            var resultingSet = currentShipments.Where(s => !removeIds.Contains(s.Id)).Concat(toAdd).ToList();
+            if (resultingSet.Count == 0)
+                return Fail("A bill must keep at least one bilty.");
+
+            // Recompute totals from the resulting set (mirrors CreateBillBookInvoiceAsync).
+            decimal subTotal = resultingSet.Sum(s => s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight);
+            decimal taxAmount = subTotal * invoice.TaxRate / 100m;
+            decimal grandTotal = Math.Max(0, subTotal + taxAmount + invoice.OtherCharges - invoice.Discount);
+
+            // Guard: a composition change may not drop the bill below money already received.
+            if (grandTotal < invoice.PaidAmount)
+                return Fail($"This change would make the bill total ₹{grandTotal:0.##}, below the ₹{invoice.PaidAmount:0.##} already received. Keep more bilties, or void the payment first.");
+
+            // --- Apply the diff ---
+            // 1. Detach removed bilties back to the unbilled pool.
+            foreach (var s in currentShipments.Where(s => removeIds.Contains(s.Id)))
+            {
+                s.InvoiceId = null;
+                s.InvoiceNo = null;
+                s.InvoiceDate = null;
+                s.UpdatedAt = DateTime.UtcNow;
+                s.UpdatedBy = userId;
+            }
+
+            // 2. Link the added bilties.
+            foreach (var s in toAdd)
+            {
+                s.InvoiceId = invoice.Id;
+                s.InvoiceNo = invoice.InvoiceNo;
+                s.InvoiceDate = invoice.InvoiceDate;
+                s.UpdatedAt = DateTime.UtcNow;
+                s.UpdatedBy = userId;
+            }
+
+            // 3. Rebuild invoice items from the resulting set.
+            _context.InvoiceItems.RemoveRange(invoice.Items);
+            invoice.Items.Clear();
+            foreach (var s in resultingSet)
+            {
+                var pkgCount = s.Items?.Sum(i => i.Quantity) ?? 1;
+                var totalWeight = s.Items?.Sum(i => i.Weight) ?? 0;
+                var biltyAmt = s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight;
+                var rate = ComputeShipmentRate(s);
+                var taxAmt = biltyAmt * invoice.TaxRate / 100m;
+                var desc = $"GR No: {s.ShipmentNo} | Route: {s.FromLocation} to {s.ToLocation} | Pkg: {pkgCount} | Wt: {totalWeight} Kg" +
+                           (!string.IsNullOrWhiteSpace(s.Remarks) ? $" | {s.Remarks}" : "");
+
+                invoice.Items.Add(new InvoiceItem
+                {
+                    InvoiceId = invoice.Id,
+                    ShipmentId = s.Id,
+                    ShipmentNo = s.ShipmentNo,
+                    Description = desc,
+                    Quantity = pkgCount > 0 ? pkgCount : 1,
+                    Rate = rate,
+                    Amount = biltyAmt,
+                    TaxRate = invoice.TaxRate,
+                    TaxAmount = taxAmt,
+                    TotalAmount = biltyAmt + taxAmt,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            // 4. Recompute header totals & payment status.
+            invoice.SubTotal = subTotal;
+            invoice.TaxAmount = taxAmount;
+            invoice.GrandTotal = grandTotal;
+            invoice.DueAmount = Math.Max(0, grandTotal - invoice.PaidAmount);
+            invoice.PaymentStatus = invoice.DueAmount == 0 && grandTotal > 0
+                ? InvoicePaymentStatus.Paid
+                : (invoice.PaidAmount > 0 ? InvoicePaymentStatus.PartiallyPaid : InvoicePaymentStatus.Unpaid);
+            invoice.UpdatedBy = userId;
+            invoice.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // A composition change alters the Sales voucher total -> repost (guarded).
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Invoice, invoice.Id, AutoPostOperation.Repost);
+
+            _logger.LogInformation("Updated bilties on invoice {InvoiceNo}: +{Added} / -{Removed}; new total {Total}",
+                invoice.InvoiceNo, toAdd.Count, removeIds.Count, invoice.GrandTotal);
+
+            // Reload with item->shipment navs so MapToDto surfaces the per-item print fields.
+            var fresh = await _context.Invoices
+                .Include(i => i.Items).ThenInclude(it => it.Shipment).ThenInclude(sh => sh!.Items)
+                .Include(i => i.Items).ThenInclude(it => it.Shipment).ThenInclude(sh => sh!.ChargeItems)
+                .Include(i => i.Shipments)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.Id == id);
+
+            return new BillBookInvoiceResponseDto
+            {
+                Success = true,
+                Message = $"Bill {invoice.InvoiceNo} updated — {resultingSet.Count} bilty(ies), new total ₹{invoice.GrandTotal:0.##}.",
+                Data = MapToDto(fresh ?? invoice)
             };
         }
 
