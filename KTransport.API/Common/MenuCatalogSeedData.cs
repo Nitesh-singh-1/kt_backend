@@ -2,8 +2,8 @@ namespace KTransport.API.Common
 {
     /// <summary>
     /// TASK-041 Phase 1 seed, reconciled to canonical form by TASK-043 Phase 2.
-    /// 36 rows (down from 37: trips.all collapsed into the clickable trips
-    /// parent). Row keys and permission_key values match the permissions
+    /// 39 rows (37 after trips.all collapsed into the clickable trips parent;
+    /// +1 system.roles; +1 system.audit_logs). Row keys and permission_key values match the permissions
     /// catalog (SeedPermissionsCatalog). Tests reference this list so they
     /// stay in sync with the live DB after both seed + reconcile migrations.
     /// </summary>
@@ -23,30 +23,38 @@ namespace KTransport.API.Common
         public static readonly Row[] Rows =
         {
             // ---- Top-level items (parent_key = NULL) ----
-            new("dashboard",     null, "Dashboard",                   "/dashboard",  "home",     "dashboard.view",      null,     0, null),
-            new("analytics",     null, "Business Analytics",          "/analytics",  "barChart", "dashboard.view",      null,     1, null),
-            new("consignments",  null, "Bilty / GR Booking",          null,          "package",  "consignments.module", null,     2, null),
-            new("quotations",    null, "Quotations & Enquiries",      "/quotations", "fileText", "quotations.view",     null,     3, null),
-            new("trips",         null, "Manifest & Dispatch",         "/trips",      "truck",    "trips.view",          null,     4, null),
-            new("pod",           null, "POD & Deliveries",            "/pod",        "fileText", "pod.view",            null,     5, null),
-            new("billing",       null, "Freight Invoicing & Billing", null,          "fileText", "billing.view",        null,     6, null),
-            new("master_data",   null, "Master Data",                 null,          "cog",      "masterdata.module",   null,     7, null),
-            new("vendors",       null, "Market Vendors & Hire",       "/vendors",    "truck",    "vendors.view",        null,     8, null),
-            new("claims",        null, "Damage & Claims",             "/claims",     "info",     "claims.view",         null,     9, null),
-            new("reports",       null, "Reports & Analytics",         "/reports",    "barChart", "reports.view",        null,    10, "report_entitlement"),
-            new("tracking",      null, "Live GPS Tracker",            "/tracking",   "info",     "tracking.view",       null,    11, null),
-            new("clients",       null, "Client Management",           "/clients",    "lock",     "saas.tenants.manage", "SaaS",  12, null),
-            new("system",        null, "System & Settings",           null,          "settings", null,                  null,    13, null),
+            // NOTE: top-level titles are kept identical to the owning module's
+            // name (modules.name) so the platform-admin provisioning UI, the
+            // entitlement-ceiling view, and the tenant sidebar all read the same.
+            // The two settlement modules are provisioned independently in
+            // tenant_modules, so each owns a TOP-LEVEL row (never nested under
+            // another module — nesting buried them and orphaned them when the
+            // parent module was not entitled). See migration
+            // 20261108120000_PromoteSettlementMenusAndAlignTitles.
+            new("dashboard",          null, "Dashboard",            "/dashboard",           "home",        "dashboard.view",           null,    0, null),
+            new("analytics",          null, "Analytics",            "/analytics",           "barChart",    "analytics.view",           null,    1, null),
+            new("consignments",       null, "Bilty / Consignments", null,                   "package",     "consignments.module",      null,    2, null),
+            new("quotations",         null, "Quotations",           "/quotations",          "fileText",    "quotations.view",          null,    3, null),
+            new("trips",              null, "Trips & Manifests",    "/trips",               "truck",       "trips.view",               null,    4, null),
+            new("trip_settlement",    null, "Trip Settlement",      "/trip-settlement",     "dollarSign",  "trip_settlement.view",     null,    5, null),
+            new("pod",                null, "Proof of Delivery",    "/pod",                 "fileText",    "pod.view",                 null,    6, null),
+            new("delivery_settlement",null, "Delivery Settlement",  "/delivery-settlement", "checkCircle", "delivery_settlement.view", null,    7, null),
+            new("billing",            null, "Billing & Invoicing",  null,                   "fileText",    "billing.view",             null,    8, null),
+            new("master_data",        null, "Master Data",          null,                   "cog",         "masterdata.module",        null,    9, null),
+            new("vendors",            null, "Vendors & Lorry Hire", "/vendors",             "truck",       "vendors.view",             null,   10, null),
+            new("claims",             null, "Claims",               "/claims",              "info",        "claims.view",              null,   11, null),
+            new("reports",            null, "Reports",              "/reports",             "barChart",    "reports.view",             null,   12, "report_entitlement"),
+            new("tracking",           null, "Live Tracking",        "/tracking",            "info",        "tracking.view",            null,   13, null),
+            new("clients",            null, "Clients & Tenants",    "/clients",             "lock",        "saas.tenants.manage",      "SaaS", 15, null),
+            new("system",             null, "System",               null,                   "settings",    null,                       null,   16, null),
 
             // ---- consignments children ----
             new("consignments.create",   "consignments", "New Bilty (GR Booking)",    "/shipments/create",    "package",     "consignments.create",       null, 0, null),
             new("consignments.all",      "consignments", "All Bilties (GR Registry)", "/shipments",           "fileText",    "consignments.view",         null, 1, null),
-            new("delivery_settlement",   "consignments", "Delivery Settlement",       "/delivery-settlement", "checkCircle", "delivery_settlement.view",  null, 2, null),
 
             // ---- trips children ----
             new("trips.challan",    "trips", "Truck Challan",    "/trips",           "truck",      "trips.view",             null, 0, null),
             new("empty_trips",      "trips", "Empty Trip Log",   "/empty-trips",     "truck",      "trips.view",             null, 1, null),
-            new("trip_settlement",  "trips", "Trip Settlement",  "/trip-settlement", "dollarSign", "trip_settlement.view",   null, 2, null),
 
             // ---- billing children ----
             new("billing.bill_book", "billing", "Bill Book (Consolidated)", "/bill-book", "fileText", "billing.view", "Freight Bill", 0, null),
@@ -67,9 +75,25 @@ namespace KTransport.API.Common
 
             // ---- system children ----
             new("system.users",           "system", "Manage Users & Access", "/users",           "users",    "users.manage",        null, 0, null),
-            new("system.settings",        "system", "SaaS Configuration",    "/settings",        "settings", "settings.manage",     null, 1, null),
-            new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 2, null),
-            new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 3, null),
+            new("system.roles",           "system", "Roles & Permissions",   "/roles",           "shield",   "system.users.view",   null, 1, null),
+            new("system.settings",        "system", "SaaS Configuration",    "/settings",        "settings", "settings.manage",     null, 2, null),
+            new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 3, null),
+            new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 4, null),
+            new("system.audit_logs",      "system", "Audit Log",             "/audit-logs",      "shield",   "system.users.view",   null, 5, null),
+
+            // ---- accounting (paid add-on module; hidden until enabled in tenant_modules) ----
+            new("accounting",                  null,         "Accounting & Finance", null,                            "dollarSign", "accounting.view",          null, 14, null),
+            new("accounting.chart_of_accounts","accounting", "Chart of Accounts",    "/accounting/chart-of-accounts", "book",       "accounting.accounts.view", null, 0,  null),
+            new("accounting.vouchers",         "accounting", "Vouchers",             "/accounting/vouchers",          "fileText",   "accounting.vouchers.view", null, 1,  null),
+            new("accounting.day_book",         "accounting", "Day Book",             "/accounting/day-book",          "calendar",   "accounting.reports.view",  null, 2,  null),
+            new("accounting.ledger",           "accounting", "Account Ledger",       "/accounting/ledger",            "fileText",   "accounting.reports.view",  null, 3,  null),
+            new("accounting.trial_balance",    "accounting", "Trial Balance",        "/accounting/trial-balance",     "barChart",   "accounting.reports.view",  null, 4,  null),
+            new("accounting.periods",          "accounting", "Financial Years",      "/accounting/periods",           "calendar",   "accounting.periods.view",  null, 5,  null),
+            new("accounting.opening_balances", "accounting", "Opening Balances",     "/accounting/opening-balances",  "wallet",     "accounting.accounts.view", null, 6,  null),
+
+            // ---- accounting Phase 2 (auto-posting) ----
+            new("accounting.auto_posting",     "accounting", "Auto-Posting",         "/accounting/auto-posting",      "zap",        "accounting.autoposting.view", null, 7, null),
+            new("accounting.reconciliation",   "accounting", "Reconciliation",       "/accounting/reconciliation",    "checkCircle","accounting.reports.view",     null, 8, null),
         };
     }
 }

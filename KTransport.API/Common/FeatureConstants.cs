@@ -15,7 +15,8 @@ namespace KTransport.API.Common
         public const string MONEY_RECEIPT = "MONEY_RECEIPT";
         public const string TRACKING = "TRACKING";
         public const string REPORTING = "REPORTING";
-        
+        public const string ACCOUNTING = "ACCOUNTING"; // paid add-on: double-entry ledger (TASK-016)
+
         // Master Data & Operations
         public const string VEHICLE = "VEHICLE"; // Fleet & Stations
         public const string DRIVER = "DRIVER";
@@ -28,7 +29,11 @@ namespace KTransport.API.Common
         public const string USER_MANAGEMENT = "USER_MANAGEMENT";
         public const string SAAS_CONFIGURATION = "SAAS_CONFIGURATION";
 
-        // Standard Default Subscribed Features for starter / pro plans
+        // Standard Default Subscribed Features for starter / pro plans.
+        // NOTE: ACCOUNTING is deliberately NOT here. It is a paid add-on gated solely through
+        // tenant_modules (ADR accounting-ledger-architecture decision #4). AllFeatures doubles as
+        // the no-subscription fallback in FeatureAuthorizationService, so listing it here would
+        // hand the add-on to every unconfigured tenant for free.
         public static readonly string[] AllFeatures = new[]
         {
             GOOD_RECEIPT,
@@ -87,38 +92,8 @@ namespace KTransport.API.Common
 
         public static readonly string[] EnterpriseFeatures = AllFeatures;
 
-        /// <summary>
-        /// Normalizes feature aliases (e.g. gr, consignments, challan) into canonical FeatureConstants.
-        /// </summary>
-        public static string Normalize(string featureOrMenuKey)
-        {
-            if (string.IsNullOrWhiteSpace(featureOrMenuKey)) return string.Empty;
-
-            var key = featureOrMenuKey.Trim().ToUpperInvariant();
-
-            return key switch
-            {
-                "BILTY" or "BILTIES" or "BILTY.CREATE" or "BILTY.ALL" or "BILTY.LIST" or "BILTY.VIEW" or "GR" or "GR.LIST" or "GR.ENTRY" or "CONSIGNMENTS" or "CONSIGNMENTS.CREATE" or "CONSIGNMENTS.ALL" or "GOOD_RECEIPT" => GOOD_RECEIPT,
-                "SHIPMENT" or "SHIPMENTS" => SHIPMENT,
-                "CHALLAN" or "CHALLAN.LIST" or "CHALLAN.ENTRY" or "TRIPS" or "MANIFEST" or "MANIFESTS" => MANIFEST,
-                "POD" or "DELIVERIES" => POD,
-                "DELIVERY_SETTLEMENT" or "DELIVERYSETTLEMENT" or "DELIVERY-SETTLEMENT" or "CONSIGNMENTS.DELIVERY_SETTLEMENT" => DELIVERY_SETTLEMENT,
-                "TRIP_SETTLEMENT" or "TRIPSETTLEMENT" or "TRIP-SETTLEMENT" or "TRIPS.SETTLEMENT" => TRIP_SETTLEMENT,
-                "BILL_BOOK" or "BILLBOOK" or "BILLING.BILL_BOOK" => BILL_BOOK,
-                "BILLING" or "BILLING.INVOICES" or "BILLING.RECEIPTS" or "INVOICE" or "INVOICES" => BILLING,
-                "RECEIPTS" or "MONEY_RECEIPT" or "MONEY_RECEIPTS" => MONEY_RECEIPT,
-                "TRACKING" or "GPS" => TRACKING,
-                "REPORTS" or "REPORTING" or "ANALYTICS" => REPORTING,
-                "FLEET" or "VEHICLES" or "VEHICLE" or "MASTER_DATA.FLEET" => VEHICLE,
-                "DRIVER" or "DRIVERS" => DRIVER,
-                "CUSTOMERS" or "PARTIES" or "PARTY" or "MASTER_DATA.PARTIES" or "MASTER_DATA" or "MASTERDATA" => PARTY,
-                "VENDORS" or "VENDOR" => VENDOR,
-                "CLAIMS" => CLAIMS,
-                "QUOTATION" or "QUOTATIONS" => QUOTATION,
-                "USERS" or "USER_MANAGEMENT" or "SUB_USERS" => USER_MANAGEMENT,
-                "SETTINGS" or "SAAS" or "SAAS_CONFIGURATION" or "SYSTEM.SETTINGS" or "CLIENTS" or "SYSTEM" => SAAS_CONFIGURATION,
-                _ => key
-            };
-        }
+        // RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate): the legacy
+        // alias normalizer (gr/challan/consignments/bill_book/masterdata → canonical)
+        // is DELETED. Module codes are canonical everywhere; no string normalization.
     }
 }

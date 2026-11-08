@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using KTransport.API.Authorization;
 using KTransport.API.Models;
 using KTransport.API.Services;
 
@@ -20,6 +21,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("consignments.create.create")]
         public async Task<ActionResult<GoodsDetailResponse>> CreateGoodsDetail([FromBody] CreateGoodsDetailRequest request)
         {
             if (!ModelState.IsValid)
@@ -38,6 +40,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id}")]
+        [RequirePermission("consignments.create.edit")]
         public async Task<ActionResult<GoodsDetailResponse>> UpdateGoodsDetail(int id, [FromBody] UpdateGoodsDetailRequest request)
         {
             if (!ModelState.IsValid)
@@ -56,6 +59,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [RequirePermission("consignments.create.view")]
         public async Task<ActionResult<GoodsDetailResponse>> GetGoodsDetailById(int id)
         {
             var response = await _goodsDetailService.GetGoodsDetailByIdAsync(id);
@@ -69,6 +73,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("bill/{billId}")]
+        [RequirePermission("consignments.create.view")]
         public async Task<ActionResult<GoodsDetailListResponse>> GetGoodsDetailsByBillId(int billId)
         {
             var response = await _goodsDetailService.GetGoodsDetailsByBillIdAsync(billId);
@@ -82,6 +87,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [RequirePermission("consignments.create.delete")]
         public async Task<ActionResult<GoodsDetailResponse>> DeleteGoodsDetail(int id)
         {
             var response = await _goodsDetailService.DeleteGoodsDetailAsync(id);

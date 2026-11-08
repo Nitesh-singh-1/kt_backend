@@ -91,6 +91,7 @@ namespace KTransport.API.Controllers
         /// </summary>
         [HttpPost]
         [RequirePermission("system.users.create", "users.manage")]
+        [EnforceUsageLimit(UsageResource.Users)]
         public async Task<IActionResult> CreateSubUser([FromBody] CreateSubUserRequest request)
         {
             if (!ModelState.IsValid)

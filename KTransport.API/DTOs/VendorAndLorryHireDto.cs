@@ -106,6 +106,9 @@ namespace KTransport.API.DTOs
         public string? Remarks { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
+
+        /// <summary>Phase 2 additive read-only: the live Purchase voucher auto-posted from this hire memo (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class CreateLorryHireRequest

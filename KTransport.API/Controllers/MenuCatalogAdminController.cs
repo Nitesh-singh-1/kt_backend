@@ -84,7 +84,10 @@ namespace KTransport.API.Controllers
             item.IsActive = request.IsActive;
             await _db.SaveChangesAsync();
 
-            return Ok(ToDto(item));
+            var parentKey = item.ParentId.HasValue
+                ? await _db.MenuItems.Where(m => m.Id == item.ParentId.Value).Select(m => m.Key).FirstOrDefaultAsync()
+                : null;
+            return Ok(ToDto(item, parentKey));
         }
 
         [HttpPost("batch-status")]
@@ -126,8 +129,9 @@ namespace KTransport.API.Controllers
         {
             // Keep Party Directory and Fleet & Stations active; deactivate the other 8 incomplete master data items
             var allowedKeys = new[] { "master_data.parties", "master_data.fleet" };
+            var parentId = await _db.MenuItems.Where(m => m.Key == "master_data").Select(m => (int?)m.Id).FirstOrDefaultAsync();
             var items = await _db.MenuItems
-                .Where(m => m.ParentKey == "master_data" && !allowedKeys.Contains(m.Key))
+                .Where(m => m.ParentId == parentId && !allowedKeys.Contains(m.Key))
                 .ToListAsync();
 
             foreach (var item in items)
@@ -147,8 +151,9 @@ namespace KTransport.API.Controllers
         [HttpPost("reset-master-data")]
         public async Task<ActionResult> ResetMasterData()
         {
+            var parentId = await _db.MenuItems.Where(m => m.Key == "master_data").Select(m => (int?)m.Id).FirstOrDefaultAsync();
             var items = await _db.MenuItems
-                .Where(m => m.ParentKey == "master_data")
+                .Where(m => m.ParentId == parentId)
                 .ToListAsync();
 
             foreach (var item in items)
@@ -165,11 +170,11 @@ namespace KTransport.API.Controllers
             });
         }
 
-        private static MenuItemDto ToDto(Models.MenuItem m) => new()
+        private static MenuItemDto ToDto(Models.MenuItem m, string? parentKey) => new()
         {
             Id = m.Id,
             Key = m.Key,
-            ParentKey = m.ParentKey,
+            ParentKey = parentKey,
             Title = m.Title,
             Path = m.Path,
             Icon = m.Icon,

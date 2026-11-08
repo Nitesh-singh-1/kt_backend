@@ -130,32 +130,21 @@ CREATE INDEX IF NOT EXISTS permissions_module_id_idx ON permissions(module_id);
             migrationBuilder.Sql(@"
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS module_id INTEGER;
 
+-- Generic resolver (TASK-054): resolve the module from the key's ROOT segment
+-- against the modules table, with only the handful of canonical renames that do
+-- not match a module code 1:1. This never goes stale as new leaf pages are added
+-- under an existing module, and it only resolves rows whose module already
+-- exists at this point in history (accounting rows are inserted by their own
+-- later migrations, after the accounting module is created).
 UPDATE menu_items mi SET module_id = m.id
 FROM modules m
 WHERE mi.module_id IS NULL
   AND m.code = CASE
-    WHEN mi.key = 'dashboard'                                   THEN 'dashboard'
-    WHEN mi.key = 'analytics'                                   THEN 'analytics'
-    WHEN mi.key = 'tracking'                                    THEN 'tracking'
-    WHEN mi.key = 'consignments'                                THEN 'bilty'
-    WHEN mi.parent_key = 'consignments' AND mi.key = 'delivery_settlement' THEN 'delivery_settlement'
-    WHEN mi.parent_key = 'consignments'                         THEN 'bilty'
-    WHEN mi.key = 'trips'                                       THEN 'trips'
-    WHEN mi.parent_key = 'trips' AND mi.key = 'trip_settlement' THEN 'trip_settlement'
-    WHEN mi.parent_key = 'trips'                                THEN 'trips'
-    WHEN mi.key = 'pod'                                         THEN 'pod'
-    WHEN mi.key = 'billing' OR mi.parent_key = 'billing'        THEN 'billing'
-    WHEN mi.key = 'master_data' OR mi.parent_key = 'master_data' THEN 'master_data'
-    WHEN mi.key = 'vendors'                                     THEN 'vendors'
-    WHEN mi.key = 'claims'                                      THEN 'claims'
-    WHEN mi.key = 'quotations'                                  THEN 'quotations'
-    WHEN mi.key = 'reports'                                     THEN 'reports'
-    WHEN mi.key = 'clients'                                     THEN 'clients'
-    WHEN mi.key = 'system' OR mi.parent_key = 'system'          THEN 'system'
-    WHEN mi.key = 'delivery_settlement'                         THEN 'delivery_settlement'
-    WHEN mi.key = 'trip_settlement'                             THEN 'trip_settlement'
-    WHEN mi.key = 'empty_trips'                                 THEN 'trips'
-    ELSE NULL
+    WHEN split_part(mi.key, '.', 1) IN ('consignments', 'gr', 'bilty') THEN 'bilty'
+    WHEN split_part(mi.key, '.', 1) IN ('empty_trips', 'challan')       THEN 'trips'
+    WHEN split_part(mi.key, '.', 1) = 'masterdata'                      THEN 'master_data'
+    WHEN split_part(mi.key, '.', 1) = 'saas'                            THEN 'clients'
+    ELSE split_part(mi.key, '.', 1)
   END;
 
 -- Stash unresolved rows to a scratch table and FAIL LOUDLY.

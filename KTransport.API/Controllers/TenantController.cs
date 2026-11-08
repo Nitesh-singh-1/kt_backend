@@ -1,12 +1,17 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using KTransport.API.Authorization;
+using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 
 namespace KTransport.API.Controllers
 {
@@ -17,12 +22,72 @@ namespace KTransport.API.Controllers
         private readonly ITenantService _tenantService;
         private readonly INavigationService _navService;
         private readonly ITenantContext _tenantContext;
+        private readonly IEntitlementsService _entitlements;
+        private readonly KTransportDbContext _db;
 
-        public TenantController(ITenantService tenantService, INavigationService navService, ITenantContext tenantContext)
+        public TenantController(ITenantService tenantService, INavigationService navService, ITenantContext tenantContext,
+            IEntitlementsService entitlements, KTransportDbContext db)
         {
             _tenantService = tenantService;
             _navService = navService;
             _tenantContext = tenantContext;
+            _entitlements = entitlements;
+            _db = db;
+        }
+
+        // ---------------- §B per-tenant entitlement (platform-admin) ----------------
+
+        /// <summary>§B: the tenant's current entitlement ceiling (modules + page restrictions + reports).</summary>
+        [HttpGet("{id:guid}/entitlements")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<ActionResult<TenantMenuEntitlementsDto>> GetEntitlements(Guid id)
+            => Ok(await _navService.GetTenantMenuEntitlementsAsync(id));
+
+        /// <summary>§B: set the tenant's entitlement ceiling. 204 on success.</summary>
+        [HttpPut("{id:guid}/entitlements")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<IActionResult> UpdateEntitlements(Guid id, [FromBody] TenantMenuEntitlementsDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            int? actingUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : null;
+            await _entitlements.WriteTenantEntitlementsAsync(id, dto, actingUserId);
+            return NoContent();
+        }
+
+        /// <summary>§B: assign a plan — seeds the ceiling from plan_modules / plan_module_pages. 204 on success.</summary>
+        [HttpPut("{id:guid}/plan")]
+        [Authorize]
+        [RequirePlatformAdmin]
+        public async Task<IActionResult> AssignPlan(Guid id, [FromBody] AssignPlanRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.PlanCode)) return BadRequest(new { success = false, message = "planCode is required." });
+            var plan = await _db.SubscriptionPlans.FirstOrDefaultAsync(p => p.Tier.ToLower() == request.PlanCode.ToLower());
+            if (plan == null) return NotFound(new { success = false, message = $"Unknown plan '{request.PlanCode}'." });
+
+            var moduleCodes = await (
+                from pm in _db.PlanModules
+                join m in _db.Modules.IgnoreQueryFilters() on pm.ModuleId equals m.Id
+                where pm.PlanId == plan.Id select m.Code).ToListAsync();
+
+            var pageRows = await (
+                from pp in _db.PlanModulePages
+                join m in _db.Modules.IgnoreQueryFilters() on pp.ModuleId equals m.Id
+                where pp.PlanId == plan.Id select new { m.Code, pp.PageKey }).ToListAsync();
+            var pageRestrictions = pageRows.GroupBy(x => x.Code)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.PageKey).ToList());
+
+            int? actingUserId = int.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : null;
+            await _entitlements.WriteTenantEntitlementsAsync(id, new TenantMenuEntitlementsDto
+            {
+                TenantId = id,
+                ModuleCodes = moduleCodes,
+                PageRestrictions = pageRestrictions
+            }, actingUserId);
+
+            await _tenantService.UpdateTenantSubscriptionPlanAsync(id, plan.Tier);
+            return NoContent();
         }
 
         /// <summary>
@@ -121,51 +186,10 @@ namespace KTransport.API.Controllers
             return Ok(new { success = true, message = $"Tenant status updated to {(dto.IsActive ? "Active" : "Inactive")}." });
         }
 
-        /// <summary>
-        /// Update tenant subscription plan tier (Super User only).
-        /// </summary>
-        [HttpPut("{id:guid}/plan")]
-        [Authorize]
-        [RequirePlatformAdmin]
-        public async Task<IActionResult> UpdateTenantPlan(Guid id, [FromBody] TenantPlanUpdateDto dto)
-        {
-            var success = await _tenantService.UpdateTenantSubscriptionPlanAsync(id, dto.PlanTier);
-            if (!success)
-            {
-                return NotFound(new { message = "Tenant or plan not found." });
-            }
-
-            return Ok(new { success = true, message = $"Tenant subscription plan updated to {dto.PlanTier}." });
-        }
-
-        /// <summary>
-        /// Get menu and sub-report entitlements for a specific tenant ID (Super User only).
-        /// </summary>
-        [HttpGet("{id:guid}/entitlements")]
-        [Authorize]
-        [RequirePlatformAdmin]
-        public async Task<ActionResult<TenantMenuEntitlementsDto>> GetTenantEntitlements(Guid id)
-        {
-            var entitlements = await _navService.GetTenantMenuEntitlementsAsync(id);
-            return Ok(entitlements);
-        }
-
-        /// <summary>
-        /// Update menu and sub-report entitlements for a specific tenant ID (Super User only).
-        /// </summary>
-        [HttpPut("{id:guid}/entitlements")]
-        [Authorize]
-        [RequirePlatformAdmin]
-        public async Task<ActionResult<TenantMenuEntitlementsDto>> UpdateTenantEntitlements(Guid id, [FromBody] TenantMenuEntitlementsDto dto)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var updated = await _navService.UpdateTenantMenuEntitlementsAsync(id, dto);
-            return Ok(updated);
-        }
+        // RBAC clean-slate (contract §B): the per-tenant entitlement GET/PUT and the
+        // plan-assignment PUT live at the top of this controller (GetEntitlements /
+        // UpdateEntitlements / AssignPlan). The old TenantPlanUpdateDto/nav-based
+        // variants were removed to avoid duplicate route mappings.
 
         /// <summary>
         /// List the users of a specific tenant (Platform operator only).

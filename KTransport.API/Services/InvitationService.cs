@@ -63,14 +63,13 @@ namespace KTransport.API.Services
 
             // Only allow assigning features the organization is actually subscribed to.
             var subscribed = await _featureAuth.GetSubscribedFeaturesAsync(tenantId);
+            // subscribed = active module codes. A feature key is assignable when its
+            // root module is subscribed (canonical codes only — no alias normalization).
             var validAssigned = new List<string>();
             foreach (var feat in request.AssignedFeatures ?? new List<string>())
             {
-                var canon = FeatureConstants.Normalize(feat);
                 var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
-                var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
-                if (subscribed.Contains(feat) || subscribed.Contains(canon) ||
-                    subscribed.Contains(root) || subscribed.Contains(canonRoot))
+                if (subscribed.Contains(feat) || subscribed.Contains(root))
                 {
                     validAssigned.Add(feat);
                 }

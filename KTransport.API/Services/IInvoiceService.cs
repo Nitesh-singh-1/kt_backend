@@ -21,5 +21,8 @@ namespace KTransport.API.Services
         Task<List<UnbilledShipmentDto>> GetUnbilledShipmentsByPartyAsync(string? partyName = null, long? partyId = null);
         Task<BulkBillResultDto> BulkBillAsync(BulkBillRequest request, int? userId = null);
         Task<BillBookInvoiceResponseDto> CreateBillBookInvoiceAsync(CreateBillBookRequestDto request, int? userId = null);
+
+        // Add / remove bilties on an existing editable (not fully-paid, not cancelled) Bill Book invoice.
+        Task<BillBookInvoiceResponseDto> UpdateBillShipmentsAsync(long id, UpdateBillShipmentsRequest request, int? userId = null);
     }
 }

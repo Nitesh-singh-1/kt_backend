@@ -73,9 +73,16 @@ if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 
+// Field-level audit trail: writes one audit_logs row per changed business entity
+// (old -> new column diffs) on every SaveChanges. Registered as a singleton and
+// attached to the DbContext below.
+builder.Services.AddSingleton<KTransport.API.Interceptors.AuditSaveChangesInterceptor>();
+
 // Add DbContext
-builder.Services.AddDbContext<KTransportDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbContext<KTransportDbContext>((sp, options) =>
+    options
+        .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+        .AddInterceptors(sp.GetRequiredService<KTransport.API.Interceptors.AuditSaveChangesInterceptor>()));
 
 // Add Authentication
 builder.Services.AddAuthentication(options =>
@@ -98,7 +105,17 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-builder.Services.AddAuthorization();
+// Fail-closed default: every endpoint requires an authenticated user unless it
+// explicitly opts out with [AllowAnonymous]. This is a safety net so a newly
+// added controller/action that forgets [Authorize] is not silently anonymous.
+// Per-action RBAC is still enforced by [RequirePermission]/[RequireFeature];
+// this only guarantees "authenticated" as the floor.
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 // Register Services
 builder.Services.AddScoped<ITenantService, TenantService>();
@@ -124,13 +141,45 @@ builder.Services.AddScoped<ISparePartService, SparePartService>();
 builder.Services.AddScoped<IVehicleLoanService, VehicleLoanService>();
 builder.Services.AddScoped<IEmptyTripLogService, EmptyTripLogService>();
 builder.Services.AddScoped<IDriverLedgerService, DriverLedgerService>();
+
+// Accounting & Finance (TASK-016 Phase 1)
+builder.Services.AddScoped<IAccountService, AccountService>();
+builder.Services.AddScoped<IFinancialPeriodService, FinancialPeriodService>();
+builder.Services.AddScoped<IVoucherService, VoucherService>();
+builder.Services.AddScoped<IAccountingReportService, AccountingReportService>();
+builder.Services.AddScoped<IOpeningBalanceService, OpeningBalanceService>();
+
+// Accounting & Finance Phase 2 — auto-posting (accounting-phase2-autoposting).
+// GST leg via the seam; flat impl on this branch (TaxCalculation-backed split is a later drop-in).
+builder.Services.AddScoped<IGstPostingResolver, FlatGstPostingResolver>();
+builder.Services.AddScoped<IAutoPostingService, AutoPostingService>();
+builder.Services.AddScoped<IAutoPostingManagementService, AutoPostingManagementService>();
+// Transactional-outbox dispatcher: drains auto_posting_queue after commit (never blocks ops).
+builder.Services.AddHostedService<AutoPostingDispatcher>();
 builder.Services.AddScoped<IVehicleInsuranceClaimService, VehicleInsuranceClaimService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
+
+// ---- Object storage (MinIO / AWS S3) for tenant assets such as logos ----
+builder.Services.Configure<KTransport.API.Services.FileStorageOptions>(
+    builder.Configuration.GetSection(KTransport.API.Services.FileStorageOptions.SectionName));
+builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(sp =>
+{
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<KTransport.API.Services.FileStorageOptions>>().Value;
+    var cfg = new Amazon.S3.AmazonS3Config
+    {
+        ForcePathStyle = o.ForcePathStyle,
+        AuthenticationRegion = o.Region,
+    };
+    if (!string.IsNullOrWhiteSpace(o.ServiceUrl)) cfg.ServiceURL = o.ServiceUrl;
+    return new Amazon.S3.AmazonS3Client(o.AccessKey, o.SecretKey, cfg);
+});
+builder.Services.AddScoped<KTransport.API.Services.IFileStorage, KTransport.API.Services.S3FileStorage>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IChallanService, ChallanService>();
 builder.Services.AddScoped<ITenantConfigurationService, TenantConfigurationService>();
+builder.Services.AddScoped<IUsageLimitService, UsageLimitService>();
 builder.Services.AddScoped<INavigationService, NavigationService>();
 // TASK-044 Phase 3: entitlements normalized tables are sole source of truth.
 builder.Services.AddScoped<IEntitlementsService, EntitlementsService>();
@@ -139,6 +188,7 @@ builder.Services.AddScoped<IMenuCatalogService, MenuCatalogService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IVerificationCodeService, VerificationCodeService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
@@ -248,17 +298,38 @@ app.UseMiddleware<KTransport.API.Middleware.CorrelationIdMiddleware>();
 // Consistent JSON error envelope for any unhandled exception (must wrap everything past this point).
 app.UseMiddleware<KTransport.API.Middleware.ExceptionHandlingMiddleware>();
 
+// Baseline security response headers on every response. The indexer assignment overwrites
+// rather than appends, so these are safe to set unconditionally. Swagger UI (dev-only) serves
+// HTML/JS/CSS and is exempted from the strict CSP so the docs page still renders.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["X-Permitted-Cross-Domain-Policies"] = "none";
+    if (!context.Request.Path.StartsWithSegments("/swagger"))
+    {
+        headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+    }
+    await next();
+});
+
 // One structured log line per request (method, path, status, elapsed ms + CorrelationId).
 // Health-check hits are excluded via the filter set up in the host config above.
 app.UseSerilogRequestLogging();
 
-// Configure the HTTP request pipeline.
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// Configure the HTTP request pipeline. Swagger exposes the full API surface, so it is
+// restricted to non-production environments and must never be served in production.
+if (app.Environment.IsDevelopment())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "KTransport API v1");
-    c.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "KTransport API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
 
 if (!app.Environment.IsDevelopment())
 {
@@ -276,6 +347,30 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Ensure the object-storage bucket exists (MinIO/S3). Non-fatal if storage is
+// unreachable at boot — the logo endpoints surface the error on first use.
+using (var storageScope = app.Services.CreateScope())
+{
+    try
+    {
+        var s3 = storageScope.ServiceProvider.GetRequiredService<Amazon.S3.IAmazonS3>();
+        var storageOpts = storageScope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<KTransport.API.Services.FileStorageOptions>>().Value;
+        var bucketExists = Amazon.S3.Util.AmazonS3Util
+            .DoesS3BucketExistV2Async(s3, storageOpts.Bucket).GetAwaiter().GetResult();
+        if (!bucketExists)
+        {
+            s3.PutBucketAsync(new Amazon.S3.Model.PutBucketRequest { BucketName = storageOpts.Bucket })
+                .GetAwaiter().GetResult();
+        }
+    }
+    catch (Exception storageEx)
+    {
+        app.Logger.LogWarning(storageEx,
+            "Object-storage bucket ensure failed at startup — logo endpoints will error until storage is reachable.");
+    }
+}
+
 // TASK-010: health endpoints for orchestrators/load balancers.
 //   /health        — liveness. Always returns Healthy while the process is up.
 //   /health/ready  — readiness. Runs only the checks tagged "ready" (currently the DB
@@ -285,11 +380,11 @@ app.MapControllers();
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = _ => false, // exclude all named checks — pure "am I up?" liveness
-});
+}).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-});
+}).AllowAnonymous();
 
 // Automatically apply pending database migrations and seed data on startup with retry resilience.
 // TASK-010: replaced a hand-rolled for-loop-with-Thread.Sleep with a Polly async retry
@@ -505,6 +600,12 @@ using (var scope = app.Services.CreateScope())
                     logger.LogInformation("Repaired default admin seed values (password and/or display name) on first-time initialization.");
                 }
             }
+
+            // RBAC clean-slate bootstrap: platform-tenant modules + 7 roles +
+            // admin user_roles + plan_modules, then fail-loud catalog validation.
+            await KTransport.API.Data.DataSeeder.BootstrapPlatformTenantAsync(dbContext, logger);
+            await KTransport.API.Data.DataSeeder.ReconcileCatalogSqlAsync(dbContext, logger);
+            await KTransport.API.Data.DataSeeder.ValidateCatalogAsync(dbContext, logger);
 
             logger.LogInformation("Database startup initialization completed successfully.");
         });

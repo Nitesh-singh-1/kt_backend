@@ -4,10 +4,12 @@ using KTransport.API.Common;
 namespace KTransport.API.Models
 {
     /// <summary>
-    /// TASK-040 Phase 1: per-user grant or revocation on top of role.
-    /// APPEND-ONLY — never UPDATE IsGranted/PermissionKey/UserId.
-    /// TASK-044 Phase 3 dropped the legacy <c>menu_entitlements_json.userOverrides</c>
-    /// blob — this table is the sole source, with a REAL FK to users.id.
+    /// Per-user grant or revocation on top of role. APPEND-ONLY.
+    ///
+    /// RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate): the legacy
+    /// <c>permission_key</c> string is GONE. <see cref="PermissionId"/> is the
+    /// authoritative key (NOT NULL). Current unique index:
+    /// (tenant_id, user_id, permission_id) WHERE superseded_by IS NULL.
     /// </summary>
     public class UserPermissionOverride : ITenantScopedEntity
     {
@@ -17,19 +19,13 @@ namespace KTransport.API.Models
 
         public virtual Tenant? Tenant { get; set; }
 
-        /// <summary>Real FK to users.id (not a free-text name).</summary>
+        /// <summary>FK → users.id.</summary>
         public int UserId { get; set; }
 
         public virtual User? User { get; set; }
 
-        public string PermissionKey { get; set; } = string.Empty;
-
-        /// <summary>
-        /// TASK-049 Option B: FK to <see cref="Permission.Id"/>. Nullable to
-        /// cover legacy rows; new inserts always set it. Dual-written with
-        /// <see cref="PermissionKey"/>.
-        /// </summary>
-        public int? PermissionId { get; set; }
+        /// <summary>FK → <see cref="Permission"/>.Id (NOT NULL).</summary>
+        public int PermissionId { get; set; }
 
         public virtual Permission? Permission { get; set; }
 

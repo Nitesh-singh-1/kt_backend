@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -17,15 +18,18 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly INumberingSequenceService _numberingService;
         private readonly ILogger<TripService> _logger;
+        private readonly IAutoPostingService? _autoPosting;
 
         public TripService(
             KTransportDbContext context,
             INumberingSequenceService numberingService,
-            ILogger<TripService> logger)
+            ILogger<TripService> logger,
+            IAutoPostingService? autoPosting = null)
         {
             _context = context;
             _numberingService = numberingService;
             _logger = logger;
+            _autoPosting = autoPosting;
         }
 
         public async Task<List<TripDto>> GetTripsAsync(string? search = null, TripStatus? status = null)
@@ -410,6 +414,10 @@ namespace KTransport.API.Services
 
             await _context.SaveChangesAsync();
 
+            // Phase 2: trip expense -> Payment voucher. Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.TripExpense, expense.Id, AutoPostOperation.Post);
+
             return new TripExpenseDto
             {
                 Id = expense.Id,
@@ -438,6 +446,11 @@ namespace KTransport.API.Services
 
             _context.TripExpenses.Remove(expense);
             await _context.SaveChangesAsync();
+
+            // Phase 2: a deleted expense reverses its Payment voucher (no repost). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.TripExpense, expenseId, AutoPostOperation.Reverse);
+
             return true;
         }
 

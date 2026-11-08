@@ -1,20 +1,27 @@
 namespace KTransport.API.Models
 {
     /// <summary>
-    /// TASK-041 Phase 1: global menu catalog that shadows the hard-coded
-    /// if/else tree in <c>NavigationService.GetDynamicMenuAsync</c>.
-    /// 10 columns; GLOBAL (no tenant_id) — access-controlled only via
-    /// [RequirePlatformAdmin] on admin endpoints.
+    /// Global menu catalog = the PAGES of a module. GLOBAL (no tenant_id) —
+    /// access-controlled only via [RequirePlatformAdmin] on admin endpoints.
+    ///
+    /// RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate):
+    /// the string self-ref <c>parent_key</c> is replaced by an int self-FK
+    /// <see cref="ParentId"/>. <see cref="Key"/> stays as the stable UI id and
+    /// as the page-restriction key (permissions.page_key → this key).
+    /// <see cref="PermissionKey"/> is kept purely as a UI hint for the frontend
+    /// button-gating; it is NOT a visibility gate (module_id + page is).
     /// </summary>
     public class MenuItem
     {
         public int Id { get; set; }
 
-        /// <summary>Semantic key, e.g. "billing.bill_book". Unique.</summary>
+        /// <summary>Semantic UI key, e.g. "billing.invoices". Unique.</summary>
         public string Key { get; set; } = string.Empty;
 
-        /// <summary>NULL = top-level item. Else references another row's Key.</summary>
-        public string? ParentKey { get; set; }
+        /// <summary>NULL = top-level item. Else the parent menu_items.id.</summary>
+        public int? ParentId { get; set; }
+
+        public virtual MenuItem? Parent { get; set; }
 
         public string Title { get; set; } = string.Empty;
 
@@ -24,11 +31,7 @@ namespace KTransport.API.Models
         /// <summary>Icon key the frontend sidebar renderer resolves (e.g. "package").</summary>
         public string? Icon { get; set; }
 
-        /// <summary>
-        /// NULL = no permission gate (always visible). Else the permission key
-        /// that must be in the user's effective set for this item to appear.
-        /// Not a FK — permissions catalog is intentionally decoupled.
-        /// </summary>
+        /// <summary>UI-only button-gating hint (not a visibility gate).</summary>
         public string? PermissionKey { get; set; }
 
         /// <summary>Optional pill text like "Freight Bill".</summary>
@@ -37,22 +40,15 @@ namespace KTransport.API.Models
         public int DisplayOrder { get; set; }
 
         /// <summary>
-        /// Names a non-trivial visibility predicate. Phase 1 known values:
-        /// NULL (default), "report_entitlement", "subscription_feature".
+        /// Names a non-trivial visibility predicate. Known values:
+        /// NULL (default), "report_entitlement".
         /// </summary>
         public string? VisibilityRule { get; set; }
 
-        /// <summary>Soft-delete. Phase 2+ admin UI uses this instead of DELETE.</summary>
+        /// <summary>Soft-delete / global kill switch for the catalog row itself.</summary>
         public bool IsActive { get; set; } = true;
 
-        /// <summary>
-        /// TASK-049 Option B: FK to <see cref="Module"/>.Id. Backfilled by the
-        /// <c>MenuRbacNormalization</c> migration from <see cref="Key"/> /
-        /// <see cref="ParentKey"/>. The structural menu join uses this column
-        /// (instead of fuzzy string lookups on <see cref="Key"/> or
-        /// <see cref="PermissionKey"/>). Legacy string columns stay through
-        /// Phase A for the one-release transition and are dropped in Phase B.
-        /// </summary>
+        /// <summary>NOT NULL FK → <see cref="Module"/>.Id. The structural menu join.</summary>
         public int ModuleId { get; set; }
 
         public virtual Module? Module { get; set; }

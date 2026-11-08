@@ -24,6 +24,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("trips.create")]
         public async Task<ActionResult<ChallanResponse>> CreateChallan([FromBody] CreateChallanRequest request)
         {
             if (!ModelState.IsValid)
@@ -43,6 +44,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id}")]
+        [RequirePermission("trips.edit")]
         public async Task<ActionResult<ChallanResponse>> UpdateChallan(long id, [FromBody] UpdateChallanRequest request)
         {
             if (!ModelState.IsValid)
@@ -62,6 +64,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id}")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ChallanResponse>> GetChallanById(long id)
         {
             var response = await _challanService.GetChallanByIdAsync(id);
@@ -75,6 +78,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ChallanListResponse>> GetAllChallans([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
         {
             var response = await _challanService.GetAllChallansAsync(page, pageSize);
@@ -88,6 +92,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("search")]
+        [RequirePermission("trips.view")]
         public async Task<ActionResult<ChallanListResponse>> SearchChallans(
             [FromQuery] string? searchTerm,
             [FromQuery] DateOnly? startDate,
@@ -106,6 +111,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id}")]
+        [RequirePermission("trips.delete")]
         public async Task<ActionResult<ChallanResponse>> DeleteChallan(long id)
         {
             var userId = GetCurrentUserId();

@@ -115,6 +115,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("billing.bill_book.edit")]
         public async Task<ActionResult<InvoiceDto>> UpdateInvoice(long id, [FromBody] UpdateInvoiceRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -126,6 +127,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/payments")]
+        [RequirePermission("billing.bill_book.edit")]
         public async Task<ActionResult<InvoiceDto>> RecordPayment(long id, [FromBody] RecordPaymentRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -136,7 +138,23 @@ namespace KTransport.API.Controllers
             return Ok(updated);
         }
 
+        // Add / remove bilties on an existing editable Bill Book invoice.
+        // Editable = not fully Paid and not Cancelled; a change may not drop the
+        // Grand Total below what has already been received (enforced in the service).
+        [HttpPut("{id:long}/shipments")]
+        [RequirePermission("billing.bill_book.edit")]
+        public async Task<ActionResult<BillBookInvoiceResponseDto>> UpdateBillShipments(long id, [FromBody] UpdateBillShipmentsRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            int? userId = GetCurrentUserId();
+            var result = await _invoiceService.UpdateBillShipmentsAsync(id, request, userId);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
+
         [HttpDelete("{id:long}")]
+        [RequirePermission("billing.bill_book.delete")]
         public async Task<ActionResult> VoidInvoice(long id)
         {
             int? userId = GetCurrentUserId();

@@ -4,15 +4,12 @@ using Microsoft.EntityFrameworkCore;
 namespace KTransport.API.Data;
 
 /// <summary>
-/// TASK-041 Phase 1: DbSets + Fluent API for the menu_items catalog and the
-/// menu_parity_log shadow log. Both tables are GLOBAL — no HasQueryFilter,
-/// no tenant discriminator. Access control sits on the admin controller
-/// with [RequirePlatformAdmin].
+/// DbSets + Fluent API for the menu_items catalog and the menu_parity_log
+/// shadow log. Both GLOBAL — no tenant discriminator. Access control is on the
+/// admin controller via [RequirePlatformAdmin].
 ///
-/// Invoked from the main context's OnModelCreating via
-/// <see cref="ConfigureMenuModel"/> (we cannot reuse the existing
-/// <c>OnModelCreatingPartial</c> partial method — that slot is already
-/// claimed by KTransportDbContext.Entitlements.cs).
+/// RBAC clean-slate: the string self-ref parent_key is replaced by an int
+/// self-FK parent_id; module_id is the structural visibility join.
 /// </summary>
 public partial class KTransportDbContext
 {
@@ -27,12 +24,12 @@ public partial class KTransportDbContext
             entity.ToTable("menu_items");
 
             entity.HasIndex(e => e.Key, "menu_items_key_key").IsUnique();
-            entity.HasIndex(e => new { e.ParentKey, e.DisplayOrder }, "menu_items_parent_key_idx");
+            entity.HasIndex(e => new { e.ParentId, e.DisplayOrder }, "menu_items_parent_id_idx");
             entity.HasIndex(e => e.IsActive, "menu_items_active_idx");
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Key).HasMaxLength(80).HasColumnName("key");
-            entity.Property(e => e.ParentKey).HasMaxLength(80).HasColumnName("parent_key");
+            entity.Property(e => e.ParentId).HasColumnName("parent_id");
             entity.Property(e => e.Title).HasMaxLength(100).HasColumnName("title");
             entity.Property(e => e.Path).HasMaxLength(200).HasColumnName("path");
             entity.Property(e => e.Icon).HasMaxLength(40).HasColumnName("icon");
@@ -42,9 +39,7 @@ public partial class KTransportDbContext
             entity.Property(e => e.VisibilityRule).HasMaxLength(60).HasColumnName("visibility_rule");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
 
-            // TASK-049 Option B: structural FK to modules.id. The legacy
-            // string columns (key / parent_key / permission_key) are kept
-            // through Phase A per the migration policy — Phase B drops them.
+            // Structural FK to modules.id (NOT NULL).
             entity.Property(e => e.ModuleId).HasColumnName("module_id");
             entity.HasIndex(e => e.ModuleId, "menu_items_module_id_idx");
             entity.HasOne(e => e.Module).WithMany()
@@ -52,12 +47,11 @@ public partial class KTransportDbContext
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_menu_items_module");
 
-            // Self-FK on parent_key → key. ON DELETE CASCADE so dropping a
-            // module cascades to its children.
-            entity.HasOne<MenuItem>()
+            // Self-FK parent_id → id. ON DELETE CASCADE so dropping a parent
+            // cascades to its children.
+            entity.HasOne(e => e.Parent)
                 .WithMany()
-                .HasForeignKey(e => e.ParentKey)
-                .HasPrincipalKey(e => e.Key)
+                .HasForeignKey(e => e.ParentId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_menu_items_parent");
 
@@ -86,8 +80,6 @@ public partial class KTransportDbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("logged_at");
-
-            // NO HasQueryFilter — read-protected only via [RequirePlatformAdmin].
         });
     }
 }

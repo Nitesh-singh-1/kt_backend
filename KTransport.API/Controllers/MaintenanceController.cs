@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
@@ -21,6 +22,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<List<VehicleMaintenanceDto>>> GetMaintenanceRecords(
             [FromQuery] long? vehicleId = null,
             [FromQuery] MaintenanceType? maintenanceType = null)
@@ -30,6 +32,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("master_data.fleet.view")]
         public async Task<ActionResult<VehicleMaintenanceDto>> GetMaintenanceById(long id)
         {
             var record = await _maintenanceService.GetMaintenanceByIdAsync(id);
@@ -38,6 +41,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("master_data.fleet.create")]
         public async Task<ActionResult<VehicleMaintenanceDto>> CreateMaintenance([FromBody] CreateMaintenanceRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -47,6 +51,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("master_data.fleet.delete")]
         public async Task<ActionResult> DeleteMaintenance(long id)
         {
             var success = await _maintenanceService.DeleteMaintenanceAsync(id);

@@ -25,13 +25,17 @@ namespace KTransport.API.Tests.Controllers
 
             var ctx = new KTransportDbContext(options);
             int id = 1;
-            foreach (var r in MenuCatalogSeedData.Rows)
+            var idByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var rows = MenuCatalogSeedData.Rows;
+            // First pass: assign ids by key.
+            foreach (var r in rows) idByKey[r.Key] = id++;
+            foreach (var r in rows)
             {
                 ctx.MenuItems.Add(new MenuItem
                 {
-                    Id = id++,
+                    Id = idByKey[r.Key],
                     Key = r.Key,
-                    ParentKey = r.ParentKey,
+                    ParentId = r.ParentKey != null && idByKey.TryGetValue(r.ParentKey, out var pid) ? pid : (int?)null,
                     Title = r.Title,
                     Path = r.Path,
                     Icon = r.Icon,
@@ -110,7 +114,8 @@ namespace KTransport.API.Tests.Controllers
             var result = await controller.HideIncompleteMasterData();
             Assert.IsType<OkObjectResult>(result);
 
-            var masterItems = await db.MenuItems.Where(m => m.ParentKey == "master_data").ToListAsync();
+            var mdId = await db.MenuItems.Where(m => m.Key == "master_data").Select(m => (int?)m.Id).FirstAsync();
+            var masterItems = await db.MenuItems.Where(m => m.ParentId == mdId).ToListAsync();
             var activeItems = masterItems.Where(m => m.IsActive).Select(m => m.Key).ToList();
             var hiddenItems = masterItems.Where(m => !m.IsActive).Select(m => m.Key).ToList();
 
@@ -138,7 +143,8 @@ namespace KTransport.API.Tests.Controllers
             var result = await controller.ResetMasterData();
             Assert.IsType<OkObjectResult>(result);
 
-            var masterItems = await db.MenuItems.Where(m => m.ParentKey == "master_data").ToListAsync();
+            var mdId = await db.MenuItems.Where(m => m.Key == "master_data").Select(m => (int?)m.Id).FirstAsync();
+            var masterItems = await db.MenuItems.Where(m => m.ParentId == mdId).ToListAsync();
             Assert.All(masterItems, m => Assert.True(m.IsActive));
         }
     }

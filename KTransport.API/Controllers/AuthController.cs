@@ -213,26 +213,6 @@ namespace KTransport.API.Controllers
             return Ok(response);
         }
 
-        [HttpPost("reset-password")]
-        [AllowAnonymous]
-        [EnableRateLimiting("AuthPolicy")]
-        public async Task<ActionResult<ResetPasswordResponse>> ResetPassword([FromBody] ForgotPasswordRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var response = await _authService.ResetPasswordAsync(request);
-
-            if (!response.Success)
-            {
-                return BadRequest(response);
-            }
-
-            return Ok(response);
-        }
-
         [HttpPost("change-password")]
         [Authorize]
         public async Task<ActionResult<ResetPasswordResponse>> ChangePassword([FromBody] ChangePasswordRequest request)

@@ -36,6 +36,9 @@ namespace KTransport.API.DTOs
         public bool IsCollected { get; set; } = true;
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
+
+        /// <summary>Phase 2 additive read-only: the live Receipt voucher auto-posted from this settlement (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class MoneyReceiptFilterRequest

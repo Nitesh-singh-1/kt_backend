@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
@@ -12,10 +13,12 @@ namespace KTransport.API.Services
     public class MoneyReceiptService : IMoneyReceiptService
     {
         private readonly KTransportDbContext _context;
+        private readonly IAutoPostingService? _autoPosting;
 
-        public MoneyReceiptService(KTransportDbContext context)
+        public MoneyReceiptService(KTransportDbContext context, IAutoPostingService? autoPosting = null)
         {
             _context = context;
+            _autoPosting = autoPosting;
         }
 
         public async Task<List<MoneyReceiptDto>> GetReceiptsAsync(MoneyReceiptFilterRequest filter)
@@ -80,7 +83,7 @@ namespace KTransport.API.Services
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(s => s.Id == id && s.IsActive && s.PaymentTerm == PaymentTerm.Paid);
 
-            return shipment == null ? null : MapToReceiptDto(shipment);
+            return shipment == null ? null : await WithLinkAsync(MapToReceiptDto(shipment), shipment.Id);
         }
 
         public async Task<MoneyReceiptDto?> GetReceiptByShipmentIdAsync(long shipmentId)
@@ -90,7 +93,14 @@ namespace KTransport.API.Services
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(s => s.Id == shipmentId && s.IsActive && s.PaymentTerm == PaymentTerm.Paid);
 
-            return shipment == null ? null : MapToReceiptDto(shipment);
+            return shipment == null ? null : await WithLinkAsync(MapToReceiptDto(shipment), shipment.Id);
+        }
+
+        private async Task<MoneyReceiptDto> WithLinkAsync(MoneyReceiptDto dto, long shipmentId)
+        {
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.Shipment, shipmentId);
+            return dto;
         }
 
         public async Task<MoneyReceiptDto?> CollectPaymentAsync(long shipmentId, CollectMoneyReceiptRequest request)
@@ -122,7 +132,15 @@ namespace KTransport.API.Services
             }
 
             await _context.SaveChangesAsync();
-            return MapToReceiptDto(shipment);
+
+            // Phase 2: shipment settlement -> Receipt (cumulative -> reverse+repost). Guarded.
+            if (_autoPosting != null)
+                await _autoPosting.EnqueueAsync(AutoPostSourceTypes.Shipment, shipment.Id, AutoPostOperation.Repost);
+
+            var dto = MapToReceiptDto(shipment);
+            if (_autoPosting != null)
+                dto.LinkedVoucherId = await _autoPosting.GetLiveVoucherIdAsync(AutoPostSourceTypes.Shipment, shipment.Id);
+            return dto;
         }
 
         private static MoneyReceiptDto MapToReceiptDto(Shipment s)

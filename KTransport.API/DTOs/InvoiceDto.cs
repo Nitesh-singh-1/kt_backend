@@ -32,6 +32,9 @@ namespace KTransport.API.DTOs
         public DateTime? UpdatedAt { get; set; }
         public List<InvoiceItemDto> Items { get; set; } = new();
         public List<string> LinkedShipmentNos { get; set; } = new();
+
+        /// <summary>Phase 2 additive read-only: the live Sales voucher auto-posted from this invoice (null if none).</summary>
+        public long? LinkedVoucherId { get; set; }
     }
 
     public class InvoiceItemDto
@@ -133,5 +136,15 @@ namespace KTransport.API.DTOs
         public string? PaymentMode { get; set; } // Cash, UPI, NEFT, Cheque
         public string? ReferenceNo { get; set; }
         public string? Remarks { get; set; }
+    }
+
+    /// <summary>
+    /// Replaces the full bilty set on an existing (editable) Bill Book invoice.
+    /// ShipmentIds is the complete desired set AFTER the edit; the service diffs
+    /// it against the invoice's current bilties to add/remove and re-link.
+    /// </summary>
+    public class UpdateBillShipmentsRequest
+    {
+        public List<long> ShipmentIds { get; set; } = new();
     }
 }

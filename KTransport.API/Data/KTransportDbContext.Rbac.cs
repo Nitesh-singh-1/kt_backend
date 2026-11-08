@@ -5,21 +5,19 @@ using Microsoft.EntityFrameworkCore;
 namespace KTransport.API.Data;
 
 /// <summary>
-/// TASK-046 Phase 1: DbSets + Fluent API for the four new RBAC tables
-/// (<c>modules</c>, <c>tenant_modules</c>, <c>roles</c>, <c>user_roles</c>)
-/// plus the <c>role_permissions.role_id</c> FK that dual-maintains with the
-/// legacy <c>role_name</c> string. Soft-delete discipline per ADR §Y applies
-/// — no column drops, no row deletes.
-///
-/// Hooked into the main context via <see cref="ConfigureRbacModel"/>, invoked
-/// from <c>OnModelCreating</c> at the bottom of KTransportDbContext.cs.
+/// DbSets + Fluent API for the RBAC catalog tables: modules, tenant_modules,
+/// roles, user_roles, plus the RBAC clean-slate additions tenant_module_pages,
+/// plan_modules and plan_module_pages.
 /// </summary>
 public partial class KTransportDbContext
 {
     public virtual DbSet<Module> Modules { get; set; } = null!;
     public virtual DbSet<TenantModule> TenantModules { get; set; } = null!;
+    public virtual DbSet<TenantModulePage> TenantModulePages { get; set; } = null!;
     public virtual DbSet<Role> Roles { get; set; } = null!;
     public virtual DbSet<UserRole> UserRoles { get; set; } = null!;
+    public virtual DbSet<PlanModule> PlanModules { get; set; } = null!;
+    public virtual DbSet<PlanModulePage> PlanModulePages { get; set; } = null!;
 
     private void ConfigureRbacModel(ModelBuilder modelBuilder)
     {
@@ -53,7 +51,6 @@ public partial class KTransportDbContext
             entity.HasIndex(e => new { e.TenantId, e.ModuleId }, "tenant_modules_tenant_module_active_uq")
                 .IsUnique()
                 .HasFilter("\"enabled_until\" IS NULL");
-
             entity.HasIndex(e => new { e.TenantId, e.IsEnabled }, "tenant_modules_tenant_enabled_idx");
 
             entity.Property(e => e.Id).HasColumnName("id");
@@ -79,11 +76,46 @@ public partial class KTransportDbContext
                 .HasForeignKey(d => d.TenantId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_tenant_modules_tenant");
-
             entity.HasOne(d => d.Module).WithMany()
                 .HasForeignKey(d => d.ModuleId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_tenant_modules_module");
+        });
+
+        // -------- tenant_module_pages (page-level ceiling, NEW) -------------
+        modelBuilder.Entity<TenantModulePage>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("tenant_module_pages_pkey");
+            entity.ToTable("tenant_module_pages");
+
+            entity.HasIndex(e => new { e.TenantId, e.ModuleId, e.PageKey }, "tenant_module_pages_active_uq")
+                .IsUnique()
+                .HasFilter("\"enabled_until\" IS NULL");
+            entity.HasIndex(e => new { e.TenantId, e.ModuleId }, "tenant_module_pages_tenant_module_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.ModuleId).HasColumnName("module_id");
+            entity.Property(e => e.PageKey).HasMaxLength(100).HasColumnName("page_key");
+            entity.Property(e => e.EnabledFrom)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("enabled_from");
+            entity.Property(e => e.EnabledUntil)
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("enabled_until");
+            entity.Property(e => e.EnabledBy).HasColumnName("enabled_by");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_tenant_module_pages_tenant");
+            entity.HasOne(d => d.Module).WithMany()
+                .HasForeignKey(d => d.ModuleId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_tenant_module_pages_module");
         });
 
         // -------- roles (tenant-scoped catalog) -----------------------------
@@ -151,26 +183,55 @@ public partial class KTransportDbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_user_roles_user");
-
             entity.HasOne(d => d.Role).WithMany()
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_user_roles_role");
         });
 
-        // -------- role_permissions.role_id — new nullable FK ----------------
-        // Column added by the schema migration. role_name stays FOREVER per
-        // ADR §Y (soft-delete) and is dual-written on every insert.
-        modelBuilder.Entity<RolePermission>(entity =>
+        // -------- plan_modules (global, plan default grant) -----------------
+        modelBuilder.Entity<PlanModule>(entity =>
         {
-            entity.Property(e => e.RoleId).HasColumnName("role_id");
+            entity.HasKey(e => e.Id).HasName("plan_modules_pkey");
+            entity.ToTable("plan_modules");
 
-            entity.HasOne(d => d.Role).WithMany()
-                .HasForeignKey(d => d.RoleId)
+            entity.HasIndex(e => new { e.PlanId, e.ModuleId }, "plan_modules_plan_module_uq").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.PlanId).HasColumnName("plan_id");
+            entity.Property(e => e.ModuleId).HasColumnName("module_id");
+
+            entity.HasOne(e => e.Plan).WithMany()
+                .HasForeignKey(e => e.PlanId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_plan_modules_plan");
+            entity.HasOne(e => e.Module).WithMany()
+                .HasForeignKey(e => e.ModuleId)
                 .OnDelete(DeleteBehavior.Restrict)
-                .HasConstraintName("fk_role_permissions_role");
+                .HasConstraintName("fk_plan_modules_module");
+        });
 
-            entity.HasIndex(e => e.RoleId, "role_permissions_role_id_idx");
+        // -------- plan_module_pages (global, optional plan page narrowing) --
+        modelBuilder.Entity<PlanModulePage>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("plan_module_pages_pkey");
+            entity.ToTable("plan_module_pages");
+
+            entity.HasIndex(e => new { e.PlanId, e.ModuleId, e.PageKey }, "plan_module_pages_uq").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.PlanId).HasColumnName("plan_id");
+            entity.Property(e => e.ModuleId).HasColumnName("module_id");
+            entity.Property(e => e.PageKey).HasMaxLength(100).HasColumnName("page_key");
+
+            entity.HasOne(e => e.Plan).WithMany()
+                .HasForeignKey(e => e.PlanId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_plan_module_pages_plan");
+            entity.HasOne(e => e.Module).WithMany()
+                .HasForeignKey(e => e.ModuleId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_plan_module_pages_module");
         });
     }
 }

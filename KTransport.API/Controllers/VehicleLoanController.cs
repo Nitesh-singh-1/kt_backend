@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using KTransport.API.Authorization;
 using KTransport.API.DTOs;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -20,6 +21,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet]
+        [RequirePermission("master_data.loans.view")]
         public async Task<ActionResult<List<VehicleLoanDto>>> GetAll(
             [FromQuery] string? search = null,
             [FromQuery] bool activeOnly = false)
@@ -28,6 +30,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpGet("{id:long}")]
+        [RequirePermission("master_data.loans.view")]
         public async Task<ActionResult<VehicleLoanDto>> GetById(long id)
         {
             var result = await _service.GetByIdAsync(id);
@@ -36,6 +39,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost]
+        [RequirePermission("master_data.loans.create")]
         public async Task<ActionResult<VehicleLoanDto>> Create([FromBody] CreateVehicleLoanRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -44,6 +48,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPut("{id:long}")]
+        [RequirePermission("master_data.loans.edit")]
         public async Task<ActionResult<VehicleLoanDto>> Update(long id, [FromBody] UpdateVehicleLoanRequest request)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -53,6 +58,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpPost("{id:long}/pay-emi")]
+        [RequirePermission("master_data.loans.edit")]
         public async Task<ActionResult<VehicleLoanDto>> PayEmi(long id)
         {
             var result = await _service.RecordEmiPaidAsync(id);
@@ -61,6 +67,7 @@ namespace KTransport.API.Controllers
         }
 
         [HttpDelete("{id:long}")]
+        [RequirePermission("master_data.loans.delete")]
         public async Task<ActionResult> Delete(long id)
         {
             var success = await _service.DeleteAsync(id);
