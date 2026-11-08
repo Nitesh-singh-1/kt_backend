@@ -96,16 +96,12 @@ namespace KTransport.API.Authorization
                 return;
             }
 
+            // RBAC clean-slate: canonical keys only — exact match (wildcard handled above).
             bool hasKey = false;
             foreach (var reqKey in _permissionKeys)
             {
                 if (string.IsNullOrWhiteSpace(reqKey)) continue;
-
-                var canonical = FeatureConstants.Normalize(reqKey);
-                if (permissions.Any(p =>
-                    string.Equals(p, reqKey, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrWhiteSpace(canonical) &&
-                     string.Equals(FeatureConstants.Normalize(p), canonical, StringComparison.OrdinalIgnoreCase))))
+                if (permissions.Any(p => string.Equals(p, reqKey, StringComparison.OrdinalIgnoreCase)))
                 {
                     hasKey = true;
                     break;

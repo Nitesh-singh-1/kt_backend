@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using KTransport.API.Common;
 using KTransport.API.Data;
@@ -83,6 +84,97 @@ namespace KTransport.API.Services
             await _context.SaveChangesAsync();
 
             return MapToDto(setting);
+        }
+
+        // ---- Logo object-storage reference ----------------------------------
+        // The object key lives in CustomSettingsJson (which the config PUT never writes),
+        // so a normal branding save can never clobber it. GeneralJson.logoUrl stays in sync
+        // as the short absolute serve URL the frontend and print templates read.
+
+        public async Task<string> SetLogoAsync(Guid tenantId, string objectKey, string contentType, string logoUrl)
+        {
+            var setting = await _context.TenantSettings.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.TenantId == tenantId)
+                          ?? await CreateDefaultSettingsForTenantAsync(tenantId);
+
+            var general = DeserializeOrDefault<GeneralSettingsDto>(setting.GeneralJson);
+            general.LogoUrl = logoUrl;
+            setting.GeneralJson = JsonSerializer.Serialize(general, JsonOptions);
+
+            var custom = ParseCustomSettings(setting.CustomSettingsJson);
+            custom["logo"] = new JsonObject
+            {
+                ["objectKey"] = objectKey,
+                ["contentType"] = contentType,
+                ["updatedAt"] = DateTime.UtcNow.ToString("O"),
+            };
+            setting.CustomSettingsJson = custom.ToJsonString();
+
+            setting.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return logoUrl;
+        }
+
+        public async Task<(string ObjectKey, string ContentType)?> GetLogoReferenceAsync(Guid tenantId)
+        {
+            var setting = await _context.TenantSettings.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+            if (setting == null) return null;
+
+            var custom = ParseCustomSettings(setting.CustomSettingsJson);
+            if (custom["logo"] is not JsonObject logo) return null;
+
+            var key = logo["objectKey"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(key)) return null;
+
+            var contentType = logo["contentType"]?.GetValue<string>() ?? "application/octet-stream";
+            return (key!, contentType);
+        }
+
+        public async Task<string?> ClearLogoAsync(Guid tenantId)
+        {
+            var setting = await _context.TenantSettings.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+            if (setting == null) return null;
+
+            string? removedKey = null;
+            var custom = ParseCustomSettings(setting.CustomSettingsJson);
+            if (custom["logo"] is JsonObject logo)
+            {
+                removedKey = logo["objectKey"]?.GetValue<string>();
+                custom.Remove("logo");
+                setting.CustomSettingsJson = custom.ToJsonString();
+            }
+
+            var general = DeserializeOrDefault<GeneralSettingsDto>(setting.GeneralJson);
+            general.LogoUrl = null;
+            setting.GeneralJson = JsonSerializer.Serialize(general, JsonOptions);
+
+            setting.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return removedKey;
+        }
+
+        public async Task<List<(Guid TenantId, string DataUri)>> GetTenantsWithBase64LogosAsync()
+        {
+            var settings = await _context.TenantSettings.IgnoreQueryFilters().ToListAsync();
+            var result = new List<(Guid, string)>();
+            foreach (var s in settings)
+            {
+                var general = DeserializeOrDefault<GeneralSettingsDto>(s.GeneralJson);
+                if (!string.IsNullOrWhiteSpace(general.LogoUrl) &&
+                    general.LogoUrl!.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add((s.TenantId, general.LogoUrl!));
+                }
+            }
+            return result;
+        }
+
+        private static JsonObject ParseCustomSettings(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new JsonObject();
+            try { return JsonNode.Parse(json) as JsonObject ?? new JsonObject(); }
+            catch { return new JsonObject(); }
         }
 
         public async Task<PublicTenantConfigDto?> GetPublicTenantConfigAsync(string codeOrDomain)

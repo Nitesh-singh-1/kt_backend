@@ -5,53 +5,10 @@ namespace KTransport.API.DTOs
 {
     // ---------- TASK-040 Phase 1 DTOs ----------
 
-    public class PermissionDto
-    {
-        public int Id { get; set; }
-        public string Key { get; set; } = string.Empty;
-        public string FeatureKey { get; set; } = string.Empty;
-        public string Action { get; set; } = string.Empty;
-        public string? Description { get; set; }
-        public int DisplayOrder { get; set; }
-    }
-
-    public class TenantEntitlementSubscriptionDto
-    {
-        public long Id { get; set; }
-        public Guid TenantId { get; set; }
-        public string PlanTier { get; set; } = "Enterprise";
-        public List<string> EnabledFeatureKeys { get; set; } = new();
-        public DateTime EffectiveFrom { get; set; }
-        public DateTime? EffectiveUntil { get; set; }
-    }
-
-    public class TenantReportEntitlementDto
-    {
-        public long Id { get; set; }
-        public Guid TenantId { get; set; }
-        public string ReportKey { get; set; } = string.Empty;
-        public bool IsEnabled { get; set; }
-    }
-
-    public class RolePermissionDto
-    {
-        public long Id { get; set; }
-        public Guid TenantId { get; set; }
-        public string RoleName { get; set; } = string.Empty;
-        public string PermissionKey { get; set; } = string.Empty;
-        public DateTime GrantedAt { get; set; }
-        public DateTime? RevokedAt { get; set; }
-    }
-
-    public class UserPermissionOverrideDto
-    {
-        public long Id { get; set; }
-        public Guid TenantId { get; set; }
-        public int UserId { get; set; }
-        public string PermissionKey { get; set; } = string.Empty;
-        public bool IsGranted { get; set; }
-        public DateTime GrantedAt { get; set; }
-    }
+    // RBAC clean-slate: the legacy PermissionDto (feature_key) /
+    // TenantEntitlementSubscriptionDto (enabled_feature_keys) /
+    // RolePermissionDto (role_name, permission_key) / UserPermissionOverrideDto
+    // (permission_key) DTOs are deleted — nothing emits those shapes any more.
 
     public class BackfillOrphanDto
     {
@@ -86,5 +43,22 @@ namespace KTransport.API.DTOs
         public DateTime WindowStart { get; set; }
         public int TotalMismatches { get; set; }
         public List<ParityReportTenantGroupDto> ByTenant { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Phase 1 keystone follow-up: the authoritative module catalog the
+    /// platform-admin /clients UI renders its assign/revoke checklist from.
+    /// Served from the live <c>modules</c> table so the UI can never drift from
+    /// the DB (no more hardcoded frontend list that silently omits a real
+    /// module — e.g. the paid <c>accounting</c> add-on — and makes it
+    /// unprovisionable). See .agent/specs/decisions/menu-admin-visibility-keystone.md.
+    /// </summary>
+    public class ModuleCatalogItemDto
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public bool IsPremium { get; set; }
+        public int DisplayOrder { get; set; }
     }
 }

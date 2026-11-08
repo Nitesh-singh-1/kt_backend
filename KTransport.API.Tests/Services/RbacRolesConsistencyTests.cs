@@ -30,7 +30,8 @@ public class RbacRolesConsistencyTests
             .UseInMemoryDatabase($"RbacRoles_{Guid.NewGuid():N}")
             .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
-        return new FeatureAuthorizationService(new KTransportDbContext(opts, new StubTenantContext()));
+        var ctx = new KTransportDbContext(opts, new StubTenantContext());
+        return new FeatureAuthorizationService(ctx, new EntitlementsService(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<EntitlementsService>.Instance));
     }
 
     private static ClaimsPrincipal UserWith(string role, Guid tenantId)

@@ -4,10 +4,14 @@ using KTransport.API.Common;
 namespace KTransport.API.Models
 {
     /// <summary>
-    /// TASK-040 Phase 1: per-tenant per-role grant.
-    /// APPEND-ONLY — revocations create a new row OR update RevokedAt + RevokedBy.
-    /// Never DELETE. Sole source of role grants (TASK-044 Phase 3 dropped
-    /// the legacy <c>menu_entitlements_json.roleOverrides</c> blob).
+    /// Per-tenant per-role grant. APPEND-ONLY — revocations stamp
+    /// <see cref="RevokedAt"/>, never DELETE.
+    ///
+    /// RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate): the legacy
+    /// string columns <c>role_name</c> / <c>permission_key</c> are GONE. The
+    /// authoritative keys are <see cref="RoleId"/> + <see cref="PermissionId"/>
+    /// (both NOT NULL). Active unique index: (tenant_id, role_id, permission_id)
+    /// WHERE revoked_at IS NULL.
     /// </summary>
     public class RolePermission : ITenantScopedEntity
     {
@@ -17,35 +21,13 @@ namespace KTransport.API.Models
 
         public virtual Tenant? Tenant { get; set; }
 
-        /// <summary>Lowercase. e.g. admin, dispatcher, billing_operator, viewer.</summary>
-        /// <remarks>
-        /// TASK-046 Phase 1: STAYS FOREVER per soft-delete rule §Y. The new
-        /// authoritative FK is <see cref="RoleId"/>; <see cref="RoleName"/>
-        /// is dual-maintained on INSERT for audit and rollback safety.
-        /// </remarks>
-        public string RoleName { get; set; } = string.Empty;
-
-        /// <summary>
-        /// TASK-046 Phase 1: FK to <see cref="Role"/>.Id — the authoritative
-        /// per-tenant role catalog. Nullable because legacy rows are
-        /// backfilled by migration <c>BackfillRolesAndUserRoles</c>; new rows
-        /// must set this. Dual-written with <see cref="RoleName"/>.
-        /// </summary>
-        public int? RoleId { get; set; }
+        /// <summary>FK → <see cref="Role"/>.Id (NOT NULL).</summary>
+        public int RoleId { get; set; }
 
         public virtual Role? Role { get; set; }
 
-        /// <summary>Semantic FK to <see cref="Permission.Key"/>; stored as string.</summary>
-        public string PermissionKey { get; set; } = string.Empty;
-
-        /// <summary>
-        /// TASK-049 Option B: FK to <see cref="Permission.Id"/>. Nullable
-        /// because legacy rows backfilled by <c>MenuRbacNormalization</c>
-        /// migration — new inserts set it unconditionally. Dual-written with
-        /// <see cref="PermissionKey"/> for audit and rollback safety per
-        /// ADR §Y.
-        /// </summary>
-        public int? PermissionId { get; set; }
+        /// <summary>FK → <see cref="Permission"/>.Id (NOT NULL).</summary>
+        public int PermissionId { get; set; }
 
         public virtual Permission? Permission { get; set; }
 

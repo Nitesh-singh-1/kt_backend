@@ -38,8 +38,8 @@ namespace KTransport.API.Services
             var roleIds = roles.Select(r => r.Id).ToList();
 
             var permCounts = await _db.RolePermissions.IgnoreQueryFilters()
-                .Where(rp => rp.TenantId == tenantId && rp.RevokedAt == null && rp.RoleId != null && roleIds.Contains(rp.RoleId!.Value))
-                .GroupBy(rp => rp.RoleId!.Value)
+                .Where(rp => rp.TenantId == tenantId && rp.RevokedAt == null && roleIds.Contains(rp.RoleId))
+                .GroupBy(rp => rp.RoleId)
                 .Select(g => new { RoleId = g.Key, Count = g.Count() })
                 .ToListAsync();
             var permCountByRole = permCounts.ToDictionary(x => x.RoleId, x => x.Count);
@@ -75,7 +75,7 @@ namespace KTransport.API.Services
                 {
                     ModuleCode = mg.Key.ModuleCode,
                     ModuleName = mg.Key.ModuleName,
-                    Pages = mg.GroupBy(p => p.FeatureKey)
+                    Pages = mg.GroupBy(p => p.PageKey)
                         .OrderBy(pg => pg.Key)
                         .Select(pg => new AssignablePageDto
                         {
@@ -95,11 +95,7 @@ namespace KTransport.API.Services
                 .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Id == roleId);
             if (role == null) return null;
 
-            var keys = await _db.RolePermissions.IgnoreQueryFilters()
-                .Where(rp => rp.TenantId == tenantId && rp.RoleId == roleId && rp.RevokedAt == null)
-                .Select(rp => rp.PermissionKey)
-                .ToListAsync();
-
+            var keys = await GrantedKeysAsync(tenantId, roleId);
             return ToDetail(role, keys);
         }
 
@@ -110,7 +106,6 @@ namespace KTransport.API.Services
             if (string.IsNullOrWhiteSpace(code) || !CodePattern.IsMatch(code))
                 return (false, "Role code must be lower_snake_case (letters, digits, underscores).", null);
 
-            // A tenant must never be able to mint a role that aliases an admin / super-user code.
             if (RbacRoles.IsReservedRoleCode(code))
                 return (false, $"'{code}' is a reserved role code and cannot be used for a custom role.", null);
 
@@ -141,7 +136,7 @@ namespace KTransport.API.Services
             await _db.SaveChangesAsync();
 
             foreach (var p in validKeys)
-                AddGrant(tenantId, role, p.Id, p.Key, actingUserId);
+                AddGrant(tenantId, role.Id, p.Id, actingUserId);
             await _db.SaveChangesAsync();
 
             await _audit.LogAsync("RoleCreated", tenantId: tenantId, userId: actingUserId,
@@ -174,19 +169,17 @@ namespace KTransport.API.Services
                 var current = await _db.RolePermissions.IgnoreQueryFilters()
                     .Where(rp => rp.TenantId == tenantId && rp.RoleId == roleId && rp.RevokedAt == null)
                     .ToListAsync();
-                var currentKeys = new HashSet<string>(current.Select(c => c.PermissionKey), StringComparer.OrdinalIgnoreCase);
-                var desiredKeys = new HashSet<string>(validKeys.Select(p => p.Key), StringComparer.OrdinalIgnoreCase);
+                var currentPermIds = new HashSet<int>(current.Select(c => c.PermissionId));
+                var desiredPermIds = new HashSet<int>(validKeys.Select(p => p.Id));
 
-                // Revoke removed grants (soft — append-only discipline).
-                foreach (var row in current.Where(c => !desiredKeys.Contains(c.PermissionKey)))
+                foreach (var row in current.Where(c => !desiredPermIds.Contains(c.PermissionId)))
                 {
                     row.RevokedAt = DateTime.UtcNow;
                     row.RevokedBy = actingUserId;
                     row.RevokeReason = "role_update";
                 }
-                // Grant newly added keys.
-                foreach (var p in validKeys.Where(p => !currentKeys.Contains(p.Key)))
-                    AddGrant(tenantId, role, p.Id, p.Key, actingUserId);
+                foreach (var p in validKeys.Where(p => !currentPermIds.Contains(p.Id)))
+                    AddGrant(tenantId, roleId, p.Id, actingUserId);
             }
 
             await _db.SaveChangesAsync();
@@ -195,10 +188,7 @@ namespace KTransport.API.Services
                 entityType: "Role", entityId: role.Id.ToString(),
                 details: $"Updated role '{role.Code}'.");
 
-            var keys = await _db.RolePermissions.IgnoreQueryFilters()
-                .Where(rp => rp.TenantId == tenantId && rp.RoleId == roleId && rp.RevokedAt == null)
-                .Select(rp => rp.PermissionKey)
-                .ToListAsync();
+            var keys = await GrantedKeysAsync(tenantId, roleId);
             return (true, "Role updated.", ToDetail(role, keys));
         }
 
@@ -214,10 +204,6 @@ namespace KTransport.API.Services
             role.IsActive = false;
             role.UpdatedAt = DateTime.UtcNow;
 
-            // The effective-permission query does not consult Role.IsActive, so to
-            // actually drop access we soft-revoke this role's active grants. Any
-            // user_roles assignment is left in place (historical) but now grants
-            // nothing.
             var grants = await _db.RolePermissions.IgnoreQueryFilters()
                 .Where(rp => rp.TenantId == tenantId && rp.RoleId == roleId && rp.RevokedAt == null)
                 .ToListAsync();
@@ -236,27 +222,31 @@ namespace KTransport.API.Services
             return (true, "Role deactivated.");
         }
 
-        private void AddGrant(Guid tenantId, Role role, int permissionId, string permissionKey, int? actingUserId)
+        private async Task<List<string>> GrantedKeysAsync(Guid tenantId, int roleId)
+            => await (from rp in _db.RolePermissions.IgnoreQueryFilters()
+                      join p in _db.Permissions.IgnoreQueryFilters() on rp.PermissionId equals p.Id
+                      where rp.TenantId == tenantId && rp.RoleId == roleId && rp.RevokedAt == null
+                      select p.Key).ToListAsync();
+
+        private void AddGrant(Guid tenantId, int roleId, int permissionId, int? actingUserId)
         {
             _db.RolePermissions.Add(new RolePermission
             {
                 TenantId = tenantId,
-                RoleName = role.Code,
-                RoleId = role.Id,
-                PermissionKey = permissionKey,
+                RoleId = roleId,
                 PermissionId = permissionId,
                 GrantedAt = DateTime.UtcNow,
                 GrantedBy = actingUserId,
             });
         }
 
-        private sealed record EntitledPermission(int Id, string Key, string FeatureKey, string Action, string ModuleCode, string ModuleName);
+        private sealed record EntitledPermission(int Id, string Key, string PageKey, string Action, string ModuleCode, string ModuleName);
 
         /// <summary>
-        /// The catalog permissions whose module the tenant currently has enabled
-        /// (EnabledUntil IS NULL) — the exact set a tenant admin is allowed to
-        /// assign. Mirrors the runtime entitlement gate in
-        /// <see cref="EntitlementsService.ComputeEffectivePermissionsFromTablesAsync"/>.
+        /// The catalog permissions inside the tenant's current ceiling — module
+        /// enabled AND (page unrestricted OR page whitelisted). The exact set a
+        /// tenant admin may assign. Page-level permissions group under their
+        /// page_key; module-level permissions group under the module code.
         /// </summary>
         private async Task<List<EntitledPermission>> GetEntitledPermissionsAsync(Guid tenantId)
         {
@@ -265,19 +255,36 @@ namespace KTransport.API.Services
                 .Select(tm => tm.ModuleId)
                 .ToListAsync();
             if (moduleIds.Count == 0) return new List<EntitledPermission>();
+            var moduleIdSet = new HashSet<int>(moduleIds);
 
-            var query = from p in _db.Permissions.IgnoreQueryFilters()
-                        join m in _db.Modules.IgnoreQueryFilters() on p.ModuleId equals m.Id
-                        where moduleIds.Contains(p.ModuleId)
-                        select new EntitledPermission(p.Id, p.Key, p.FeatureKey, p.Action, m.Code, m.Name);
-            return await query.ToListAsync();
+            var pageRows = await _db.TenantModulePages.IgnoreQueryFilters()
+                .Where(p => p.TenantId == tenantId && p.EnabledUntil == null)
+                .Select(p => new { p.ModuleId, p.PageKey })
+                .ToListAsync();
+            var whitelistByModule = pageRows.GroupBy(p => p.ModuleId)
+                .ToDictionary(g => g.Key, g => new HashSet<string>(g.Select(x => x.PageKey), StringComparer.OrdinalIgnoreCase));
+
+            var rows = await (from p in _db.Permissions.IgnoreQueryFilters()
+                              join m in _db.Modules.IgnoreQueryFilters() on p.ModuleId equals m.Id
+                              where moduleIdSet.Contains(p.ModuleId)
+                              select new { p.Id, p.Key, p.PageKey, p.Action, p.ModuleId, ModuleCode = m.Code, ModuleName = m.Name })
+                             .ToListAsync();
+
+            var result = new List<EntitledPermission>();
+            foreach (var r in rows)
+            {
+                if (!string.IsNullOrEmpty(r.PageKey)
+                    && whitelistByModule.TryGetValue(r.ModuleId, out var wl)
+                    && !wl.Contains(r.PageKey))
+                {
+                    continue; // page-restricted and not whitelisted
+                }
+                var pageKey = string.IsNullOrEmpty(r.PageKey) ? r.ModuleCode : r.PageKey;
+                result.Add(new EntitledPermission(r.Id, r.Key, pageKey, r.Action, r.ModuleCode, r.ModuleName));
+            }
+            return result;
         }
 
-        /// <summary>
-        /// Resolves requested keys against the tenant's ENTITLED permissions.
-        /// Returns the valid (id, key) pairs, or a non-null rejection message
-        /// naming keys that are unknown or outside the tenant's paid modules.
-        /// </summary>
         private async Task<(List<(int Id, string Key)> Valid, string? Rejection)> ResolveEntitledPermissionKeysAsync(
             Guid tenantId, IEnumerable<string>? requested)
         {

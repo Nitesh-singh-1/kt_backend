@@ -72,94 +72,31 @@ namespace KTransport.API.Common
             new("system.onboard",        new[] { "View", "Create" })
         };
 
-        /// <summary>
-        /// Maps legacy JSON-era or shorthand feature keys ("gr", "challan", "bilty")
-        /// to canonical catalog feature keys ("consignments", "trips", etc.).
-        /// </summary>
-        public static string NormalizeFeatureKey(string key)
-        {
-            if (string.IsNullOrWhiteSpace(key)) return string.Empty;
-            var k = key.Trim().ToLowerInvariant();
-            return k switch
-            {
-                "gr" => "consignments",
-                "gr.list" => "consignments.all",
-                "gr.entry" => "consignments.create",
-                "bilty" => "consignments",
-                "challan" => "trips",
-                "challan.list" => "trips",
-                "challan.entry" => "trips",
-                "trip" => "trips",
-                "trip_settlement" => "trip_settlement",
-                "delivery_settlement" => "delivery_settlement",
-                "pod" => "pod",
-                "bill_book" => "billing.bill_book",
-                "billing.invoices" => "billing.invoices",
-                "billing.receipts" => "billing.receipts",
-                "master_data.parties" => "master_data.parties",
-                "master_data.fleet" => "master_data.fleet",
-                "master_data.compliance" => "master_data.compliance",
-                "master_data.tyres" => "master_data.tyres",
-                "master_data.spares" => "master_data.spares",
-                "master_data.loans" => "master_data.loans",
-                "master_data.driver_ledger" => "master_data.driver_ledger",
-                "master_data.vehicle_claims" => "master_data.vehicle_claims",
-                "master_data.rates" => "master_data.rates",
-                "master_data.vendor_rates" => "master_data.vendor_rates",
-                "vendors" => "vendors",
-                "claims" => "claims",
-                "quotations" => "quotations",
-                "reports.booking_register" => "reports.booking_register",
-                "reports.tax_summary" => "reports.tax_summary",
-                "reports.party_outstanding" => "reports.party_outstanding",
-                "reports.trip_profitability" => "reports.trip_profitability",
-                "reports.vendor_payables" => "reports.vendor_payables",
-                "system.settings" => "system.settings",
-                "system.users" => "system.users",
-                "system.onboard" => "system.onboard",
-                _ => k
-            };
-        }
+        // RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate): the legacy
+        // NormalizeFeatureKey (alias map) and ExpandFeatureKey (dotted expansion)
+        // are DELETED. Feature/permission assignment now resolves against the
+        // permissions catalog by canonical key prefix — see
+        // EntitlementsCatalog.ExpandToPermissionKeys below (catalog-driven, no aliases).
 
         /// <summary>
-        /// Expand a feature key (as stored in the legacy JSON or passed from UI) into the catalog
-        /// permission keys ("feature.action") that back it. Handles aliases and parent groups.
+        /// Expand a canonical feature/page key into the catalog permission keys it
+        /// backs, by exact prefix against <see cref="Features"/>. "billing" →
+        /// billing.view + billing.&lt;child&gt;.* ; "billing.invoices" →
+        /// billing.invoices.* . No alias translation, no cross-module magic.
         /// </summary>
-        public static IReadOnlyList<string> ExpandFeatureKey(string featureKey)
+        public static IReadOnlyList<string> ExpandToPermissionKeys(string featureKey)
         {
             if (string.IsNullOrWhiteSpace(featureKey)) return System.Array.Empty<string>();
-            var normalized = NormalizeFeatureKey(featureKey);
+            var key = featureKey.Trim();
             var result = new List<string>();
-
             foreach (var spec in Features)
             {
-                if (string.Equals(spec.FeatureKey, normalized, System.StringComparison.OrdinalIgnoreCase) ||
-                    (!normalized.Contains('.') && spec.FeatureKey.StartsWith(normalized + ".")) ||
-                    (normalized.Equals("consignments", System.StringComparison.OrdinalIgnoreCase) && spec.FeatureKey.Equals("delivery_settlement", System.StringComparison.OrdinalIgnoreCase)) ||
-                    (normalized.Equals("trips", System.StringComparison.OrdinalIgnoreCase) && (spec.FeatureKey.Equals("trip_settlement", System.StringComparison.OrdinalIgnoreCase) || spec.FeatureKey.Equals("empty_trips", System.StringComparison.OrdinalIgnoreCase))))
-                {
-                    foreach (var action in spec.Actions)
-                    {
-                        result.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
-                    }
-                }
+                bool match = string.Equals(spec.FeatureKey, key, System.StringComparison.OrdinalIgnoreCase)
+                             || spec.FeatureKey.StartsWith(key + ".", System.StringComparison.OrdinalIgnoreCase);
+                if (!match) continue;
+                foreach (var action in spec.Actions)
+                    result.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
             }
-
-            // Also check for direct match if raw key differed
-            if (result.Count == 0)
-            {
-                foreach (var spec in Features)
-                {
-                    if (string.Equals(spec.FeatureKey, featureKey.Trim(), System.StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var action in spec.Actions)
-                        {
-                            result.Add($"{spec.FeatureKey}.{action.ToLowerInvariant()}");
-                        }
-                    }
-                }
-            }
-
             return result;
         }
     }

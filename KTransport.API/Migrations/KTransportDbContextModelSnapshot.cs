@@ -2332,10 +2332,9 @@ namespace KTransport.API.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("module_id");
 
-                    b.Property<string>("ParentKey")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("parent_key");
+                    b.Property<int?>("ParentId")
+                        .HasColumnType("integer")
+                        .HasColumnName("parent_id");
 
                     b.Property<string>("Path")
                         .HasMaxLength(200)
@@ -2368,7 +2367,7 @@ namespace KTransport.API.Migrations
 
                     b.HasIndex(new[] { "ModuleId" }, "menu_items_module_id_idx");
 
-                    b.HasIndex(new[] { "ParentKey", "DisplayOrder" }, "menu_items_parent_key_idx");
+                    b.HasIndex(new[] { "ParentId", "DisplayOrder" }, "menu_items_parent_id_idx");
 
                     b.ToTable("menu_items", (string)null);
                 });
@@ -2784,12 +2783,6 @@ namespace KTransport.API.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("display_order");
 
-                    b.Property<string>("FeatureKey")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("feature_key");
-
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -2800,15 +2793,20 @@ namespace KTransport.API.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("module_id");
 
+                    b.Property<string>("PageKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("page_key");
+
                     b.HasKey("Id")
                         .HasName("permissions_pkey");
-
-                    b.HasIndex(new[] { "FeatureKey", "Action" }, "permissions_feature_action_idx");
 
                     b.HasIndex(new[] { "Key" }, "permissions_key_key")
                         .IsUnique();
 
                     b.HasIndex(new[] { "ModuleId" }, "permissions_module_id_idx");
+
+                    b.HasIndex(new[] { "PageKey" }, "permissions_page_key_idx");
 
                     b.ToTable("permissions", (string)null);
                 });
@@ -2855,6 +2853,68 @@ namespace KTransport.API.Migrations
                     b.HasIndex(new[] { "TenantId", "LoggedAt" }, "permission_parity_log_tenant_logged_idx");
 
                     b.ToTable("permission_parity_log", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.PlanModule", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ModuleId")
+                        .HasColumnType("integer")
+                        .HasColumnName("module_id");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plan_id");
+
+                    b.HasKey("Id")
+                        .HasName("plan_modules_pkey");
+
+                    b.HasIndex("ModuleId");
+
+                    b.HasIndex(new[] { "PlanId", "ModuleId" }, "plan_modules_plan_module_uq")
+                        .IsUnique();
+
+                    b.ToTable("plan_modules", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.PlanModulePage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ModuleId")
+                        .HasColumnType("integer")
+                        .HasColumnName("module_id");
+
+                    b.Property<string>("PageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("page_key");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plan_id");
+
+                    b.HasKey("Id")
+                        .HasName("plan_module_pages_pkey");
+
+                    b.HasIndex("ModuleId");
+
+                    b.HasIndex(new[] { "PlanId", "ModuleId", "PageKey" }, "plan_module_pages_uq")
+                        .IsUnique();
+
+                    b.ToTable("plan_module_pages", (string)null);
                 });
 
             modelBuilder.Entity("KTransport.API.Models.PodRecord", b =>
@@ -3227,15 +3287,9 @@ namespace KTransport.API.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("granted_by");
 
-                    b.Property<int?>("PermissionId")
+                    b.Property<int>("PermissionId")
                         .HasColumnType("integer")
                         .HasColumnName("permission_id");
-
-                    b.Property<string>("PermissionKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("permission_key");
 
                     b.Property<string>("RevokeReason")
                         .HasMaxLength(500)
@@ -3250,15 +3304,9 @@ namespace KTransport.API.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("revoked_by");
 
-                    b.Property<int?>("RoleId")
+                    b.Property<int>("RoleId")
                         .HasColumnType("integer")
                         .HasColumnName("role_id");
-
-                    b.Property<string>("RoleName")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role_name");
 
                     b.Property<long?>("SupersededBy")
                         .HasColumnType("bigint")
@@ -3277,9 +3325,9 @@ namespace KTransport.API.Migrations
 
                     b.HasIndex(new[] { "RoleId" }, "role_permissions_role_id_idx");
 
-                    b.HasIndex(new[] { "TenantId", "RoleName", "RevokedAt" }, "role_permissions_tenant_role_active_idx");
+                    b.HasIndex(new[] { "TenantId", "RoleId", "RevokedAt" }, "role_permissions_tenant_role_active_idx");
 
-                    b.HasIndex(new[] { "TenantId", "RoleName", "PermissionKey" }, "role_permissions_tenant_role_perm_key")
+                    b.HasIndex(new[] { "TenantId", "RoleId", "PermissionId" }, "role_permissions_tenant_role_perm_key")
                         .IsUnique()
                         .HasFilter("\"revoked_at\" IS NULL");
 
@@ -3989,60 +4037,6 @@ namespace KTransport.API.Migrations
                         });
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.TenantEntitlementSubscription", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<int?>("CreatedBy")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime>("EffectiveFrom")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("effective_from")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTime?>("EffectiveUntil")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("effective_until");
-
-                    b.Property<List<string>>("EnabledFeatureKeys")
-                        .IsRequired()
-                        .HasColumnType("text[]")
-                        .HasColumnName("enabled_feature_keys");
-
-                    b.Property<string>("PlanTier")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("plan_tier");
-
-                    b.Property<Guid>("TenantId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id")
-                        .HasName("tenant_entitlement_subscriptions_pkey");
-
-                    b.HasIndex(new[] { "TenantId", "EffectiveUntil" }, "tenant_ent_subs_tenant_active_idx");
-
-                    b.ToTable("tenant_entitlement_subscriptions", (string)null);
-                });
-
             modelBuilder.Entity("KTransport.API.Models.TenantModule", b =>
                 {
                     b.Property<long>("Id")
@@ -4100,6 +4094,59 @@ namespace KTransport.API.Migrations
                         .HasFilter("\"enabled_until\" IS NULL");
 
                     b.ToTable("tenant_modules", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.TenantModulePage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("EnabledBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("enabled_by");
+
+                    b.Property<DateTime>("EnabledFrom")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("enabled_from")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("EnabledUntil")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("enabled_until");
+
+                    b.Property<int>("ModuleId")
+                        .HasColumnType("integer")
+                        .HasColumnName("module_id");
+
+                    b.Property<string>("PageKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("page_key");
+
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("tenant_module_pages_pkey");
+
+                    b.HasIndex("ModuleId");
+
+                    b.HasIndex(new[] { "TenantId", "ModuleId", "PageKey" }, "tenant_module_pages_active_uq")
+                        .IsUnique()
+                        .HasFilter("\"enabled_until\" IS NULL");
+
+                    b.HasIndex(new[] { "TenantId", "ModuleId" }, "tenant_module_pages_tenant_module_idx");
+
+                    b.ToTable("tenant_module_pages", (string)null);
                 });
 
             modelBuilder.Entity("KTransport.API.Models.TenantReportEntitlement", b =>
@@ -4914,11 +4961,6 @@ namespace KTransport.API.Migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("password");
 
-                    b.Property<string>("Role")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role");
-
                     b.Property<Guid>("TenantId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
@@ -4934,9 +4976,7 @@ namespace KTransport.API.Migrations
                     b.HasKey("Id")
                         .HasName("users_pkey");
 
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex(new[] { "Username" }, "users_username_key")
+                    b.HasIndex(new[] { "TenantId", "Username" }, "users_tenant_username_key")
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
@@ -4950,7 +4990,6 @@ namespace KTransport.API.Migrations
                             IsActive = true,
                             Mobile = "9504600060",
                             Password = "$2a$11$0aBw4j5tM1Ew2k5hF8O/TehI5jY9K2HkZ0K6o0tM6dYp/1R9Gq8m6",
-                            Role = "admin",
                             TenantId = new Guid("11111111-1111-1111-1111-111111111111"),
                             Username = "admin"
                         });
@@ -4979,15 +5018,9 @@ namespace KTransport.API.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_granted");
 
-                    b.Property<int?>("PermissionId")
+                    b.Property<int>("PermissionId")
                         .HasColumnType("integer")
                         .HasColumnName("permission_id");
-
-                    b.Property<string>("PermissionKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("permission_key");
 
                     b.Property<string>("RevokeReason")
                         .HasMaxLength(500)
@@ -5017,7 +5050,7 @@ namespace KTransport.API.Migrations
 
                     b.HasIndex(new[] { "TenantId", "UserId" }, "user_perm_overrides_tenant_user_idx");
 
-                    b.HasIndex(new[] { "TenantId", "UserId", "PermissionKey" }, "user_perm_overrides_tenant_user_perm_key")
+                    b.HasIndex(new[] { "TenantId", "UserId", "PermissionId" }, "user_perm_overrides_tenant_user_perm_key")
                         .IsUnique()
                         .HasFilter("\"superseded_by\" IS NULL");
 
@@ -6584,14 +6617,15 @@ namespace KTransport.API.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_menu_items_module");
 
-                    b.HasOne("KTransport.API.Models.MenuItem", null)
+                    b.HasOne("KTransport.API.Models.MenuItem", "Parent")
                         .WithMany()
-                        .HasForeignKey("ParentKey")
-                        .HasPrincipalKey("Key")
+                        .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_menu_items_parent");
 
                     b.Navigation("Module");
+
+                    b.Navigation("Parent");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.NumberingSequence", b =>
@@ -6659,6 +6693,48 @@ namespace KTransport.API.Migrations
                         .HasConstraintName("fk_permissions_module");
 
                     b.Navigation("Module");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.PlanModule", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Module", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_modules_module");
+
+                    b.HasOne("KTransport.API.Models.SubscriptionPlan", "Plan")
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_modules_plan");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Plan");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.PlanModulePage", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Module", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_module_pages_module");
+
+                    b.HasOne("KTransport.API.Models.SubscriptionPlan", "Plan")
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_module_pages_plan");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Plan");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.PodRecord", b =>
@@ -6732,12 +6808,14 @@ namespace KTransport.API.Migrations
                         .WithMany()
                         .HasForeignKey("PermissionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
                         .HasConstraintName("fk_role_permissions_permission");
 
                     b.HasOne("KTransport.API.Models.Role", "Role")
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
                         .HasConstraintName("fk_role_permissions_role");
 
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")
@@ -6916,18 +6994,6 @@ namespace KTransport.API.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("KTransport.API.Models.TenantEntitlementSubscription", b =>
-                {
-                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_tenant_ent_subs_tenant");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("KTransport.API.Models.TenantModule", b =>
                 {
                     b.HasOne("KTransport.API.Models.Module", "Module")
@@ -6943,6 +7009,27 @@ namespace KTransport.API.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_tenant_modules_tenant");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.TenantModulePage", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Module", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tenant_module_pages_module");
+
+                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tenant_module_pages_tenant");
 
                     b.Navigation("Module");
 
@@ -7130,6 +7217,7 @@ namespace KTransport.API.Migrations
                         .WithMany()
                         .HasForeignKey("PermissionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
                         .HasConstraintName("fk_user_perm_overrides_permission");
 
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")

@@ -32,13 +32,14 @@ namespace KTransport.API.Services
 
             // TASK-044 Phase 3: assigned features now come from user_permission_overrides,
             // keyed on userId. Fetch the whole set up-front to avoid N+1.
-            var allOverrides = await _context.UserPermissionOverrides
-                .IgnoreQueryFilters()
-                .Where(o => o.TenantId == tenantId && o.IsGranted && o.SupersededBy == null)
-                .ToListAsync();
-            var overridesByUser = allOverrides
-                .GroupBy(o => o.UserId)
-                .ToDictionary(g => g.Key, g => g.Select(o => o.PermissionKey).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            var overrideRows = await (
+                from o in _context.UserPermissionOverrides.IgnoreQueryFilters()
+                join p in _context.Permissions.IgnoreQueryFilters() on o.PermissionId equals p.Id
+                where o.TenantId == tenantId && o.IsGranted && o.SupersededBy == null
+                select new { o.UserId, p.Key }).ToListAsync();
+            var overridesByUser = overrideRows
+                .GroupBy(x => x.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Key).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
 
             var result = new List<SubUserDetailsDto>();
 
@@ -75,11 +76,11 @@ namespace KTransport.API.Services
 
             var effective = await _authService.GetEffectiveFeaturesForUserAsync(tenantId, user.Role ?? "SUB_USER", user.Username);
 
-            var assigned = await _context.UserPermissionOverrides
-                .IgnoreQueryFilters()
-                .Where(o => o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null)
-                .Select(o => o.PermissionKey)
-                .ToListAsync();
+            var assigned = await (
+                from o in _context.UserPermissionOverrides.IgnoreQueryFilters()
+                join p in _context.Permissions.IgnoreQueryFilters() on o.PermissionId equals p.Id
+                where o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null
+                select p.Key).ToListAsync();
 
             return new SubUserDetailsDto
             {
@@ -115,11 +116,8 @@ namespace KTransport.API.Services
             {
                 foreach (var feat in request.AssignedFeatures)
                 {
-                    var canon = FeatureConstants.Normalize(feat);
                     var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
-                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
-                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(root))
                     {
                         validAssigned.Add(feat);
                     }
@@ -208,11 +206,8 @@ namespace KTransport.API.Services
             {
                 foreach (var feat in request.AssignedFeatures)
                 {
-                    var canon = FeatureConstants.Normalize(feat);
                     var root = feat.Contains('.') ? feat.Substring(0, feat.IndexOf('.')) : feat;
-                    var canonRoot = canon.Contains('.') ? canon.Substring(0, canon.IndexOf('.')) : canon;
-                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(canon) ||
-                        subscribedFeatures.Contains(root) || subscribedFeatures.Contains(canonRoot))
+                    if (subscribedFeatures.Contains(feat) || subscribedFeatures.Contains(root))
                     {
                         validAssigned.Add(feat);
                     }
@@ -279,49 +274,48 @@ namespace KTransport.API.Services
         /// </summary>
         private async Task SaveUserFeatureAssignmentsAsync(Guid tenantId, int userId, List<string> features, int? actingUserId)
         {
-            var desiredPerms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // RBAC clean-slate: expand feature/page keys into catalog permission
+            // keys (canonical, no aliases) and resolve to permission ids. Overrides
+            // are stored by permission_id, never by key string.
+            var desiredKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var featureKey in features)
             {
                 if (string.IsNullOrWhiteSpace(featureKey)) continue;
-
-                var expanded = EntitlementsCatalog.ExpandFeatureKey(featureKey);
+                var expanded = EntitlementsCatalog.ExpandToPermissionKeys(featureKey);
                 if (expanded.Count > 0)
-                {
-                    foreach (var k in expanded) desiredPerms.Add(k);
-                }
+                    foreach (var k in expanded) desiredKeys.Add(k);
                 else
-                {
-                    desiredPerms.Add(featureKey.Trim());
-                }
+                    desiredKeys.Add(featureKey.Trim());
             }
+
+            var permByKey = await _context.Permissions.IgnoreQueryFilters()
+                .Where(p => desiredKeys.Contains(p.Key))
+                .Select(p => new { p.Id, p.Key })
+                .ToListAsync();
+            var desiredPermIds = permByKey.Select(p => p.Id).ToHashSet();
 
             var existingActive = await _context.UserPermissionOverrides
                 .IgnoreQueryFilters()
                 .Where(o => o.TenantId == tenantId && o.UserId == userId && o.IsGranted && o.SupersededBy == null)
                 .ToListAsync();
+            var existingByPermId = existingActive.ToDictionary(o => o.PermissionId, o => o);
 
-            var existingMap = existingActive.ToDictionary(o => o.PermissionKey, o => o, StringComparer.OrdinalIgnoreCase);
-
-            // Mark removed overrides as superseded
-            foreach (var kvp in existingMap)
+            // Supersede overrides no longer desired.
+            foreach (var o in existingActive.Where(o => !desiredPermIds.Contains(o.PermissionId)))
             {
-                if (!desiredPerms.Contains(kvp.Key))
-                {
-                    kvp.Value.SupersededBy = 0; // mark superseded
-                    kvp.Value.RevokeReason = "Permission removed during user configuration update.";
-                }
+                o.SupersededBy = 0;
+                o.RevokeReason = "Permission removed during user configuration update.";
             }
 
-            // Add newly granted overrides
-            foreach (var permKey in desiredPerms)
+            // Add newly granted overrides.
+            foreach (var pid in desiredPermIds)
             {
-                if (existingMap.ContainsKey(permKey)) continue;
-
+                if (existingByPermId.ContainsKey(pid)) continue;
                 _context.UserPermissionOverrides.Add(new UserPermissionOverride
                 {
                     TenantId = tenantId,
                     UserId = userId,
-                    PermissionKey = permKey,
+                    PermissionId = pid,
                     IsGranted = true,
                     GrantedAt = DateTime.UtcNow,
                     GrantedBy = actingUserId,

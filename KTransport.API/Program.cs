@@ -158,6 +158,22 @@ builder.Services.AddScoped<IAutoPostingManagementService, AutoPostingManagementS
 builder.Services.AddHostedService<AutoPostingDispatcher>();
 builder.Services.AddScoped<IVehicleInsuranceClaimService, VehicleInsuranceClaimService>();
 builder.Services.AddScoped<ICargoClaimService, CargoClaimService>();
+
+// ---- Object storage (MinIO / AWS S3) for tenant assets such as logos ----
+builder.Services.Configure<KTransport.API.Services.FileStorageOptions>(
+    builder.Configuration.GetSection(KTransport.API.Services.FileStorageOptions.SectionName));
+builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(sp =>
+{
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<KTransport.API.Services.FileStorageOptions>>().Value;
+    var cfg = new Amazon.S3.AmazonS3Config
+    {
+        ForcePathStyle = o.ForcePathStyle,
+        AuthenticationRegion = o.Region,
+    };
+    if (!string.IsNullOrWhiteSpace(o.ServiceUrl)) cfg.ServiceURL = o.ServiceUrl;
+    return new Amazon.S3.AmazonS3Client(o.AccessKey, o.SecretKey, cfg);
+});
+builder.Services.AddScoped<KTransport.API.Services.IFileStorage, KTransport.API.Services.S3FileStorage>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -330,6 +346,30 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Ensure the object-storage bucket exists (MinIO/S3). Non-fatal if storage is
+// unreachable at boot — the logo endpoints surface the error on first use.
+using (var storageScope = app.Services.CreateScope())
+{
+    try
+    {
+        var s3 = storageScope.ServiceProvider.GetRequiredService<Amazon.S3.IAmazonS3>();
+        var storageOpts = storageScope.ServiceProvider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<KTransport.API.Services.FileStorageOptions>>().Value;
+        var bucketExists = Amazon.S3.Util.AmazonS3Util
+            .DoesS3BucketExistV2Async(s3, storageOpts.Bucket).GetAwaiter().GetResult();
+        if (!bucketExists)
+        {
+            s3.PutBucketAsync(new Amazon.S3.Model.PutBucketRequest { BucketName = storageOpts.Bucket })
+                .GetAwaiter().GetResult();
+        }
+    }
+    catch (Exception storageEx)
+    {
+        app.Logger.LogWarning(storageEx,
+            "Object-storage bucket ensure failed at startup — logo endpoints will error until storage is reachable.");
+    }
+}
 
 // TASK-010: health endpoints for orchestrators/load balancers.
 //   /health        — liveness. Always returns Healthy while the process is up.
@@ -560,6 +600,12 @@ using (var scope = app.Services.CreateScope())
                     logger.LogInformation("Repaired default admin seed values (password and/or display name) on first-time initialization.");
                 }
             }
+
+            // RBAC clean-slate bootstrap: platform-tenant modules + 7 roles +
+            // admin user_roles + plan_modules, then fail-loud catalog validation.
+            await KTransport.API.Data.DataSeeder.BootstrapPlatformTenantAsync(dbContext, logger);
+            await KTransport.API.Data.DataSeeder.ReconcileCatalogSqlAsync(dbContext, logger);
+            await KTransport.API.Data.DataSeeder.ValidateCatalogAsync(dbContext, logger);
 
             logger.LogInformation("Database startup initialization completed successfully.");
         });

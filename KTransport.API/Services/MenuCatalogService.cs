@@ -11,23 +11,18 @@ using Microsoft.Extensions.Logging;
 namespace KTransport.API.Services
 {
     /// <summary>
-    /// TASK-049 Option B: menu rendering is a structural filter — a row is
-    /// visible iff the user's effective permission set contains its
-    /// PermissionKey (or its row.Key, as a fallback for parent-group rows
-    /// whose permission_key is a .module placeholder not present in the
-    /// permissions catalog). The TASK-048 extended IsVisible matcher
-    /// (dotted-alias, NormalizeFeatureKey, .view fallback) is DELETED — the
-    /// permissions catalog is now authoritative and permission keys are the
-    /// identifiers downstream code expects.
+    /// RBAC clean-slate (ADR rbac-menu-consolidation-clean-slate): menu rendering
+    /// is a PURE structural join on menu_items.module_id / menu_items.parent_id,
+    /// gated by tenant_modules (module), tenant_module_pages (page), and the
+    /// user's effective permission set (page/module). No string/alias matching,
+    /// no feature_key fallback.
     /// </summary>
     public class MenuCatalogService : IMenuCatalogService
     {
         private readonly KTransportDbContext _db;
         private readonly ILogger<MenuCatalogService> _log;
 
-        public MenuCatalogService(
-            KTransportDbContext db,
-            ILogger<MenuCatalogService> log)
+        public MenuCatalogService(KTransportDbContext db, ILogger<MenuCatalogService> log)
         {
             _db = db;
             _log = log;
@@ -35,99 +30,100 @@ namespace KTransport.API.Services
 
         public async Task<List<MenuItemDto>> GetAllAsync()
         {
-            var rows = await _db.MenuItems
-                .AsNoTracking()
-                .OrderBy(m => m.ParentKey)
+            var rows = await _db.MenuItems.AsNoTracking().OrderBy(m => m.DisplayOrder).ToListAsync();
+            var keyById = rows.ToDictionary(r => r.Id, r => r.Key);
+            return rows
+                .OrderBy(m => m.ParentId.HasValue ? 1 : 0)
                 .ThenBy(m => m.DisplayOrder)
-                .ToListAsync();
-
-            return rows.Select(ToDto).ToList();
+                .Select(m => ToDto(m, keyById))
+                .ToList();
         }
 
-        [Obsolete("TASK-049 Option B deleted the shadow-read dual-matcher. Kept as a thin wrapper for one release in case any dev script invokes it.")]
+        [Obsolete("Dual-read harness removed. Thin wrapper kept for interface compatibility.")]
         public async Task<HashSet<string>> BuildMenuIdSetFromTablesAsync(
-            Guid tenantId,
-            int? userId,
-            string? userRole,
-            IReadOnlyCollection<string> effectivePermissionKeys)
+            Guid tenantId, int? userId, string? userRole, IReadOnlyCollection<string> effectivePermissionKeys)
         {
             var entitlements = new TenantMenuEntitlementsDto { TenantId = tenantId, Reports = new() };
             var effective = new HashSet<string>(effectivePermissionKeys ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             var menu = await BuildMenuFromTablesAsync(effective, entitlements);
             var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            void collect(DynamicMenuItemDto i)
-            {
-                emitted.Add(i.Id);
-                if (i.Children != null) foreach (var c in i.Children) collect(c);
-            }
-            foreach (var m in menu) collect(m);
+            void Collect(DynamicMenuItemDto i) { emitted.Add(i.Id); if (i.Children != null) foreach (var c in i.Children) Collect(c); }
+            foreach (var m in menu) Collect(m);
             return emitted;
         }
 
-        [Obsolete("TASK-049 Option B deleted the parity shadow log. Kept as a no-op for one release.")]
-        public Task LogParityIfShadowAsync(
-            Guid tenantId,
-            int? userId,
-            string? userRole,
-            HashSet<string> codeTreeIds,
-            HashSet<string> tablesIds) => Task.CompletedTask;
+        [Obsolete("Parity shadow log removed. No-op kept for interface compatibility.")]
+        public Task LogParityIfShadowAsync(Guid tenantId, int? userId, string? userRole, HashSet<string> codeTreeIds, HashSet<string> tablesIds)
+            => Task.CompletedTask;
 
-        /// <summary>
-        /// TASK-049 Option B: the sole production menu builder.
-        ///
-        /// Visibility rule (per menu.md §5.4):
-        ///   - SUPER_USER wildcard '*': every active menu_items row.
-        ///   - Else a leaf is visible iff <c>effective.Contains(row.PermissionKey)</c>
-        ///     OR <c>effective.Contains(row.Key)</c> (back-compat for the
-        ///     legacy NavigationService(ctx) ctor path that still passes
-        ///     feature keys instead of permission keys).
-        ///   - A parent-group row (no path) is emitted iff any of its
-        ///     children are visible.
-        ///   - The <c>reports</c> parent appends per-tenant children from
-        ///     <c>entitlements.Reports</c> (visibility_rule='report_entitlement').
-        /// </summary>
         public async Task<List<DynamicMenuItemDto>> BuildMenuFromTablesAsync(
             HashSet<string> effectiveKeys,
             TenantMenuEntitlementsDto entitlements)
         {
             var effective = effectiveKeys ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            var rows = await _db.MenuItems
-                .AsNoTracking()
-                .Where(m => m.IsActive)
-                .OrderBy(m => m.ParentKey)
-                .ThenBy(m => m.DisplayOrder)
-                .ToListAsync();
-
-            var byParent = rows
-                .Where(r => r.ParentKey != null)
-                .GroupBy(r => r.ParentKey!)
-                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.DisplayOrder).ToList(), StringComparer.OrdinalIgnoreCase);
-
             bool wildcard = effective.Contains("*");
+            var tenantId = entitlements?.TenantId ?? Guid.Empty;
 
-            // Structural filter — no fuzzy matching, no dotted-alias, no
-            // NormalizeFeatureKey. The authoritative identifiers are
-            // menu_items.key and menu_items.permission_key.
-            bool IsVisible(MenuItem row)
+            var rows = await _db.MenuItems.AsNoTracking().Where(m => m.IsActive).OrderBy(m => m.DisplayOrder).ToListAsync();
+            var keyById = rows.ToDictionary(r => r.Id, r => r.Key);
+            var childrenByParentId = rows.Where(r => r.ParentId.HasValue)
+                .GroupBy(r => r.ParentId!.Value)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.DisplayOrder).ToList());
+
+            // --- tenant ceiling: enabled modules + active page whitelist ---
+            var enabledModuleIds = new HashSet<int>(await _db.TenantModules.IgnoreQueryFilters()
+                .Where(tm => tm.TenantId == tenantId && tm.EnabledUntil == null)
+                .Select(tm => tm.ModuleId)
+                .ToListAsync());
+
+            var activePageRows = await _db.TenantModulePages.IgnoreQueryFilters()
+                .Where(p => p.TenantId == tenantId && p.EnabledUntil == null)
+                .Select(p => new { p.ModuleId, p.PageKey })
+                .ToListAsync();
+            var pageWhitelistByModule = activePageRows
+                .GroupBy(p => p.ModuleId)
+                .ToDictionary(g => g.Key, g => new HashSet<string>(g.Select(x => x.PageKey), StringComparer.OrdinalIgnoreCase));
+
+            // --- effective permission → (module, page) sets ---
+            var effectiveModuleIds = new HashSet<int>();
+            var effectivePageKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!wildcard && effective.Count > 0)
+            {
+                var perms = await _db.Permissions.IgnoreQueryFilters()
+                    .Select(p => new { p.Key, p.ModuleId, p.PageKey })
+                    .ToListAsync();
+                foreach (var p in perms)
+                {
+                    if (string.IsNullOrWhiteSpace(p.Key) || !effective.Contains(p.Key)) continue;
+                    effectiveModuleIds.Add(p.ModuleId);
+                    if (!string.IsNullOrEmpty(p.PageKey)) effectivePageKeys.Add(p.PageKey);
+                }
+            }
+
+            bool PageEntitled(MenuItem mi)
+            {
+                if (!pageWhitelistByModule.TryGetValue(mi.ModuleId, out var whitelist)) return true; // no restriction
+                return whitelist.Contains(mi.Key);
+            }
+
+            bool IsVisible(MenuItem mi)
             {
                 if (wildcard) return true;
-                if (string.IsNullOrWhiteSpace(row.PermissionKey)) return true;
-
-                if (effective.Contains(row.Key)) return true;
-                if (effective.Contains(row.PermissionKey)) return true;
+                if (!enabledModuleIds.Contains(mi.ModuleId)) return false;
+                if (!PageEntitled(mi)) return false;
+                if (effectivePageKeys.Contains(mi.Key)) return true;          // page-scoped grant
+                if (!mi.ParentId.HasValue && effectiveModuleIds.Contains(mi.ModuleId)) return true; // module root
                 return false;
             }
 
-            var reportsByKey = (entitlements?.Reports ?? new List<ReportEntitlementItemDto>())
-                .Where(r => r.IsEnabled)
-                .ToList();
+            var reportsEnabled = (entitlements?.Reports ?? new List<ReportEntitlementItemDto>())
+                .Where(r => r.IsEnabled).ToList();
 
             var result = new List<DynamicMenuItemDto>();
 
-            foreach (var top in rows.Where(r => r.ParentKey == null).OrderBy(r => r.DisplayOrder))
+            foreach (var top in rows.Where(r => !r.ParentId.HasValue).OrderBy(r => r.DisplayOrder))
             {
-                bool isParentGroup = string.IsNullOrWhiteSpace(top.Path);
+                bool isGroup = string.IsNullOrWhiteSpace(top.Path);
 
                 var dto = new DynamicMenuItemDto
                 {
@@ -140,7 +136,7 @@ namespace KTransport.API.Services
                     Children = new List<DynamicMenuItemDto>()
                 };
 
-                if (byParent.TryGetValue(top.Key, out var children))
+                if (childrenByParentId.TryGetValue(top.Id, out var children))
                 {
                     foreach (var c in children)
                     {
@@ -158,10 +154,10 @@ namespace KTransport.API.Services
                     }
                 }
 
-                // Reports children: visibility_rule='report_entitlement'.
+                // Reports children (visibility_rule = report_entitlement).
                 if (string.Equals(top.VisibilityRule, "report_entitlement", StringComparison.OrdinalIgnoreCase))
                 {
-                    foreach (var rep in reportsByKey)
+                    foreach (var rep in reportsEnabled)
                     {
                         var reportKey = "reports." + rep.ReportKey;
                         bool allowed = wildcard
@@ -179,15 +175,11 @@ namespace KTransport.API.Services
                             Children = new List<DynamicMenuItemDto>()
                         });
                     }
-                    if (dto.Children.Count > 0)
-                    {
-                        dto.Badge = dto.Children.Count.ToString();
-                    }
+                    if (dto.Children.Count > 0) dto.Badge = dto.Children.Count.ToString();
                 }
 
-                if (isParentGroup)
+                if (isGroup)
                 {
-                    // Parent group needs at least one visible child.
                     if (dto.Children.Count == 0 && !IsVisible(top)) continue;
                 }
                 else
@@ -201,11 +193,11 @@ namespace KTransport.API.Services
             return result;
         }
 
-        private static MenuItemDto ToDto(MenuItem m) => new()
+        private static MenuItemDto ToDto(MenuItem m, IReadOnlyDictionary<int, string> keyById) => new()
         {
             Id = m.Id,
             Key = m.Key,
-            ParentKey = m.ParentKey,
+            ParentKey = m.ParentId.HasValue && keyById.TryGetValue(m.ParentId.Value, out var pk) ? pk : null,
             Title = m.Title,
             Path = m.Path,
             Icon = m.Icon,

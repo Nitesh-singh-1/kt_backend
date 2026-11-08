@@ -70,5 +70,88 @@ namespace KTransport.API.Controllers
         {
             return StatusCode(410, new { message = "Backfill not available in Phase 3. Use PUT /api/configuration/menu-entitlements for new grants." });
         }
+
+        /// <summary>
+        /// Phase 1 keystone follow-up — the authoritative module catalog for the
+        /// platform-admin /clients assign/revoke UI. Served from the live
+        /// <c>modules</c> table so the frontend can never silently omit a real
+        /// module (e.g. the paid <c>accounting</c> add-on). Replaces the
+        /// hardcoded <c>ALL_MODULE_CODES</c> list in the frontend
+        /// <c>moduleCatalog.ts</c>.
+        /// </summary>
+        [HttpGet("/api/admin/modules")]
+        public async Task<ActionResult<List<ModuleCatalogItemDto>>> GetModuleCatalog()
+        {
+            var modules = await _db.Modules
+                .IgnoreQueryFilters()
+                .Where(m => m.IsActive)
+                .OrderBy(m => m.DisplayOrder)
+                .ThenBy(m => m.Code)
+                .Select(m => new ModuleCatalogItemDto
+                {
+                    Code = m.Code,
+                    Name = m.Name,
+                    Description = m.Description,
+                    IsPremium = m.IsPremium,
+                    DisplayOrder = m.DisplayOrder
+                })
+                .ToListAsync();
+
+            return Ok(modules);
+        }
+
+        /// <summary>§A: the navigable pages of a module (menu_items), for the page-level entitlement picker.</summary>
+        [HttpGet("/api/admin/modules/{code}/pages")]
+        public async Task<ActionResult<List<PageCatalogItemDto>>> GetModulePages(string code)
+        {
+            var moduleId = await _db.Modules.IgnoreQueryFilters()
+                .Where(m => m.Code.ToLower() == code.ToLower())
+                .Select(m => (int?)m.Id).FirstOrDefaultAsync();
+            if (moduleId == null) return NotFound(new { success = false, message = $"Unknown module '{code}'." });
+
+            var rows = await _db.MenuItems.IgnoreQueryFilters()
+                .Where(m => m.ModuleId == moduleId.Value && m.IsActive)
+                .OrderBy(m => m.DisplayOrder).ToListAsync();
+            var keyById = await _db.MenuItems.IgnoreQueryFilters().ToDictionaryAsync(m => m.Id, m => m.Key);
+
+            var pages = rows.Select(m => new PageCatalogItemDto
+            {
+                PageKey = m.Key,
+                Title = m.Title,
+                Path = m.Path,
+                ParentKey = m.ParentId.HasValue && keyById.TryGetValue(m.ParentId.Value, out var pk) ? pk : null,
+                DisplayOrder = m.DisplayOrder
+            }).ToList();
+            return Ok(pages);
+        }
+
+        /// <summary>§A: convenience — the full module catalog with each module's pages.</summary>
+        [HttpGet("/api/admin/catalog")]
+        public async Task<ActionResult<List<ModuleWithPagesDto>>> GetCatalog()
+        {
+            var modules = await _db.Modules.IgnoreQueryFilters().Where(m => m.IsActive)
+                .OrderBy(m => m.DisplayOrder).ThenBy(m => m.Code).ToListAsync();
+            var menuItems = await _db.MenuItems.IgnoreQueryFilters().Where(m => m.IsActive).OrderBy(m => m.DisplayOrder).ToListAsync();
+            var keyById = menuItems.ToDictionary(m => m.Id, m => m.Key);
+            var pagesByModule = menuItems.GroupBy(m => m.ModuleId).ToDictionary(g => g.Key, g => g.ToList());
+
+            var result = modules.Select(m => new ModuleWithPagesDto
+            {
+                Code = m.Code,
+                Name = m.Name,
+                IsPremium = m.IsPremium,
+                DisplayOrder = m.DisplayOrder,
+                Pages = (pagesByModule.TryGetValue(m.Id, out var mi) ? mi : new List<Models.MenuItem>())
+                    .Select(x => new PageCatalogItemDto
+                    {
+                        PageKey = x.Key,
+                        Title = x.Title,
+                        Path = x.Path,
+                        ParentKey = x.ParentId.HasValue && keyById.TryGetValue(x.ParentId.Value, out var pk) ? pk : null,
+                        DisplayOrder = x.DisplayOrder
+                    }).ToList()
+            }).ToList();
+            return Ok(result);
+        }
     }
 }

@@ -23,30 +23,38 @@ namespace KTransport.API.Common
         public static readonly Row[] Rows =
         {
             // ---- Top-level items (parent_key = NULL) ----
-            new("dashboard",     null, "Dashboard",                   "/dashboard",  "home",     "dashboard.view",      null,     0, null),
-            new("analytics",     null, "Business Analytics",          "/analytics",  "barChart", "analytics.view",      null,     1, null),
-            new("consignments",  null, "Bilty / GR Booking",          null,          "package",  "consignments.module", null,     2, null),
-            new("quotations",    null, "Quotations & Enquiries",      "/quotations", "fileText", "quotations.view",     null,     3, null),
-            new("trips",         null, "Manifest & Dispatch",         "/trips",      "truck",    "trips.view",          null,     4, null),
-            new("pod",           null, "POD & Deliveries",            "/pod",        "fileText", "pod.view",            null,     5, null),
-            new("billing",       null, "Freight Invoicing & Billing", null,          "fileText", "billing.view",        null,     6, null),
-            new("master_data",   null, "Master Data",                 null,          "cog",      "masterdata.module",   null,     7, null),
-            new("vendors",       null, "Market Vendors & Hire",       "/vendors",    "truck",    "vendors.view",        null,     8, null),
-            new("claims",        null, "Damage & Claims",             "/claims",     "info",     "claims.view",         null,     9, null),
-            new("reports",       null, "Reports & Analytics",         "/reports",    "barChart", "reports.view",        null,    10, "report_entitlement"),
-            new("tracking",      null, "Live GPS Tracker",            "/tracking",   "info",     "tracking.view",       null,    11, null),
-            new("clients",       null, "Client Management",           "/clients",    "lock",     "saas.tenants.manage", "SaaS",  12, null),
-            new("system",        null, "System & Settings",           null,          "settings", null,                  null,    13, null),
+            // NOTE: top-level titles are kept identical to the owning module's
+            // name (modules.name) so the platform-admin provisioning UI, the
+            // entitlement-ceiling view, and the tenant sidebar all read the same.
+            // The two settlement modules are provisioned independently in
+            // tenant_modules, so each owns a TOP-LEVEL row (never nested under
+            // another module — nesting buried them and orphaned them when the
+            // parent module was not entitled). See migration
+            // 20261108120000_PromoteSettlementMenusAndAlignTitles.
+            new("dashboard",          null, "Dashboard",            "/dashboard",           "home",        "dashboard.view",           null,    0, null),
+            new("analytics",          null, "Analytics",            "/analytics",           "barChart",    "analytics.view",           null,    1, null),
+            new("consignments",       null, "Bilty / Consignments", null,                   "package",     "consignments.module",      null,    2, null),
+            new("quotations",         null, "Quotations",           "/quotations",          "fileText",    "quotations.view",          null,    3, null),
+            new("trips",              null, "Trips & Manifests",    "/trips",               "truck",       "trips.view",               null,    4, null),
+            new("trip_settlement",    null, "Trip Settlement",      "/trip-settlement",     "dollarSign",  "trip_settlement.view",     null,    5, null),
+            new("pod",                null, "Proof of Delivery",    "/pod",                 "fileText",    "pod.view",                 null,    6, null),
+            new("delivery_settlement",null, "Delivery Settlement",  "/delivery-settlement", "checkCircle", "delivery_settlement.view", null,    7, null),
+            new("billing",            null, "Billing & Invoicing",  null,                   "fileText",    "billing.view",             null,    8, null),
+            new("master_data",        null, "Master Data",          null,                   "cog",         "masterdata.module",        null,    9, null),
+            new("vendors",            null, "Vendors & Lorry Hire", "/vendors",             "truck",       "vendors.view",             null,   10, null),
+            new("claims",             null, "Claims",               "/claims",              "info",        "claims.view",              null,   11, null),
+            new("reports",            null, "Reports",              "/reports",             "barChart",    "reports.view",             null,   12, "report_entitlement"),
+            new("tracking",           null, "Live Tracking",        "/tracking",            "info",        "tracking.view",            null,   13, null),
+            new("clients",            null, "Clients & Tenants",    "/clients",             "lock",        "saas.tenants.manage",      "SaaS", 15, null),
+            new("system",             null, "System",               null,                   "settings",    null,                       null,   16, null),
 
             // ---- consignments children ----
             new("consignments.create",   "consignments", "New Bilty (GR Booking)",    "/shipments/create",    "package",     "consignments.create",       null, 0, null),
             new("consignments.all",      "consignments", "All Bilties (GR Registry)", "/shipments",           "fileText",    "consignments.view",         null, 1, null),
-            new("delivery_settlement",   "consignments", "Delivery Settlement",       "/delivery-settlement", "checkCircle", "delivery_settlement.view",  null, 2, null),
 
             // ---- trips children ----
             new("trips.challan",    "trips", "Truck Challan",    "/trips",           "truck",      "trips.view",             null, 0, null),
             new("empty_trips",      "trips", "Empty Trip Log",   "/empty-trips",     "truck",      "trips.view",             null, 1, null),
-            new("trip_settlement",  "trips", "Trip Settlement",  "/trip-settlement", "dollarSign", "trip_settlement.view",   null, 2, null),
 
             // ---- billing children ----
             new("billing.bill_book", "billing", "Bill Book (Consolidated)", "/bill-book", "fileText", "billing.view", "Freight Bill", 0, null),

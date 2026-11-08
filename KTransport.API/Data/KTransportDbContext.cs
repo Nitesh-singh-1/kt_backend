@@ -327,7 +327,11 @@ public partial class KTransportDbContext : DbContext
 
             entity.ToTable("users");
 
-            entity.HasIndex(e => e.Username, "users_username_key").IsUnique();
+            // RBAC clean-slate: per-tenant username uniqueness (two tenants may
+            // each have an "admin"). The functional lower(username) form is
+            // installed by the RbacMenuConsolidation migration; this model index
+            // is the EF-visible stand-in.
+            entity.HasIndex(e => new { e.TenantId, e.Username }, "users_tenant_username_key").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.TenantId)
@@ -352,9 +356,10 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.Password)
                 .HasMaxLength(255)
                 .HasColumnName("password");
-            entity.Property(e => e.Role)
-                .HasMaxLength(50)
-                .HasColumnName("role");
+            // RBAC clean-slate: users.role is dropped as an authorization source.
+            // The C# property is kept as an in-memory DERIVED display primary-role
+            // (resolved from user_roles at token issue), but is NOT a mapped column.
+            entity.Ignore(e => e.Role);
             entity.Property(e => e.Username)
                 .HasMaxLength(50)
                 .HasColumnName("username");
@@ -372,7 +377,6 @@ public partial class KTransportDbContext : DbContext
                 Username = "admin",
                 Password = "$2a$11$0aBw4j5tM1Ew2k5hF8O/TehI5jY9K2HkZ0K6o0tM6dYp/1R9Gq8m6", // admin123
                 FullName = "Kundan Kumar",
-                Role = "admin",
                 IsActive = true,
                 CreatedAt = DateTime.Parse("2026-04-03 15:56:50.696525"),
                 Mobile = "9504600060"

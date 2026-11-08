@@ -26,8 +26,9 @@ public class SuperUserClaimTests
         var opts = new DbContextOptionsBuilder<KTransportDbContext>()
             .UseInMemoryDatabase($"SuClaim_{Guid.NewGuid():N}")
             .Options;
-        // IsSuperUser / IsPlatformAdmin read claims only; the context is unused here.
-        return new FeatureAuthorizationService(new KTransportDbContext(opts, null!));
+        // IsSuperUser / IsPlatformAdmin read claims only; the context/entitlements are unused here.
+        var ctx = new KTransportDbContext(opts, null!);
+        return new FeatureAuthorizationService(ctx, new EntitlementsService(ctx, Microsoft.Extensions.Logging.Abstractions.NullLogger<EntitlementsService>.Instance));
     }
 
     private static ClaimsPrincipal Principal(string? role, string? superFlag, Guid? tenant)

@@ -2,6 +2,7 @@ using KTransport.API.Common;
 using KTransport.API.Data;
 using KTransport.API.Models;
 using KTransport.API.Services.Email;
+using KTransport.API.Services.Rbac;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -125,9 +126,10 @@ namespace KTransport.API.Services
                     };
                 }
 
-                // Generate JWT token
-                var isSuperUser = await ResolveSuperUserAsync(user);
-                var token = GenerateJwtToken(user, isSuperUser);
+                // Generate JWT token (super-user + role resolved from user_roles).
+                var (isSuperUser, roleCode) = await RbacTokenHelper.ResolvePrincipalAsync(_context, user.TenantId, user.Id);
+                user.Role = roleCode;
+                var token = RbacTokenHelper.GenerateToken(user, isSuperUser, roleCode, _jwtSettings);
                 var refreshToken = await CreateRefreshTokenAsync(user.Id);
 
                 await _auditLogService.LogAsync("Login", tenantId: user.TenantId, userId: user.Id, username: user.Username);
@@ -202,8 +204,10 @@ namespace KTransport.API.Services
                 _context.Users.Add(newUser);
                 await _context.SaveChangesAsync();
 
-                // Generate JWT token
-                var token = GenerateJwtToken(newUser, await ResolveSuperUserAsync(newUser));
+                // Generate JWT token. A freshly self-registered user has no
+                // user_roles yet, so it is never a super user.
+                newUser.Role = assignedRole;
+                var token = RbacTokenHelper.GenerateToken(newUser, false, assignedRole, _jwtSettings);
                 var refreshToken = await CreateRefreshTokenAsync(newUser.Id);
 
                 return new AuthResponse
@@ -279,6 +283,8 @@ namespace KTransport.API.Services
                         Message = "User not found or inactive"
                     };
                 }
+
+                (_, user.Role) = await RbacTokenHelper.ResolvePrincipalAsync(_context, user.TenantId, user.Id);
 
                 return new AuthResponse
                 {
@@ -561,6 +567,8 @@ namespace KTransport.API.Services
 
             if (user == null) return null;
 
+            (_, user.Role) = await RbacTokenHelper.ResolvePrincipalAsync(_context, user.TenantId, user.Id);
+
             return new MyProfileDto
             {
                 Id = user.Id,
@@ -637,12 +645,13 @@ namespace KTransport.API.Services
             stored.ReplacedByHash = HashToken(newRefresh);
             await _context.SaveChangesAsync();
 
-            var isSuperUser = await ResolveSuperUserAsync(user);
+            var (isSuperUser, roleCode) = await RbacTokenHelper.ResolvePrincipalAsync(_context, user.TenantId, user.Id);
+            user.Role = roleCode;
             return new AuthResponse
             {
                 Success = true,
                 Message = "Token refreshed.",
-                Token = GenerateJwtToken(user, isSuperUser),
+                Token = RbacTokenHelper.GenerateToken(user, isSuperUser, roleCode, _jwtSettings),
                 RefreshToken = newRefresh,
                 User = new UserDto
                 {
@@ -764,61 +773,5 @@ namespace KTransport.API.Services
             return Convert.ToHexString(bytes).ToLowerInvariant();
         }
 
-        /// <summary>
-        /// R+0 of the RBAC legacy-column cutover ADR: resolve super-user status
-        /// from DB role grants (<c>user_roles</c> → <c>roles.code</c> ∈ the admin
-        /// set) instead of the mutable JWT role string. Fail-safe during the
-        /// transition — it ALSO honours the legacy role string, so (a) an existing
-        /// admin whose <c>user_roles</c> row is missing is never demoted, and (b) a
-        /// user granted admin via <c>user_roles</c> but whose string says otherwise
-        /// is correctly recognised. The resolved value is baked into the token as
-        /// the <c>is_super_user</c> claim and read back by
-        /// <see cref="FeatureAuthorizationService.IsSuperUser"/>.
-        /// </summary>
-        private async Task<bool> ResolveSuperUserAsync(User user)
-        {
-            // Legacy string path — keeps every current admin working.
-            if (RbacRoles.IsAdminRole(user.Role))
-                return true;
-
-            // DB-grant path — the authoritative source going forward.
-            return await (from ur in _context.UserRoles.IgnoreQueryFilters()
-                          join r in _context.Roles.IgnoreQueryFilters() on ur.RoleId equals r.Id
-                          where ur.TenantId == user.TenantId
-                                && ur.UserId == user.Id
-                                && ur.RevokedAt == null
-                                && r.IsActive
-                                && RbacRoles.AdminRoleCodeList.Contains(r.Code.ToLower())
-                          select ur.Id).AnyAsync();
-        }
-
-        private string GenerateJwtToken(User user, bool isSuperUser)
-        {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_jwtSettings.Secret);
-
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role ?? "User"),
-                new Claim("FullName", user.FullName ?? string.Empty),
-                new Claim("tenant_id", user.TenantId.ToString()),
-                // R+0: authoritative super-user flag, resolved from DB grants at issue time.
-                new Claim("is_super_user", isSuperUser ? "true" : "false")
-            };
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddMinutes(_jwtSettings.ExpiryInMinutes),
-                Issuer = _jwtSettings.Issuer,
-                Audience = _jwtSettings.Audience,
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-            };
-
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
-        }
     }
 }
