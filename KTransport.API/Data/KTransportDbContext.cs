@@ -84,12 +84,14 @@ public partial class KTransportDbContext : DbContext
 
     public override int SaveChanges()
     {
+        TrackShipmentStatusChanges();
         ApplyTenantId();
         return base.SaveChanges();
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        TrackShipmentStatusChanges();
         ApplyTenantId();
         return base.SaveChangesAsync(cancellationToken);
     }
@@ -106,6 +108,67 @@ public partial class KTransportDbContext : DbContext
             entry.Entity.TenantId = _tenantContext.CurrentTenantId;
         }
     }
+
+    /// <summary>
+    /// Appends a <see cref="ShipmentStatusHistory"/> row whenever a tracked
+    /// Shipment's <c>Status</c> actually changes. Centralised here so every
+    /// transition — in Manifest / Pod / Trip / Invoice / Shipment services, and
+    /// any future caller — is logged without each site having to remember to do
+    /// it. This history is what the public tracking timeline
+    /// (<c>GET /api/tracking/{lr}</c>) renders. No GPS: "location" is the
+    /// relevant branch / hub. TenantId is stamped by <see cref="ApplyTenantId"/>
+    /// which runs immediately after this.
+    /// </summary>
+    private void TrackShipmentStatusChanges()
+    {
+        var changed = ChangeTracker.Entries<Shipment>()
+            .Where(e => e.State == EntityState.Modified)
+            .ToList();
+
+        foreach (var entry in changed)
+        {
+            var statusProp = entry.Property(e => e.Status);
+            if (!statusProp.IsModified) continue;
+
+            var from = (ShipmentStatus)statusProp.OriginalValue!;
+            var to = (ShipmentStatus)statusProp.CurrentValue!;
+            if (from == to) continue;
+
+            var s = entry.Entity;
+            ShipmentStatusHistories.Add(new ShipmentStatusHistory
+            {
+                ShipmentId = s.Id,
+                FromStatus = from,
+                ToStatus = to,
+                Location = DeriveTrackingLocation(s, to),
+                Remarks = DeriveTrackingRemark(s, to),
+                ChangedAt = DateTime.UtcNow
+            });
+        }
+    }
+
+    private static string? DeriveTrackingLocation(Shipment s, ShipmentStatus to) => to switch
+    {
+        ShipmentStatus.OutForDelivery => s.ToLocation,
+        ShipmentStatus.Delivered => s.ToLocation,
+        _ => s.FromLocation
+    };
+
+    private static string DeriveTrackingRemark(Shipment s, ShipmentStatus to) => to switch
+    {
+        ShipmentStatus.Booked => "Booking confirmed",
+        ShipmentStatus.Manifested => string.IsNullOrWhiteSpace(s.TruckNo)
+            ? "Loaded / manifest prepared"
+            : $"Loaded into vehicle {s.TruckNo}",
+        ShipmentStatus.InTransit => string.IsNullOrWhiteSpace(s.TruckNo)
+            ? "Dispatched / in transit"
+            : $"Dispatched on vehicle {s.TruckNo}",
+        ShipmentStatus.OutForDelivery => "Arrived at destination hub; out for delivery",
+        ShipmentStatus.Delivered => "Delivered to consignee",
+        ShipmentStatus.Returned => "Returned to origin",
+        ShipmentStatus.Cancelled => "Booking cancelled",
+        _ => $"Status updated to {to}"
+    };
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
