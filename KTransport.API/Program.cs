@@ -124,6 +124,7 @@ builder.Services.AddScoped<IGstBillService, GstBillService>();
 builder.Services.AddScoped<IChargeService, ChargeService>();
 builder.Services.AddScoped<IGoodsDetailService, GoodsDetailService>();
 builder.Services.AddScoped<INumberingSequenceService, NumberingSequenceService>();
+builder.Services.AddScoped<IWhatsAppShareService, WhatsAppShareService>();
 builder.Services.AddScoped<IShipmentService, ShipmentService>();
 builder.Services.AddScoped<IManifestService, ManifestService>();
 builder.Services.AddScoped<IPartyService, PartyService>();

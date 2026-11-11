@@ -17,10 +17,26 @@ namespace KTransport.API.Controllers
     public class ShipmentController : ControllerBase
     {
         private readonly IShipmentService _shipmentService;
+        private readonly IWhatsAppShareService _whatsAppShareService;
 
-        public ShipmentController(IShipmentService shipmentService)
+        public ShipmentController(IShipmentService shipmentService, IWhatsAppShareService whatsAppShareService)
         {
             _shipmentService = shipmentService;
+            _whatsAppShareService = whatsAppShareService;
+        }
+
+        /// <summary>
+        /// Free WhatsApp (wa.me) click-to-chat links to share booking / status /
+        /// delivery / payment-reminder messages for this shipment with the
+        /// customer. No messaging API and no per-message cost.
+        /// </summary>
+        [HttpGet("{id:long}/whatsapp-share")]
+        [RequirePermission("consignments.all.view", "consignments.create.view", "consignments.view", "consignments.create.create")]
+        public async Task<IActionResult> GetWhatsAppShareLinks(long id)
+        {
+            var dto = await _whatsAppShareService.GetShipmentShareLinksAsync(id);
+            if (dto == null) return NotFound(new { message = "Shipment not found." });
+            return Ok(dto);
         }
 
         [HttpPost]
