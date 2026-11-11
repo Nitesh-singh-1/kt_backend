@@ -80,6 +80,7 @@ namespace KTransport.API.Common
             new("system.onboard",         "system", "Tenant Onboarding",     "/onboard",         "info",     "tenant.onboard",      null, 3, null),
             new("system.forgot_password", "system", "Forgot Password",       "/forgot-password", "lock",     "auth.password_reset", null, 4, null),
             new("system.audit_logs",      "system", "Audit Log",             "/audit-logs",      "shield",   "system.users.view",   null, 5, null),
+            new("system.gst_registrations","system", "GST Registrations",     "/settings/gst-registrations", "fileText", "settings.manage",  null, 6, null),
 
             // ---- accounting (paid add-on module; hidden until enabled in tenant_modules) ----
             new("accounting",                  null,         "Accounting & Finance", null,                            "dollarSign", "accounting.view",          null, 14, null),
