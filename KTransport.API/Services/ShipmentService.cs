@@ -4,7 +4,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using KTransport.API.Data;
 using KTransport.API.DTOs;
+using KTransport.API.DTOs.Gst;
 using KTransport.API.Models;
+using KTransport.API.Services.Gst;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -16,17 +18,20 @@ namespace KTransport.API.Services
         private readonly KTransportDbContext _context;
         private readonly INumberingSequenceService _sequenceService;
         private readonly ITenantContext _tenantContext;
+        private readonly ITaxCalculationService _taxCalc;
 
         public ShipmentService(
             ILogger<ShipmentService> logger,
             KTransportDbContext context,
             INumberingSequenceService sequenceService,
-            ITenantContext tenantContext)
+            ITenantContext tenantContext,
+            ITaxCalculationService taxCalc)
         {
             _logger = logger;
             _context = context;
             _sequenceService = sequenceService;
             _tenantContext = tenantContext;
+            _taxCalc = taxCalc;
         }
 
         public async Task<ShipmentResponse> CreateShipmentAsync(CreateShipmentRequest request, int userId)
@@ -51,6 +56,53 @@ namespace KTransport.API.Services
                         Success = false,
                         Message = $"Shipment / GR Number '{shipmentNo}' already exists."
                     };
+                }
+
+                // NIC 2026-06-15 rule: Ship-To GSTIN mandatory on Bill-To/Ship-To.
+                if (request.EwbTransactionType.HasValue && request.EwbTransactionType.Value >= 2
+                    && string.IsNullOrWhiteSpace(request.ShipToGstin))
+                {
+                    return new ShipmentResponse
+                    {
+                        Success = false,
+                        Message = "ShipToGstin is mandatory when EwbTransactionType is Bill-To/Ship-To (NIC rule effective 2026-06-15)."
+                    };
+                }
+
+                // TASK-033: pre-flight BookingLocation guards when the caller
+                // supplies GstInput — fail fast BEFORE persisting the shipment.
+                Location? bookingLocation = null;
+                if (request.GstInput != null)
+                {
+                    if (!request.BookingLocationId.HasValue)
+                    {
+                        return new ShipmentResponse
+                        {
+                            Success = false,
+                            Code = "BOOKING_LOCATION_REQUIRED",
+                            Message = "BOOKING_LOCATION_REQUIRED: GstInput requires bookingLocationId."
+                        };
+                    }
+                    bookingLocation = await _context.Locations
+                        .FirstOrDefaultAsync(l => l.Id == request.BookingLocationId.Value);
+                    if (bookingLocation == null)
+                    {
+                        return new ShipmentResponse
+                        {
+                            Success = false,
+                            Code = "BOOKING_LOCATION_REQUIRED",
+                            Message = "BOOKING_LOCATION_REQUIRED: booking location not found in tenant."
+                        };
+                    }
+                    if (!bookingLocation.GstRegistrationId.HasValue)
+                    {
+                        return new ShipmentResponse
+                        {
+                            Success = false,
+                            Code = "BOOKING_LOCATION_UNLINKED",
+                            Message = "BOOKING_LOCATION_UNLINKED: booking location has no GST registration link."
+                        };
+                    }
                 }
 
                 // Calculate other charges sum
@@ -224,6 +276,10 @@ namespace KTransport.API.Services
                     DeliveryType = request.DeliveryType,
                     EwayBillNo = ewayBillNo,
                     EwayBillValidUpto = ewayBillValidUpto,
+                    EwbTransactionType = request.EwbTransactionType,
+                    ShipToGstin = request.ShipToGstin?.Trim(),
+                    ShipToStateCode = request.ShipToStateCode?.Trim(),
+                    BookingLocationId = request.BookingLocationId,
                     CreatedBy = userId,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
@@ -323,6 +379,56 @@ namespace KTransport.API.Services
 
                 _context.Set<Shipment>().Add(shipment);
                 await _context.SaveChangesAsync();
+
+                // TASK-032 slice 3 / TASK-033: if caller supplied engine inputs,
+                // resolve provider identity through BookingLocation -> GstRegistration
+                // -> active profile, persist an immutable TaxCalculation audit row,
+                // and link it. Legacy callers that omit GstInput see unchanged behaviour.
+                if (request.GstInput != null && bookingLocation != null)
+                {
+                    var txnDate = request.GstInput.TransactionDate ?? shipment.ShipmentDate;
+                    var activeProfile = await _context.GstRegistrationGstProfiles
+                        .Where(p => p.GstRegistrationId == bookingLocation.GstRegistrationId!.Value)
+                        .Where(p => p.EffectiveFrom <= txnDate && (p.EffectiveTo == null || p.EffectiveTo >= txnDate))
+                        .OrderByDescending(p => p.EffectiveFrom)
+                        .FirstOrDefaultAsync();
+                    var registration = await _context.GstRegistrations
+                        .FirstOrDefaultAsync(r => r.Id == bookingLocation.GstRegistrationId!.Value);
+
+                    // Fill provider identity from the resolved registration + active profile,
+                    // overwriting any client-supplied values so the registration is the source of truth.
+                    if (registration != null)
+                    {
+                        request.GstInput.ProviderState = registration.State;
+                        request.GstInput.ProviderStateCode = registration.StateCode;
+                    }
+                    if (activeProfile != null)
+                    {
+                        request.GstInput.ProviderIsGta = activeProfile.IsGta;
+                        request.GstInput.IssuesConsignmentNote = activeProfile.IssuesConsignmentNote;
+                        request.GstInput.ProviderGstRegistered = activeProfile.GstRegistered;
+                        request.GstInput.GtaTaxScheme = activeProfile.GtaTaxScheme;
+                    }
+                    // Pin the resolved identifiers into the stored input_json for historical fidelity.
+                    request.GstInput.BookingLocationId = shipment.BookingLocationId;
+                    request.GstInput.GstRegistrationId = bookingLocation.GstRegistrationId;
+
+                    try
+                    {
+                        var applied = await _taxCalc.ApplyAsync(new TaxCalculationApplyRequestDto
+                        {
+                            Input = request.GstInput,
+                            ShipmentId = shipment.Id
+                        }, userId);
+                        shipment.GstCalculationId = applied.Id;
+                        await _context.SaveChangesAsync();
+                    }
+                    catch (GstRuleUnresolvedException ex)
+                    {
+                        _logger.LogWarning(ex, "Shipment {Id} created without GST audit — no matching rule.", shipment.Id);
+                        // Shipment is already saved; surface the warning but do not fail the create.
+                    }
+                }
 
                 var created = await GetShipmentEntityByIdAsync(shipment.Id) ?? shipment;
                 return new ShipmentResponse
@@ -848,6 +954,10 @@ namespace KTransport.API.Services
                 IsActive = s.IsActive,
                 CreatedAt = s.CreatedAt,
                 CreatedByName = s.CreatedByNavigation?.FullName ?? s.CreatedByNavigation?.Username,
+                GstCalculationId = s.GstCalculationId,
+                EwbTransactionType = s.EwbTransactionType,
+                ShipToGstin = s.ShipToGstin,
+                ShipToStateCode = s.ShipToStateCode,
                 InvoiceReferences = (s.InvoiceReferences ?? Enumerable.Empty<ConsignmentInvoiceReference>()).Where(ir => ir.IsActive).Select(ir => new ConsignmentInvoiceReferenceDto
                 {
                     Id = ir.Id,

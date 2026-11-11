@@ -105,6 +105,9 @@ namespace KTransport.API.DTOs
         public string? Pincode { get; set; }
         public string? ContactNumber { get; set; }
         public bool IsActive { get; set; }
+        // TASK-033: which GstRegistration this Location bills under.
+        // Null during migration — set via PUT /api/fleet/locations/{id}/gst-registration.
+        public long? GstRegistrationId { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

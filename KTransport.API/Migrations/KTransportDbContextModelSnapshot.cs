@@ -1342,6 +1342,665 @@ namespace KTransport.API.Migrations
                     b.ToTable("goods_details", (string)null);
                 });
 
+            modelBuilder.Entity("KTransport.API.Models.Gst.EWayBillCache", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateOnly?>("DocDate")
+                        .HasColumnType("date")
+                        .HasColumnName("doc_date");
+
+                    b.Property<string>("DocNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("doc_no");
+
+                    b.Property<string>("DocType")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("doc_type");
+
+                    b.Property<DateTime>("EwbDate")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("ewb_date");
+
+                    b.Property<string>("EwbNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("ewb_number");
+
+                    b.Property<string>("FromGstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("from_gstin");
+
+                    b.Property<string>("FromStateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("from_state_code");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("ShipToGstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("ship_to_gstin");
+
+                    b.Property<string>("ShipToStateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("ship_to_state_code");
+
+                    b.Property<long?>("ShipmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shipment_id");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("SubSupplyType")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("sub_supply_type");
+
+                    b.Property<string>("SupplyType")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("supply_type");
+
+                    b.Property<int>("SyncStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("sync_status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToGstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("to_gstin");
+
+                    b.Property<string>("ToStateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("to_state_code");
+
+                    b.Property<decimal?>("TotalInvoiceValue")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("total_invoice_value");
+
+                    b.Property<decimal?>("TransDistance")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("trans_distance");
+
+                    b.Property<int?>("TransactionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("transaction_type");
+
+                    b.Property<string>("TransporterId")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("transporter_id");
+
+                    b.Property<string>("TransporterName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("transporter_name");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("ValidUpto")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("valid_upto");
+
+                    b.Property<string>("VehicleNo")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("vehicle_no");
+
+                    b.HasKey("Id")
+                        .HasName("eway_bill_cache_pkey");
+
+                    b.HasIndex("ShipmentId")
+                        .HasDatabaseName("ix_eway_bill_cache_shipment");
+
+                    b.HasIndex("ValidUpto")
+                        .HasDatabaseName("ix_eway_bill_cache_valid_upto");
+
+                    b.HasIndex("TenantId", "EwbNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_eway_bill_cache_tenant_ewb");
+
+                    b.ToTable("eway_bill_cache", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.GstRegistration", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text")
+                        .HasColumnName("address");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsPrincipal")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_principal");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Pincode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("pincode");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("state");
+
+                    b.Property<string>("StateCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("state_code");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("gst_registrations_pkey");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_gst_registrations_tenant_principal")
+                        .HasFilter("is_principal = true");
+
+                    b.HasIndex("TenantId", "IsActive")
+                        .HasDatabaseName("ix_gst_registrations_tenant_active");
+
+                    b.ToTable("gst_registrations", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.GstRegistrationGstProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<bool>("GstRegistered")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("gst_registered");
+
+                    b.Property<long>("GstRegistrationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gst_registration_id");
+
+                    b.Property<string>("Gstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("gstin");
+
+                    b.Property<int>("GtaTaxScheme")
+                        .HasColumnType("integer")
+                        .HasColumnName("gta_tax_scheme");
+
+                    b.Property<bool>("IsGta")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_gta");
+
+                    b.Property<bool>("IssuesConsignmentNote")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("issues_consignment_note");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("gst_registration_profiles_pkey");
+
+                    b.HasIndex("GstRegistrationId");
+
+                    b.HasIndex("TenantId", "GstRegistrationId", "EffectiveFrom")
+                        .HasDatabaseName("ix_gst_registration_profiles_tenant_reg_effective");
+
+                    b.ToTable("gst_registration_profiles", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.GstRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("active");
+
+                    b.Property<decimal?>("CgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("cgst_rate");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<string>("ExceptionsNote")
+                        .HasColumnType("text")
+                        .HasColumnName("exceptions_note");
+
+                    b.Property<decimal?>("GstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("gst_rate");
+
+                    b.Property<int>("GtaTaxScheme")
+                        .HasColumnType("integer")
+                        .HasColumnName("gta_tax_scheme");
+
+                    b.Property<decimal?>("IgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("igst_rate");
+
+                    b.Property<bool>("IssuesConsignmentNote")
+                        .HasColumnType("boolean")
+                        .HasColumnName("issues_consignment_note");
+
+                    b.Property<bool>("ItcEligibleForProvider")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("itc_eligible_for_provider");
+
+                    b.Property<string>("NotificationReference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("notification_reference");
+
+                    b.Property<int>("PosRelation")
+                        .HasColumnType("integer")
+                        .HasColumnName("pos_relation");
+
+                    b.Property<bool>("ProviderGstRegistered")
+                        .HasColumnType("boolean")
+                        .HasColumnName("provider_gst_registered");
+
+                    b.Property<bool>("ProviderIsGta")
+                        .HasColumnType("boolean")
+                        .HasColumnName("provider_is_gta");
+
+                    b.Property<string>("RcmPayableBy")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("rcm_payable_by");
+
+                    b.Property<int>("RecipientCategory")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_category");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
+
+                    b.Property<decimal?>("SgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("sgst_rate");
+
+                    b.Property<int>("TaxTreatment")
+                        .HasColumnType("integer")
+                        .HasColumnName("tax_treatment");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int?>("UpdatedBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated_by");
+
+                    b.Property<decimal?>("UtgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("utgst_rate");
+
+                    b.HasKey("Id")
+                        .HasName("gst_rules_pkey");
+
+                    b.HasIndex("Active", "EffectiveFrom", "EffectiveTo")
+                        .HasDatabaseName("ix_gst_rules_active_window");
+
+                    b.HasIndex("ServiceType", "ProviderIsGta", "IssuesConsignmentNote", "ProviderGstRegistered", "GtaTaxScheme", "RecipientCategory", "PosRelation", "EffectiveFrom")
+                        .IsUnique()
+                        .HasDatabaseName("ix_gst_rules_tuple_effective");
+
+                    b.ToTable("gst_rules", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.PartyGstProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<bool>("GstRegistered")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("gst_registered");
+
+                    b.Property<string>("Gstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("gstin");
+
+                    b.Property<int>("PartyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("party_id");
+
+                    b.Property<string>("PlaceOfSupplyDefault")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("place_of_supply_default");
+
+                    b.Property<int>("RecipientCategory")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_category");
+
+                    b.Property<string>("State")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("state");
+
+                    b.Property<string>("StateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("state_code");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("party_gst_profiles_pkey");
+
+                    b.HasIndex("TenantId", "PartyId", "EffectiveFrom")
+                        .HasDatabaseName("ix_party_gst_profiles_tenant_party_effective");
+
+                    b.ToTable("party_gst_profiles", (string)null);
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.TaxCalculation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("BiltyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("bilty_id");
+
+                    b.Property<DateTime>("CalculatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("calculated_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int?>("CalculatedBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("calculated_by");
+
+                    b.Property<decimal?>("CgstAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("cgst_amount");
+
+                    b.Property<decimal?>("CgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("cgst_rate");
+
+                    b.Property<decimal>("GrandTotal")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("grand_total");
+
+                    b.Property<decimal?>("GstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("gst_rate");
+
+                    b.Property<decimal?>("IgstAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("igst_amount");
+
+                    b.Property<decimal?>("IgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("igst_rate");
+
+                    b.Property<string>("InputJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("input_json");
+
+                    b.Property<int?>("InvoiceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<bool>("IsItcEligible")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_itc_eligible");
+
+                    b.Property<bool>("IsRcm")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_rcm");
+
+                    b.Property<string>("NotificationReference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("notification_reference");
+
+                    b.Property<string>("PlaceOfSupply")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("place_of_supply");
+
+                    b.Property<int?>("PosRelation")
+                        .HasColumnType("integer")
+                        .HasColumnName("pos_relation");
+
+                    b.Property<Guid?>("RuleVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rule_version_id");
+
+                    b.Property<decimal?>("SgstAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("sgst_amount");
+
+                    b.Property<decimal?>("SgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("sgst_rate");
+
+                    b.Property<long?>("ShipmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shipment_id");
+
+                    b.Property<Guid?>("SupersededBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("superseded_by");
+
+                    b.Property<int>("TaxTreatment")
+                        .HasColumnType("integer")
+                        .HasColumnName("tax_treatment");
+
+                    b.Property<decimal>("TaxableAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("taxable_amount");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<decimal>("TotalTax")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("total_tax");
+
+                    b.Property<decimal?>("UtgstAmount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("utgst_amount");
+
+                    b.Property<decimal?>("UtgstRate")
+                        .HasPrecision(6, 4)
+                        .HasColumnType("numeric(6,4)")
+                        .HasColumnName("utgst_rate");
+
+                    b.HasKey("Id")
+                        .HasName("tax_calculations_pkey");
+
+                    b.HasIndex("BiltyId")
+                        .HasDatabaseName("ix_tax_calculations_bilty");
+
+                    b.HasIndex("CalculatedAt")
+                        .HasDatabaseName("ix_tax_calculations_calculated_at");
+
+                    b.HasIndex("RuleVersionId");
+
+                    b.HasIndex("ShipmentId")
+                        .HasDatabaseName("ix_tax_calculations_shipment");
+
+                    b.ToTable("tax_calculations", (string)null);
+                });
+
             modelBuilder.Entity("KTransport.API.Models.GstBill", b =>
                 {
                     b.Property<int>("Id")
@@ -1864,6 +2523,10 @@ namespace KTransport.API.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<long?>("GstRegistrationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gst_registration_id");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1898,6 +2561,9 @@ namespace KTransport.API.Migrations
 
                     b.HasKey("Id")
                         .HasName("locations_pkey");
+
+                    b.HasIndex("GstRegistrationId")
+                        .HasDatabaseName("ix_locations_gst_registration");
 
                     b.HasIndex(new[] { "TenantId", "Code" }, "locations_tenant_code_key")
                         .IsUnique();
@@ -3348,6 +4014,10 @@ namespace KTransport.API.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("booking_clerk");
 
+                    b.Property<long?>("BookingLocationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("booking_location_id");
+
                     b.Property<string>("ConsigneeAddress")
                         .HasMaxLength(250)
                         .HasColumnType("character varying(250)")
@@ -3453,6 +4123,10 @@ namespace KTransport.API.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("eway_bill_valid_upto");
 
+                    b.Property<int?>("EwbTransactionType")
+                        .HasColumnType("integer")
+                        .HasColumnName("ewb_transaction_type");
+
                     b.Property<string>("FromLocation")
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
@@ -3471,6 +4145,10 @@ namespace KTransport.API.Migrations
                         .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("grand_total");
+
+                    b.Property<Guid?>("GstCalculationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("gst_calculation_id");
 
                     b.Property<string>("GstPaidBy")
                         .HasMaxLength(50)
@@ -3548,6 +4226,16 @@ namespace KTransport.API.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("settlement_reference_no");
 
+                    b.Property<string>("ShipToGstin")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("ship_to_gstin");
+
+                    b.Property<string>("ShipToStateCode")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("ship_to_state_code");
+
                     b.Property<DateOnly>("ShipmentDate")
                         .HasColumnType("date")
                         .HasColumnName("shipment_date");
@@ -3613,6 +4301,9 @@ namespace KTransport.API.Migrations
                     b.HasKey("Id")
                         .HasName("shipments_pkey");
 
+                    b.HasIndex("BookingLocationId")
+                        .HasDatabaseName("ix_shipments_booking_location");
+
                     b.HasIndex("ConsigneePartyId");
 
                     b.HasIndex("ConsignorPartyId");
@@ -3622,6 +4313,9 @@ namespace KTransport.API.Migrations
                     b.HasIndex("CurrentHubId");
 
                     b.HasIndex("DestinationHubId");
+
+                    b.HasIndex("GstCalculationId")
+                        .HasDatabaseName("ix_shipments_gst_calculation");
 
                     b.HasIndex("InvoiceId");
 
@@ -4944,6 +5638,10 @@ namespace KTransport.API.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("full_name");
 
+                    b.Property<long?>("HomeLocationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("home_location_id");
+
                     b.Property<bool?>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -4975,6 +5673,8 @@ namespace KTransport.API.Migrations
 
                     b.HasKey("Id")
                         .HasName("users_pkey");
+
+                    b.HasIndex("HomeLocationId");
 
                     b.HasIndex(new[] { "TenantId", "Username" }, "users_tenant_username_key")
                         .IsUnique();
@@ -6394,6 +7094,27 @@ namespace KTransport.API.Migrations
                     b.Navigation("Bill");
                 });
 
+            modelBuilder.Entity("KTransport.API.Models.Gst.GstRegistrationGstProfile", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Gst.GstRegistration", "GstRegistration")
+                        .WithMany("Profiles")
+                        .HasForeignKey("GstRegistrationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_gst_registration_profiles_registration");
+
+                    b.Navigation("GstRegistration");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.TaxCalculation", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Gst.GstRule", null)
+                        .WithMany()
+                        .HasForeignKey("RuleVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_tax_calculations_rule");
+                });
+
             modelBuilder.Entity("KTransport.API.Models.GstBill", b =>
                 {
                     b.HasOne("KTransport.API.Models.User", "CreatedByNavigation")
@@ -6474,12 +7195,20 @@ namespace KTransport.API.Migrations
 
             modelBuilder.Entity("KTransport.API.Models.Location", b =>
                 {
+                    b.HasOne("KTransport.API.Models.Gst.GstRegistration", "GstRegistration")
+                        .WithMany()
+                        .HasForeignKey("GstRegistrationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_locations_gst_registration");
+
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_locations_tenant");
+
+                    b.Navigation("GstRegistration");
 
                     b.Navigation("Tenant");
                 });
@@ -6834,6 +7563,12 @@ namespace KTransport.API.Migrations
 
             modelBuilder.Entity("KTransport.API.Models.Shipment", b =>
                 {
+                    b.HasOne("KTransport.API.Models.Location", "BookingLocation")
+                        .WithMany()
+                        .HasForeignKey("BookingLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_shipments_booking_location");
+
                     b.HasOne("KTransport.API.Models.Party", "ConsigneeParty")
                         .WithMany()
                         .HasForeignKey("ConsigneePartyId")
@@ -6863,6 +7598,12 @@ namespace KTransport.API.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_shipments_destination_hub");
 
+                    b.HasOne("KTransport.API.Models.Gst.TaxCalculation", null)
+                        .WithMany()
+                        .HasForeignKey("GstCalculationId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_shipments_gst_calculation");
+
                     b.HasOne("KTransport.API.Models.Invoice", "Invoice")
                         .WithMany("Shipments")
                         .HasForeignKey("InvoiceId")
@@ -6886,6 +7627,8 @@ namespace KTransport.API.Migrations
                         .WithMany()
                         .HasForeignKey("UpdatedBy")
                         .HasConstraintName("fk_shipments_updated_by");
+
+                    b.Navigation("BookingLocation");
 
                     b.Navigation("ConsigneeParty");
 
@@ -7201,12 +7944,20 @@ namespace KTransport.API.Migrations
 
             modelBuilder.Entity("KTransport.API.Models.User", b =>
                 {
+                    b.HasOne("KTransport.API.Models.Location", "HomeLocation")
+                        .WithMany()
+                        .HasForeignKey("HomeLocationId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_users_home_location");
+
                     b.HasOne("KTransport.API.Models.Tenant", "Tenant")
                         .WithMany("Users")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_users_tenant");
+
+                    b.Navigation("HomeLocation");
 
                     b.Navigation("Tenant");
                 });
@@ -7469,6 +8220,11 @@ namespace KTransport.API.Migrations
             modelBuilder.Entity("KTransport.API.Models.ChargeType", b =>
                 {
                     b.Navigation("ShipmentChargeItems");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.Gst.GstRegistration", b =>
+                {
+                    b.Navigation("Profiles");
                 });
 
             modelBuilder.Entity("KTransport.API.Models.GstBill", b =>

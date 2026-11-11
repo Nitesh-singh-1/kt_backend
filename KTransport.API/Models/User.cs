@@ -28,6 +28,10 @@ public partial class User : ITenantScopedEntity
 
     public string? Email { get; set; }
 
+    /// <summary>TASK-033 — Default operational Location this user books shipments at. Nullable.</summary>
+    public long? HomeLocationId { get; set; }
+    public virtual Location? HomeLocation { get; set; }
+
     public virtual ICollection<GstBill> GstBillCreatedByNavigations { get; set; } = new List<GstBill>();
 
     public virtual ICollection<GstBill> GstBillUpdatedByNavigations { get; set; } = new List<GstBill>();

@@ -1,11 +1,13 @@
 using System;
 using System.Threading.Tasks;
 using KTransport.API.Authorization;
+using KTransport.API.Data;
 using KTransport.API.DTOs;
 using KTransport.API.Models;
 using KTransport.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace KTransport.API.Controllers
 {
@@ -17,12 +19,14 @@ namespace KTransport.API.Controllers
         private readonly IUserService _userService;
         private readonly ITenantContext _tenantContext;
         private readonly IInvitationService _invitationService;
+        private readonly KTransportDbContext _db;
 
-        public UsersController(IUserService userService, ITenantContext tenantContext, IInvitationService invitationService)
+        public UsersController(IUserService userService, ITenantContext tenantContext, IInvitationService invitationService, KTransportDbContext db)
         {
             _userService = userService;
             _tenantContext = tenantContext;
             _invitationService = invitationService;
+            _db = db;
         }
 
         private int? CurrentUserId =>
@@ -195,6 +199,39 @@ namespace KTransport.API.Controllers
             }
 
             return Ok(new { success = true, message = result.Message });
+        }
+
+        /// <summary>
+        /// TASK-033 — Set this user's home operational location. Nullable to unset.
+        /// Target Location must belong to the caller's tenant (query filter enforces this).
+        /// </summary>
+        public class SetHomeLocationRequest
+        {
+            public long? HomeLocationId { get; set; }
+        }
+
+        [HttpPut("{userId:int}/home-location")]
+        [RequirePermission("system.users.edit", "users.manage")]
+        public async Task<IActionResult> SetHomeLocation(int userId, [FromBody] SetHomeLocationRequest body)
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+                return NotFound(new { success = false, code = "NOT_FOUND", message = "User not found." });
+
+            if (body.HomeLocationId.HasValue)
+            {
+                var loc = await _db.Locations.FirstOrDefaultAsync(l => l.Id == body.HomeLocationId.Value);
+                if (loc == null)
+                    return NotFound(new { success = false, code = "NOT_FOUND", message = "Location not found." });
+                user.HomeLocationId = loc.Id;
+            }
+            else
+            {
+                user.HomeLocationId = null;
+            }
+
+            await _db.SaveChangesAsync();
+            return Ok(new { userId = user.Id, homeLocationId = user.HomeLocationId });
         }
 
         /// <summary>

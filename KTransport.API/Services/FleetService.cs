@@ -409,6 +409,7 @@ namespace KTransport.API.Services
                 Pincode = l.Pincode,
                 ContactNumber = l.ContactNumber,
                 IsActive = l.IsActive,
+                GstRegistrationId = l.GstRegistrationId,
                 CreatedAt = l.CreatedAt,
                 UpdatedAt = l.UpdatedAt
             }).ToList();
@@ -460,6 +461,7 @@ namespace KTransport.API.Services
                 Pincode = l.Pincode,
                 ContactNumber = l.ContactNumber,
                 IsActive = l.IsActive,
+                GstRegistrationId = l.GstRegistrationId,
                 CreatedAt = l.CreatedAt,
                 UpdatedAt = l.UpdatedAt
             };
@@ -544,6 +546,7 @@ namespace KTransport.API.Services
                 Pincode = loc.Pincode,
                 ContactNumber = loc.ContactNumber,
                 IsActive = loc.IsActive,
+                GstRegistrationId = loc.GstRegistrationId,
                 CreatedAt = loc.CreatedAt,
                 UpdatedAt = loc.UpdatedAt
             };

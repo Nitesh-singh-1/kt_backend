@@ -193,6 +193,33 @@ builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IVerificationCodeService, VerificationCodeService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 
+// GST tax engine (TASK-032)
+builder.Services.AddScoped<KTransport.API.Services.Gst.IGstRuleRepository, KTransport.API.Services.Gst.GstRuleRepository>();
+builder.Services.AddScoped<KTransport.API.Services.Gst.ITaxCalculationService, KTransport.API.Services.Gst.TaxCalculationService>();
+
+// GST Registration + per-registration profile (TASK-033)
+builder.Services.AddScoped<KTransport.API.Services.Gst.IGstRegistrationProfileService, KTransport.API.Services.Gst.GstRegistrationProfileService>();
+builder.Services.AddScoped<KTransport.API.Services.Gst.IGstRegistrationService, KTransport.API.Services.Gst.GstRegistrationService>();
+
+// Legacy IGstProfileService — kept for the one-release deprecation window as a thin
+// adapter that delegates the Company side to the principal registration and the
+// Party side to the unchanged party_gst_profiles table.
+#pragma warning disable CS0618
+builder.Services.AddScoped<KTransport.API.Services.Gst.IGstProfileService, KTransport.API.Services.Gst.GstProfileService>();
+#pragma warning restore CS0618
+
+// E-Way Bill adapter (TASK-032 slice 7) — Mock | Nic (via GSP, needs creds)
+builder.Services.Configure<KTransport.API.Configuration.EWayBillOptions>(builder.Configuration.GetSection("EWayBill"));
+builder.Services.AddHttpClient("nic-ewb");
+{
+    var ewbAdapter = (builder.Configuration["EWayBill:Adapter"] ?? "Mock").Trim();
+    if (string.Equals(ewbAdapter, "Nic", StringComparison.OrdinalIgnoreCase))
+        builder.Services.AddScoped<KTransport.API.Services.Gst.IEwayBillGspAdapter, KTransport.API.Services.Gst.NicEwayBillGspAdapter>();
+    else
+        builder.Services.AddScoped<KTransport.API.Services.Gst.IEwayBillGspAdapter, KTransport.API.Services.Gst.MockEwayBillGspAdapter>();
+}
+builder.Services.AddScoped<KTransport.API.Services.Gst.IEwayBillService, KTransport.API.Services.Gst.EwayBillService>();
+
 // Email / notification infrastructure
 builder.Services.Configure<KTransport.API.Services.Email.EmailSettings>(builder.Configuration.GetSection("Email"));
 builder.Services.AddScoped<KTransport.API.Services.Email.IEmailSender, KTransport.API.Services.Email.SmtpEmailSender>();

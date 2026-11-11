@@ -135,6 +135,16 @@ namespace KTransport.API.DTOs
         public DateTime CreatedAt { get; set; }
         public string? CreatedByName { get; set; }
 
+        public Guid? GstCalculationId { get; set; }
+
+        /// <summary>TASK-033 — Location this shipment was booked at.</summary>
+        public long? BookingLocationId { get; set; }
+
+        // NIC 2026-06-15 — Ship-To GSTIN mandatory on Bill-To/Ship-To flows
+        public int? EwbTransactionType { get; set; }
+        public string? ShipToGstin { get; set; }
+        public string? ShipToStateCode { get; set; }
+
         public List<ConsignmentInvoiceReferenceDto> InvoiceReferences { get; set; } = new List<ConsignmentInvoiceReferenceDto>();
         public List<ShipmentItemDto> Items { get; set; } = new List<ShipmentItemDto>();
         public List<ShipmentChargeItemDto> ChargeItems { get; set; } = new List<ShipmentChargeItemDto>();
@@ -196,9 +206,30 @@ namespace KTransport.API.DTOs
         public string? EwayBillNo { get; set; }
         public DateTime? EwayBillValidUpto { get; set; }
 
+        // NIC 2026-06-15 — Ship-To GSTIN mandatory on Bill-To/Ship-To flows (TransactionType >= 2)
+        public int? EwbTransactionType { get; set; }
+        public string? ShipToGstin { get; set; }
+        public string? ShipToStateCode { get; set; }
+
+        /// <summary>
+        /// TASK-033 — Location this shipment is booked at. Required for any
+        /// shipment that supplies <c>GstInput</c>; the tax engine resolves
+        /// provider identity through BookingLocation -> GstRegistration ->
+        /// active profile.
+        /// </summary>
+        public long? BookingLocationId { get; set; }
+
         public List<CreateConsignmentInvoiceReferenceRequest>? CustomerInvoices { get; set; }
         public List<ShipmentItemDto>? Items { get; set; }
         public List<ShipmentChargeItemDto>? ChargeItems { get; set; }
+
+        /// <summary>
+        /// Optional TASK-032 engine inputs. When present, after the Shipment
+        /// is saved we call TaxCalculationService.ApplyAsync, write the audit
+        /// row, and link it via gst_calculation_id. Legacy callers that
+        /// omit this field see unchanged behaviour.
+        /// </summary>
+        public KTransport.API.DTOs.Gst.TaxCalculationInputDto? GstInput { get; set; }
     }
 
     public class UpdateShipmentRequest
@@ -270,6 +301,8 @@ namespace KTransport.API.DTOs
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
         public ShipmentDto? Data { get; set; }
+        /// <summary>TASK-033 — Machine-readable error code when Success=false.</summary>
+        public string? Code { get; set; }
     }
 
     public class ShipmentListResponse

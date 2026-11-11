@@ -134,6 +134,27 @@ namespace KTransport.API.Models
 
         public DateTime? EwayBillValidUpto { get; set; }
 
+        /// <summary>TASK-032 slice 3: FK to the immutable GST audit row for this Bilty, if any.</summary>
+        public Guid? GstCalculationId { get; set; }
+
+        /// <summary>
+        /// TASK-033 — Location this shipment was booked at. The tax engine resolves provider
+        /// identity through BookingLocation -> GstRegistration -> active profile. Nullable
+        /// during migration; required at tax-calc time for any shipment with GstInput.
+        /// </summary>
+        public long? BookingLocationId { get; set; }
+        public virtual Location? BookingLocation { get; set; }
+
+        /// <summary>
+        /// Slice 10 — EWB transaction type. 1=Regular, 2=Bill-To/Ship-To,
+        /// 3=Bill-From/Dispatch-From, 4=Combination. When set to 2+,
+        /// ShipToGstin + ShipToStateCode must be present (NIC 2026-06-15 rule).
+        /// </summary>
+        public int? EwbTransactionType { get; set; }
+
+        public string? ShipToGstin { get; set; }
+        public string? ShipToStateCode { get; set; }
+
         // Navigation properties
         public virtual User? CreatedByNavigation { get; set; }
 

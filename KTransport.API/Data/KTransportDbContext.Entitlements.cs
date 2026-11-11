@@ -182,5 +182,9 @@ public partial class KTransportDbContext
                 .HasColumnType("timestamp without time zone")
                 .HasColumnName("logged_at");
         });
+
+        // GST engine entities (TASK-032/033) — single OnModelCreatingPartial
+        // implementation lives here; Gst.cs exposes ConfigureGstEntities only.
+        ConfigureGstEntities(modelBuilder);
     }
 }

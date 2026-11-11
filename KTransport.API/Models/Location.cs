@@ -35,5 +35,9 @@ namespace KTransport.API.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime? UpdatedAt { get; set; }
+
+        /// <summary>TASK-033 — Rolls up to a <see cref="Gst.GstRegistration"/>. Nullable during the migration window.</summary>
+        public long? GstRegistrationId { get; set; }
+        public virtual Gst.GstRegistration? GstRegistration { get; set; }
     }
 }
