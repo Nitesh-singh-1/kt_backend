@@ -48,6 +48,8 @@ namespace KTransport.API.Authorization
 
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
+            if (context.AllowsAnonymous()) return;
+
             var user = context.HttpContext.User;
             if (user == null || user.Identity == null || !user.Identity.IsAuthenticated)
             {

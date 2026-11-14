@@ -3,12 +3,28 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using KTransport.API.Common;
 using KTransport.API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace KTransport.API.Authorization
 {
+    /// <summary>
+    /// Shared helper so the custom authorization filters below mirror ASP.NET's built-in
+    /// behavior: an action (or controller) explicitly marked <c>[AllowAnonymous]</c> is
+    /// exempt from the check. Without this, a class-level guard like
+    /// <see cref="RequireSuperUserAttribute"/> would still reject an <c>[AllowAnonymous]</c>
+    /// action — which is why the public logo/branding GET endpoints returned 401 even
+    /// though a browser's &lt;img&gt; request carries no bearer token.
+    /// </summary>
+    internal static class AnonymousAccessExtensions
+    {
+        public static bool AllowsAnonymous(this AuthorizationFilterContext context)
+            => context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() != null;
+    }
+
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
     public class RequireFeatureAttribute : Attribute, IAsyncAuthorizationFilter
     {
@@ -26,6 +42,8 @@ namespace KTransport.API.Authorization
 
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
+            if (context.AllowsAnonymous()) return;
+
             var user = context.HttpContext.User;
             if (user == null || user.Identity == null || !user.Identity.IsAuthenticated)
             {
@@ -77,6 +95,8 @@ namespace KTransport.API.Authorization
     {
         public Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
+            if (context.AllowsAnonymous()) return Task.CompletedTask;
+
             var user = context.HttpContext.User;
             if (user == null || user.Identity == null || !user.Identity.IsAuthenticated)
             {
@@ -114,6 +134,8 @@ namespace KTransport.API.Authorization
     {
         public Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
+            if (context.AllowsAnonymous()) return Task.CompletedTask;
+
             var user = context.HttpContext.User;
             if (user == null || user.Identity == null || !user.Identity.IsAuthenticated)
             {
