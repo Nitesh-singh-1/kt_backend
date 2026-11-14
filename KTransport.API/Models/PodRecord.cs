@@ -25,7 +25,10 @@ namespace KTransport.API.Models
 
         public string? ReceiverAadharOrId { get; set; }
 
-        public string? DocumentUrl { get; set; } // Scanned Physical POD / Image
+        public string? DocumentUrl { get; set; } // Serve/display URL (or legacy base64 data-URI for pre-migration rows)
+
+        /// <summary>Canonical MinIO/S3 object key for the scanned POD — the source of truth for retrieval.</summary>
+        public string? DocumentPath { get; set; }
 
         public string? SignatureUrl { get; set; } // Digital E-Signature
 

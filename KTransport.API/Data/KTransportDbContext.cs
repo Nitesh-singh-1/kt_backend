@@ -59,6 +59,8 @@ public partial class KTransportDbContext : DbContext
     public virtual DbSet<Vendor> Vendors { get; set; }
     public virtual DbSet<LorryHireContract> LorryHireContracts { get; set; }
     public virtual DbSet<PodRecord> PodRecords { get; set; }
+
+    public virtual DbSet<ShipmentPayment> ShipmentPayments { get; set; }
     public virtual DbSet<FreightRateCard> FreightRateCards { get; set; }
     public virtual DbSet<VehicleMaintenance> VehicleMaintenances { get; set; }
     public virtual DbSet<Quotation> Quotations { get; set; }
@@ -1385,6 +1387,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.ReceiverMobile).HasMaxLength(20).HasColumnName("receiver_mobile");
             entity.Property(e => e.ReceiverAadharOrId).HasMaxLength(50).HasColumnName("receiver_id");
             entity.Property(e => e.DocumentUrl).HasMaxLength(500).HasColumnName("document_url");
+            entity.Property(e => e.DocumentPath).HasMaxLength(500).HasColumnName("document_path");
             entity.Property(e => e.SignatureUrl).HasMaxLength(500).HasColumnName("signature_url");
             entity.Property(e => e.Status).HasConversion<int>().HasColumnName("status");
             entity.Property(e => e.RejectionReason).HasMaxLength(300).HasColumnName("rejection_reason");
@@ -1404,6 +1407,41 @@ public partial class KTransportDbContext : DbContext
                 .HasForeignKey(d => d.ShipmentId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_pod_records_shipment");
+        });
+
+        modelBuilder.Entity<ShipmentPayment>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("shipment_payments_pkey");
+            entity.ToTable("shipment_payments");
+
+            entity.HasIndex(e => new { e.TenantId, e.ShipmentId }, "shipment_payments_tenant_shipment_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TenantId).HasDefaultValue(TenantConstants.DefaultTenantId).HasColumnName("tenant_id");
+            entity.Property(e => e.ShipmentId).HasColumnName("shipment_id");
+            entity.Property(e => e.Amount).HasPrecision(14, 2).HasColumnName("amount");
+            entity.Property(e => e.PaymentMode).HasMaxLength(50).HasColumnName("payment_mode");
+            entity.Property(e => e.ReferenceNo).HasMaxLength(100).HasColumnName("reference_no");
+            entity.Property(e => e.PaymentDate).HasColumnName("payment_date");
+            entity.Property(e => e.Source).HasConversion<int>().HasColumnName("source");
+            entity.Property(e => e.InvoiceId).HasColumnName("invoice_id");
+            entity.Property(e => e.IsReversed).HasDefaultValue(false).HasColumnName("is_reversed");
+            entity.Property(e => e.ReversedAt).HasColumnType("timestamp without time zone").HasColumnName("reversed_at");
+            entity.Property(e => e.ReversedByUserId).HasColumnName("reversed_by_user_id");
+            entity.Property(e => e.ReversalReason).HasMaxLength(300).HasColumnName("reversal_reason");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
+
+            entity.HasQueryFilter(e => _tenantContext == null || !_tenantContext.HasTenant || e.TenantId == _tenantContext.CurrentTenantId);
+
+            entity.HasOne(d => d.Tenant).WithMany()
+                .HasForeignKey(d => d.TenantId)
+                .HasConstraintName("fk_shipment_payments_tenant");
+
+            entity.HasOne(d => d.Shipment).WithMany()
+                .HasForeignKey(d => d.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_shipment_payments_shipment");
         });
 
         modelBuilder.Entity<FreightRateCard>(entity =>
@@ -1837,6 +1875,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.IntegrationsJson).HasColumnType("text").HasColumnName("integrations_json");
             // TASK-044 Phase 3: menu_entitlements_json column was dropped; mapping removed.
             entity.Property(e => e.CustomSettingsJson).HasColumnType("text").HasColumnName("custom_settings_json");
+            entity.Property(e => e.DocumentPath).HasMaxLength(500).HasColumnName("document_path");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnType("timestamp without time zone").HasColumnName("updated_at");
 
@@ -1913,6 +1952,7 @@ public partial class KTransportDbContext : DbContext
             entity.Property(e => e.CommodityDescription).HasMaxLength(250).HasColumnName("commodity_description");
             entity.Property(e => e.PrivateMarka).HasMaxLength(100).HasColumnName("private_marka");
             entity.Property(e => e.DocumentUrl).HasColumnName("document_url");
+            entity.Property(e => e.DocumentPath).HasMaxLength(500).HasColumnName("document_path");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("is_active");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnType("timestamp without time zone").HasColumnName("created_at");

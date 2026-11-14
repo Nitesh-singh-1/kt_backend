@@ -15,6 +15,7 @@ namespace KTransport.API.DTOs
         public string? ReceiverMobile { get; set; }
         public string? ReceiverAadharOrId { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? DocumentPath { get; set; }
         public string? SignatureUrl { get; set; }
         public PodStatus Status { get; set; }
         public string StatusName => Status.ToString();
@@ -41,6 +42,7 @@ namespace KTransport.API.DTOs
 
         public string? ReceiverAadharOrId { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? DocumentPath { get; set; }
         public string? SignatureUrl { get; set; }
         public string? Remarks { get; set; }
     }

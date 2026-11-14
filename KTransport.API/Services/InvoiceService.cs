@@ -467,6 +467,22 @@ namespace KTransport.API.Services
                 {
                     s.PaidAmount = s.GrandTotal;
                     s.DueAmount = 0;
+
+                    // Payment ledger: the bilty's share settled via this Bill Book invoice.
+                    _context.ShipmentPayments.Add(new ShipmentPayment
+                    {
+                        TenantId = s.TenantId,
+                        ShipmentId = s.Id,
+                        Amount = s.GrandTotal,
+                        PaymentMode = invoice.PaymentMode,
+                        ReferenceNo = invoice.InvoiceNo,
+                        PaymentDate = invoice.InvoiceDate,
+                        Source = PaymentSource.BillBook,
+                        InvoiceId = invoice.Id,
+                        CreatedBy = userId,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+
                     if (s.Status == ShipmentStatus.InTransit || s.Status == ShipmentStatus.OutForDelivery)
                     {
                         s.Status = ShipmentStatus.Delivered;
@@ -910,6 +926,38 @@ namespace KTransport.API.Services
             invoice.IsActive = false;
             invoice.UpdatedBy = userId;
             invoice.UpdatedAt = DateTime.UtcNow;
+
+            // Reverse the Bill Book payment this invoice recorded against each bilty, so the
+            // bilties return to unpaid/unbilled and unlock for editing (payment ledger = source
+            // of truth). Append-only: flip the rows, never delete them.
+            var linkedShipments = await _context.Shipments.Where(s => s.InvoiceId == id).ToListAsync();
+            foreach (var s in linkedShipments)
+            {
+                var billRows = await _context.ShipmentPayments
+                    .Where(p => p.ShipmentId == s.Id && p.InvoiceId == id && !p.IsReversed)
+                    .ToListAsync();
+                foreach (var p in billRows)
+                {
+                    p.IsReversed = true;
+                    p.ReversedAt = DateTime.UtcNow;
+                    p.ReversedByUserId = userId;
+                    p.ReversalReason = $"Bill {invoice.InvoiceNo} voided";
+                }
+
+                var activePaid = await _context.ShipmentPayments
+                    .Where(p => p.ShipmentId == s.Id && !p.IsReversed && !billRows.Select(b => b.Id).Contains(p.Id))
+                    .SumAsync(p => (decimal?)p.Amount) ?? 0m;
+
+                var grandTotal = s.GrandTotal > 0 ? s.GrandTotal : s.TotalFreight;
+                s.PaidAmount = activePaid;
+                s.DueAmount = Math.Max(0, grandTotal - activePaid);
+                s.IsSettled = grandTotal > 0 && activePaid >= grandTotal;
+                s.IsPartialPayment = activePaid > 0 && activePaid < grandTotal;
+                s.InvoiceId = null;
+                s.InvoiceNo = null;
+                s.UpdatedBy = userId;
+                s.UpdatedAt = DateTime.UtcNow;
+            }
 
             await _context.SaveChangesAsync();
 

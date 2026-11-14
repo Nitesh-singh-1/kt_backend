@@ -175,6 +175,8 @@ builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(sp =>
     return new Amazon.S3.AmazonS3Client(o.AccessKey, o.SecretKey, cfg);
 });
 builder.Services.AddScoped<KTransport.API.Services.IFileStorage, KTransport.API.Services.S3FileStorage>();
+// Tenant-aware document storage (bilty invoice scans, PODs, logos) over object storage.
+builder.Services.AddScoped<KTransport.API.Services.IDocumentStorage, KTransport.API.Services.DocumentStorage>();
 builder.Services.AddScoped<ITrackingService, TrackingService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -187,6 +189,7 @@ builder.Services.AddScoped<IEntitlementsService, EntitlementsService>();
 // TASK-045 Phase 3: menu_items table is sole authoritative source for the navigation menu.
 builder.Services.AddScoped<IMenuCatalogService, MenuCatalogService>();
 builder.Services.AddScoped<IMoneyReceiptService, MoneyReceiptService>();
+builder.Services.AddScoped<IPaymentLedgerService, PaymentLedgerService>();
 builder.Services.AddScoped<IFeatureAuthorizationService, FeatureAuthorizationService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IRoleManagementService, RoleManagementService>();

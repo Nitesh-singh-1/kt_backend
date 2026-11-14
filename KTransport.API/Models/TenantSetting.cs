@@ -30,6 +30,9 @@ namespace KTransport.API.Models
 
         public string CustomSettingsJson { get; set; } = "{}";
 
+        /// <summary>Canonical MinIO/S3 object key for the tenant logo — promoted out of the JSON blob to a first-class column.</summary>
+        public string? DocumentPath { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime? UpdatedAt { get; set; }

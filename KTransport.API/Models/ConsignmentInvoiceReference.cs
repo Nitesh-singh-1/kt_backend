@@ -42,7 +42,10 @@ namespace KTransport.API.Models
         /// </summary>
         public string? PrivateMarka { get; set; }
 
-        public string? DocumentUrl { get; set; } // Scanned customer paper bill / photo
+        public string? DocumentUrl { get; set; } // Serve/display URL (or legacy base64 data-URI for pre-migration rows)
+
+        /// <summary>Canonical MinIO/S3 object key for the scanned customer bill — the source of truth for retrieval.</summary>
+        public string? DocumentPath { get; set; }
 
         public bool IsActive { get; set; } = true;
 

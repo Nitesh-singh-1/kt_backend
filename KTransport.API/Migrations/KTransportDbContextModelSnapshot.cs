@@ -816,6 +816,11 @@ namespace KTransport.API.Migrations
                         .HasDefaultValue(0m)
                         .HasColumnName("declared_goods_value");
 
+                    b.Property<string>("DocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("document_path");
+
                     b.Property<string>("DocumentType")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
@@ -3602,6 +3607,11 @@ namespace KTransport.API.Migrations
                         .HasColumnType("date")
                         .HasColumnName("delivery_date");
 
+                    b.Property<string>("DocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("document_path");
+
                     b.Property<string>("DocumentUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -4461,6 +4471,91 @@ namespace KTransport.API.Migrations
                     b.ToTable("shipment_items", (string)null);
                 });
 
+            modelBuilder.Entity("KTransport.API.Models.ShipmentPayment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_by");
+
+                    b.Property<long?>("InvoiceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<bool>("IsReversed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_reversed");
+
+                    b.Property<DateOnly>("PaymentDate")
+                        .HasColumnType("date")
+                        .HasColumnName("payment_date");
+
+                    b.Property<string>("PaymentMode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("payment_mode");
+
+                    b.Property<string>("ReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_no");
+
+                    b.Property<string>("ReversalReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("reversal_reason");
+
+                    b.Property<DateTime?>("ReversedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("reversed_at");
+
+                    b.Property<int?>("ReversedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("reversed_by_user_id");
+
+                    b.Property<long>("ShipmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shipment_id");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("11111111-1111-1111-1111-111111111111"))
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("shipment_payments_pkey");
+
+                    b.HasIndex("ShipmentId");
+
+                    b.HasIndex(new[] { "TenantId", "ShipmentId" }, "shipment_payments_tenant_shipment_idx");
+
+                    b.ToTable("shipment_payments", (string)null);
+                });
+
             modelBuilder.Entity("KTransport.API.Models.ShipmentStatusHistory", b =>
                 {
                     b.Property<long>("Id")
@@ -4911,6 +5006,11 @@ namespace KTransport.API.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("custom_settings_json");
+
+                    b.Property<string>("DocumentPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("document_path");
 
                     b.Property<string>("DocumentSequencesJson")
                         .IsRequired()
@@ -7691,6 +7791,27 @@ namespace KTransport.API.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Shipment");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("KTransport.API.Models.ShipmentPayment", b =>
+                {
+                    b.HasOne("KTransport.API.Models.Shipment", "Shipment")
+                        .WithMany()
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_shipment_payments_shipment");
+
+                    b.HasOne("KTransport.API.Models.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_shipment_payments_tenant");
 
                     b.Navigation("Shipment");
 

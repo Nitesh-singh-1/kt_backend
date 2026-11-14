@@ -100,6 +100,10 @@ namespace KTransport.API.Services
             general.LogoUrl = logoUrl;
             setting.GeneralJson = JsonSerializer.Serialize(general, JsonOptions);
 
+            // Canonical object key is now a first-class column (document_path); the JSON
+            // block is kept in sync for contentType and backward-compat with older readers.
+            setting.DocumentPath = objectKey;
+
             var custom = ParseCustomSettings(setting.CustomSettingsJson);
             custom["logo"] = new JsonObject
             {
@@ -121,12 +125,16 @@ namespace KTransport.API.Services
             if (setting == null) return null;
 
             var custom = ParseCustomSettings(setting.CustomSettingsJson);
-            if (custom["logo"] is not JsonObject logo) return null;
+            var logo = custom["logo"] as JsonObject;
 
-            var key = logo["objectKey"]?.GetValue<string>();
+            // Prefer the first-class column; fall back to the legacy JSON block for rows
+            // written before document_path existed.
+            var key = !string.IsNullOrWhiteSpace(setting.DocumentPath)
+                ? setting.DocumentPath
+                : logo?["objectKey"]?.GetValue<string>();
             if (string.IsNullOrWhiteSpace(key)) return null;
 
-            var contentType = logo["contentType"]?.GetValue<string>() ?? "application/octet-stream";
+            var contentType = logo?["contentType"]?.GetValue<string>() ?? "application/octet-stream";
             return (key!, contentType);
         }
 
@@ -136,14 +144,15 @@ namespace KTransport.API.Services
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
             if (setting == null) return null;
 
-            string? removedKey = null;
+            string? removedKey = setting.DocumentPath;
             var custom = ParseCustomSettings(setting.CustomSettingsJson);
             if (custom["logo"] is JsonObject logo)
             {
-                removedKey = logo["objectKey"]?.GetValue<string>();
+                removedKey ??= logo["objectKey"]?.GetValue<string>();
                 custom.Remove("logo");
                 setting.CustomSettingsJson = custom.ToJsonString();
             }
+            setting.DocumentPath = null;
 
             var general = DeserializeOrDefault<GeneralSettingsDto>(setting.GeneralJson);
             general.LogoUrl = null;

@@ -67,6 +67,7 @@ namespace KTransport.API.Services
                     ReceiverMobile = request.ReceiverMobile?.Trim(),
                     ReceiverAadharOrId = request.ReceiverAadharOrId?.Trim(),
                     DocumentUrl = request.DocumentUrl,
+                    DocumentPath = request.DocumentPath,
                     SignatureUrl = request.SignatureUrl,
                     Status = PodStatus.Uploaded,
                     Remarks = request.Remarks,
@@ -81,6 +82,7 @@ namespace KTransport.API.Services
                 pod.ReceiverMobile = request.ReceiverMobile?.Trim();
                 pod.ReceiverAadharOrId = request.ReceiverAadharOrId?.Trim();
                 pod.DocumentUrl = request.DocumentUrl ?? pod.DocumentUrl;
+                pod.DocumentPath = request.DocumentPath ?? pod.DocumentPath;
                 pod.SignatureUrl = request.SignatureUrl ?? pod.SignatureUrl;
                 pod.Status = PodStatus.Uploaded;
                 pod.Remarks = request.Remarks ?? pod.Remarks;
@@ -210,6 +212,7 @@ namespace KTransport.API.Services
                 ReceiverMobile = p.ReceiverMobile,
                 ReceiverAadharOrId = p.ReceiverAadharOrId,
                 DocumentUrl = p.DocumentUrl,
+                DocumentPath = p.DocumentPath,
                 SignatureUrl = p.SignatureUrl,
                 Status = p.Status,
                 RejectionReason = p.RejectionReason,

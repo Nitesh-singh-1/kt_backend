@@ -20,6 +20,7 @@ namespace KTransport.API.DTOs
         public string? CommodityDescription { get; set; }
         public string? PrivateMarka { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? DocumentPath { get; set; }
     }
 
     public class CreateConsignmentInvoiceReferenceRequest
@@ -36,6 +37,7 @@ namespace KTransport.API.DTOs
         public string? CommodityDescription { get; set; }
         public string? PrivateMarka { get; set; }
         public string? DocumentUrl { get; set; }
+        public string? DocumentPath { get; set; }
     }
 
     public class ShipmentItemDto

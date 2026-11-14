@@ -305,6 +305,7 @@ namespace KTransport.API.Services
                             CommodityDescription = inv.CommodityDescription,
                             PrivateMarka = inv.PrivateMarka?.Trim(),
                             DocumentUrl = inv.DocumentUrl,
+                            DocumentPath = inv.DocumentPath,
                             CreatedBy = userId,
                             IsActive = true,
                             CreatedAt = DateTime.UtcNow
@@ -379,6 +380,24 @@ namespace KTransport.API.Services
 
                 _context.Set<Shipment>().Add(shipment);
                 await _context.SaveChangesAsync();
+
+                // Payment ledger: a booking-time advance is one money-in event.
+                if (paid > 0)
+                {
+                    _context.ShipmentPayments.Add(new ShipmentPayment
+                    {
+                        TenantId = tenantId,
+                        ShipmentId = shipment.Id,
+                        Amount = paid,
+                        PaymentMode = request.SettledPaymentMode,
+                        ReferenceNo = request.SettlementReferenceNo,
+                        PaymentDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                        Source = PaymentSource.OnSpot,
+                        CreatedBy = userId,
+                        CreatedAt = DateTime.UtcNow,
+                    });
+                    await _context.SaveChangesAsync();
+                }
 
                 // TASK-032 slice 3 / TASK-033: if caller supplied engine inputs,
                 // resolve provider identity through BookingLocation -> GstRegistration
@@ -462,6 +481,18 @@ namespace KTransport.API.Services
                 if (shipment == null)
                 {
                     return new ShipmentResponse { Success = false, Message = "Shipment not found." };
+                }
+
+                // A bilty/GR against which money has already been received (fully OR partially)
+                // is financially locked — editing it would desync amounts already receipted,
+                // billed, or settled. The receipt/settlement must be reversed first.
+                if (shipment.PaidAmount > 0 || shipment.IsSettled)
+                {
+                    return new ShipmentResponse
+                    {
+                        Success = false,
+                        Message = $"This bilty cannot be edited because payment of ₹{shipment.PaidAmount:N2} has already been received against it. Reverse the receipt/settlement before editing."
+                    };
                 }
 
                 // Recalculate financial totals
@@ -631,6 +662,8 @@ namespace KTransport.API.Services
                             WeightKg = inv.WeightKg,
                             CommodityDescription = inv.CommodityDescription,
                             PrivateMarka = inv.PrivateMarka?.Trim(),
+                            DocumentUrl = inv.DocumentUrl,
+                            DocumentPath = inv.DocumentPath,
                             CreatedBy = userId,
                             IsActive = true,
                             CreatedAt = DateTime.UtcNow
@@ -972,7 +1005,8 @@ namespace KTransport.API.Services
                     WeightKg = ir.WeightKg,
                     CommodityDescription = ir.CommodityDescription,
                     PrivateMarka = ir.PrivateMarka,
-                    DocumentUrl = ir.DocumentUrl
+                    DocumentUrl = ir.DocumentUrl,
+                    DocumentPath = ir.DocumentPath
                 }).ToList(),
                 Items = (s.Items ?? Enumerable.Empty<ShipmentItem>()).Select(i => new ShipmentItemDto
                 {
@@ -1085,6 +1119,24 @@ namespace KTransport.API.Services
 
                     s.UpdatedAt = DateTime.UtcNow;
                     s.UpdatedBy = userId;
+
+                    // Payment ledger: record the cash received in this settlement (a discount
+                    // is a waiver, not money received, so it is not a ledger payment row).
+                    if (receivedAmt > 0)
+                    {
+                        _context.ShipmentPayments.Add(new ShipmentPayment
+                        {
+                            TenantId = s.TenantId,
+                            ShipmentId = s.Id,
+                            Amount = receivedAmt,
+                            PaymentMode = request.PaymentMode,
+                            ReferenceNo = request.PaymentReference,
+                            PaymentDate = request.DeliveryDate,
+                            Source = PaymentSource.DeliverySettlement,
+                            CreatedBy = userId,
+                            CreatedAt = DateTime.UtcNow,
+                        });
+                    }
 
                     totalSettled += receivedAmt;
                     totalDiscount += discAmt;

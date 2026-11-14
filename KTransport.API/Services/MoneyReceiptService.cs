@@ -131,6 +131,19 @@ namespace KTransport.API.Services
                     : $"{shipment.Remarks} | MR Collection: {request.Remarks}";
             }
 
+            // Payment ledger: this collection is one money-in event (partial-safe history).
+            _context.ShipmentPayments.Add(new ShipmentPayment
+            {
+                TenantId = shipment.TenantId,
+                ShipmentId = shipment.Id,
+                Amount = amt,
+                PaymentMode = request.PaymentMode,
+                ReferenceNo = request.ReferenceNo,
+                PaymentDate = request.PaymentDate,
+                Source = PaymentSource.Receipt,
+                CreatedAt = DateTime.UtcNow,
+            });
+
             await _context.SaveChangesAsync();
 
             // Phase 2: shipment settlement -> Receipt (cumulative -> reverse+repost). Guarded.
